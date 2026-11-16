@@ -199,9 +199,11 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
     // probe 配置：无 apiKey、ambient profile、catalog provider
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const probeConfig = connMock.checkLLMConnectionFor.mock.calls[0][0];
-    expect(probeConfig.apiKey).toBeUndefined();
-    expect(probeConfig.authProfile).toBe('ambient');
-    expect(probeConfig.piAiProvider).toBe('amazon-bedrock');
+    expect(probeConfig.authentication).toMatchObject({
+      kind: 'capability',
+      profile: 'ambient',
+    });
+    expect(probeConfig).not.toHaveProperty('piAiProvider');
     expect(probeConfig.model).toBe('anthropic.claude-sonnet-4-6');
 
     // 落盘配置无 api_key 字段

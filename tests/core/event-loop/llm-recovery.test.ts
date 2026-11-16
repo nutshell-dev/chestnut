@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { flushRealEventLoop, TestEventSignal } from './recovery-test-driver.js';
+import { testProviderConnection } from '../../helpers/llm-provider.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createInboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
@@ -35,23 +36,23 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type ProviderConnection = llmProviderCall.ProviderConnection;
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
   stop_reason: 'end_turn',
 };
 
-function providerConfig(): ProviderConfig {
-  return {
+function providerConfig(overrides: { name?: string; apiKey?: string; model?: string } = {}): ProviderConnection {
+  return testProviderConnection({
     name: 'primary',
     apiKey: 'key-primary',
     model: 'model-primary',
     temperature: 0,
     timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'anthropic',
-  };
+    ...overrides,
+  });
 }
 
 const cleanupDirs: string[] = [];
@@ -163,12 +164,14 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     lifecycle: opts?.dualProvider ? { mode: 'durable', fs } : { mode: 'ephemeral' },
     primary: providerConfig(),
     ...(opts?.dualProvider ? {
-      fallbacks: [{ ...providerConfig(), name: 'fallback', apiKey: 'key-fallback', model: 'model-fallback' }],
+      fallbacks: [providerConfig({ name: 'fallback', apiKey: 'key-fallback', model: 'model-fallback' })],
     } : {}),
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createProviderAdapter: (config) => config.name === 'fallback' ? fallbackAdapter : adapter,
+    providerFactory: {
+      create: (connection) => connection.providerId === 'fallback' ? fallbackAdapter : adapter,
+    },
   });
   cleanupOwners.push(owner);
   const turns: Harness['turns'] = [];
@@ -342,7 +345,7 @@ async function makeRuntimeHarness(opts?: {
   /** Phase 1946：注入身份投影（生产装配语义）；缺省 = 旧 revision 回退路径。 */
   configIdentityOf?: (config: unknown) => string;
   /** 每次 reload 返回的 primary 配置（可脚本化投影外字段漂移）；缺省 fixedConfig。 */
-  reloadPrimaryOf?: () => Record<string, unknown>;
+  reloadPrimaryOf?: () => ProviderConnection;
 }): Promise<RuntimeHarness> {
   const dir = await createTrackedTempDir('llm-recovery-runtime-combo-');
   cleanupDirs.push(dir);
@@ -378,13 +381,13 @@ async function makeRuntimeHarness(opts?: {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createProviderAdapter: () => adapter,
+    providerFactory: { create: (_connection) => adapter },
   });
   cleanupOwners.push(orchestrator);
   // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
   const reloadSignal = new TestEventSignal<void>();
   const fixedConfig = {
-    primary: { name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    primary: testProviderConnection({ name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }), // time-fixture: configuration/payload round-trip input, not an independent wait budget
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
@@ -397,7 +400,10 @@ async function makeRuntimeHarness(opts?: {
     reloadConfig: (cfg: unknown) => {
       reloadSignal.emit(undefined);
       providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
-      orchestrator.reloadConfig({ ...(cfg as never), createProviderAdapter: () => adapter });
+      orchestrator.reloadConfig({
+        ...(cfg as never),
+        providerFactory: { create: (_connection) => adapter },
+      });
     },
     // Phase 1944 Step B: disposition 事实转发 owner（ComboRuntime 内部 this.llm 即本对象）。
     getFailureDisposition: (error: unknown) => orchestrator.getFailureDisposition(error),
@@ -407,7 +413,13 @@ async function makeRuntimeHarness(opts?: {
     clawId: 'claw-1',
     clawDir: dir,
     idleTimeoutMs: 0,
-    llmConfig: { primary: { name: 'primary', apiKey: 'key-primary', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, maxAttempts: 1, retryDelayMs: 1 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    llmConfig: {
+      primary: providerConfig(),
+      maxAttempts: 1,
+      retryDelayMs: 1,
+      events: sink,
+      providerFactory: { create: (_connection) => adapter },
+    }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     configReloader: () => reloadConfigOf() as never,
     ...(opts?.configIdentityOf !== undefined
       ? { configIdentityOf: opts.configIdentityOf as never }
@@ -824,16 +836,16 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
   });
 
   it('Phase 2027：仅 temperature 变化产生新修订，但同身份 permanent 阻断保持', async () => {
-    // 与初始 llmConfig 同一 provider 元组（name/apiKey/model/timeoutMs 不变），
+    // 与初始 llmConfig 同一 provider 元组（providerId/authentication/model/timeoutMs 不变），
     // 仅 temperature 漂移：identity 投影变化会 apply + 产生新 revision，
     // 但 provider 故障身份不变，不得解除 permanent 阻断。
     let currentTemperature = 0;
     const h = await makeRuntimeHarness({
       configIdentityOf: (config) => {
-        const primary = (config as { primary: { name: string; temperature: number } }).primary;
-        return `id-${primary.name}-${primary.temperature}`;
+        const primary = (config as { primary: ProviderConnection }).primary;
+        return `id-${primary.providerId}-${primary.defaults?.temperature}`;
       },
-      reloadPrimaryOf: () => ({
+      reloadPrimaryOf: () => testProviderConnection({
         name: 'primary', apiKey: 'key-primary', model: 'model-primary',
         temperature: currentTemperature, timeoutMs: 1_000, apiFormat: 'anthropic', // time-fixture: configuration/payload round-trip input, not an independent wait budget
       }),

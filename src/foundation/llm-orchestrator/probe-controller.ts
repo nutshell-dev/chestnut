@@ -254,14 +254,14 @@ export class LLMProbeController {
       : config.fallbacks?.[target.breakerIndex - 1];
     const abort = new AbortController();
     this.probeAbort = abort;
-    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(targetConfig?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
-    const hardTimeoutMs = targetConfig?.timeoutMs ?? dynamicTimeoutMs;
+    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(targetConfig?.defaults?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
+    const hardTimeoutMs = targetConfig?.defaults?.timeoutMs ?? dynamicTimeoutMs;
     const [hardSignal, cleanupSignal] = withCombinedAbortSignal(abort.signal, hardTimeoutMs);
     const probeOptions: LLMCallOptions = {
       messages: [{ role: 'user', content: 'ping' }],
       signal: hardSignal.signal,
       timeoutMs: dynamicTimeoutMs,
-      ...(targetConfig?.maxTokens !== undefined ? { maxTokens: targetConfig.maxTokens } : {}),
+      ...(targetConfig?.defaults?.maxTokens !== undefined ? { maxTokens: targetConfig.defaults.maxTokens } : {}),
     };
     try {
       await target.adapter.call(probeOptions);

@@ -18,12 +18,18 @@ class RecoveryRuntime extends Runtime {
 
 function config(model: string): LLMOrchestratorConfig {
   return {
-    primary: { name: 'mock', model, apiKey: 'secret', apiFormat: 'anthropic' },
+    primary: {
+      providerId: 'mock',
+      model,
+      authentication: { kind: 'api_key', value: 'secret' },
+      apiFormat: 'anthropic',
+    },
     fallbacks: [],
     maxAttempts: 1,
     retryDelayMs: 0, // maxAttempts=1；零延迟同时确保恢复测试不真实等待。
     events: { emit: () => {} },
-  } as LLMOrchestratorConfig;
+    providerFactory: { create: () => { throw new Error('not used'); } },
+  };
 }
 
 function memoryStore() {

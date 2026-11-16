@@ -35,8 +35,7 @@ import type {
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
@@ -211,11 +210,11 @@ describe('timeout-distinction', () => {
 
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       await expect(
@@ -252,11 +251,11 @@ describe('timeout-distinction', () => {
 
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: sink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -291,11 +290,11 @@ describe('timeout-distinction', () => {
 
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       /** Zero-gap chunks must finish before this 100ms idle deadline. */
@@ -340,19 +339,19 @@ describe('all-providers-context-exceeded-emit', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const, defaults: { maxTokens: 1024 } },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const, defaults: { maxTokens: 1024 } })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }
@@ -518,11 +517,11 @@ describe('merge-signals-cleanup', () => {
       const primary = createMockProvider('primary');
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -557,11 +556,11 @@ describe('merge-signals-cleanup', () => {
 
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -659,19 +658,19 @@ describe('race-loser-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }
@@ -877,19 +876,19 @@ describe('hedge-cache-token-emit', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }
@@ -1064,11 +1063,11 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const primary = createFailingProvider('primary', 999);
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1104,11 +1103,11 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       const result = await orchestrator.call({});
@@ -1131,11 +1130,11 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 2,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: () => primary as any,
+        providerFactory: { create: (_connection) => primary as any },
       });
 
       await orchestrator.call({});
@@ -1190,12 +1189,12 @@ describe('call-retry-symmetry', () => {
       const fallback = createFailingProvider('fallback', 999);
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-        fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+        fallbacks: [{ providerId: fallback.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1220,12 +1219,12 @@ describe('call-retry-symmetry', () => {
       const fallback = createFailingProvider('fallback', 2);
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-        fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+        fallbacks: [{ providerId: fallback.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
       });
 
       const result = await orchestrator.call({});
@@ -1257,12 +1256,12 @@ describe('call-retry-symmetry', () => {
       };
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-        fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
+        primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+        fallbacks: [{ providerId: fallback.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1328,18 +1327,18 @@ describe('streaming-fallback-switched-emit', () => {
 
   function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const { sink, emitted } = createMockSink();
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'k', identity: 'k' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'k', identity: 'k' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: sink,
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return { orchestrator, emitted };
   }
@@ -1525,12 +1524,12 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
   function makeOrchestrator(provider: ProviderAdapter, sink: LLMEventSink, maxAttempts = 3, fallback?: ProviderAdapter) {
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: provider.name, apiKey: 'test', model: provider.model, apiFormat: 'anthropic' as const },
-      ...(fallback ? { fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }] } : {}),
+      primary: { providerId: provider.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: provider.model, apiFormat: 'anthropic' as const },
+      ...(fallback ? { fallbacks: [{ providerId: fallback.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fallback.model, apiFormat: 'anthropic' as const }] } : {}),
       maxAttempts,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      createProviderAdapter: config => (config.name === fallback?.name ? fallback : provider) as any,
+      providerFactory: { create: config => (config.providerId === fallback?.name ? fallback : provider) as any },
     });
     return orchestrator;
   }

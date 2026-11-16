@@ -19,6 +19,9 @@ export const FACADES = {
     roots: [
       'foundation/llm-orchestrator',
       'core/step-executor',
+      'core/llm-configuration',
+      'assembly',
+      'cli',
       'core/runtime',
       'core/contract',
       'core/memory',
@@ -52,7 +55,6 @@ export const FACADES = {
     roots: [
       'core/llm-configuration',
       'core/runtime',
-      'foundation/llm-orchestrator',
       'cli',
     ],
   },
@@ -97,7 +99,9 @@ export const ROOT_TYPE_EXPORTS = [
   'ToolDefinition',
   'JSONSchema7',
   'LLMResponse',
-  'ProviderConfig',
+  'ProviderAuthentication',
+  'ProviderConnection',
+  'ProviderFactory',
 ] as const;
 export const ROOT_COMPAT_EXPORTS = [...ROOT_ERROR_EXPORTS, ...ROOT_TYPE_EXPORTS] as const;
 

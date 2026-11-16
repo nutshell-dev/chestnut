@@ -350,8 +350,9 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
       'https://api.kimi.ai/coding',
     ]);
     for (const call of connMock.checkLLMConnectionFor.mock.calls) {
-      expect(typeof call[0].apiKey).toBe('string');
-      expect(call[0].apiKey.length).toBeGreaterThan(0);
+      expect(call[0].authentication.kind).toBe('api_key');
+      expect(typeof call[0].authentication.value).toBe('string');
+      expect(call[0].authentication.value.length).toBeGreaterThan(0);
       expect(call[0].model).toBe('k3-256k');
     }
 

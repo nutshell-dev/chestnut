@@ -5,7 +5,8 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf
 const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
 const providerConfigFacade = read('../../../src/foundation/llm-provider/capabilities/config-contract.ts');
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
-const orchestratorConfigSchema = read('../../../src/foundation/llm-orchestrator/config-schema.ts');
+const configurationSchema = read('../../../src/core/llm-configuration/config-schema.ts');
+const configurationBarrel = read('../../../src/core/llm-configuration/index.ts');
 const formatMap = read('../../../src/cli/provider-format-map.ts');
 const cliConsumers = [
   '../../../src/cli/llm-connection-check.ts',
@@ -18,10 +19,11 @@ describe('LLM provider config ownership boundary', () => {
     expect(providerBarrel).toMatch(/export \* as llmProviderConfigContract from '\.\/capabilities\/config-contract\.js';/);
     expect(providerConfigFacade).toMatch(/export\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
     expect(providerConfigFacade).toMatch(/export\s*type\s*\{\s*LLMProviderConfig\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
-    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderConfig\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderConfig,\s*toProviderConnection\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
     expect(orchestratorBarrel).not.toMatch(/\b(?:llmProviderConfigSchema|LLMProviderConfig|toProviderConfig|FORMAT_MAP)\b/);
-    expect(orchestratorBarrel).toMatch(/export\s*\{\s*llmOrchestratorConfigSchema\s*\}\s*from\s*'\.\/config-schema\.js';/);
-    expect(orchestratorConfigSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
+    expect(orchestratorBarrel).not.toMatch(/\bllmOrchestratorConfigSchema\b/);
+    expect(configurationBarrel).toMatch(/export\s*\{\s*llmOrchestratorConfigSchema\s*\}\s*from\s*'\.\/config-schema\.js';/);
+    expect(configurationSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/\.\.\/foundation\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
   });
 
   it('retires the old Orchestrator files without compatibility facades', () => {
@@ -29,6 +31,7 @@ describe('LLM provider config ownership boundary', () => {
     expect(existsSync(new URL('../../../src/foundation/llm-provider/config-adapter.ts', import.meta.url))).toBe(true);
     expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/llm-provider-config-schema.ts', import.meta.url))).toBe(false);
     expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/config-adapter.ts', import.meta.url))).toBe(false);
+    expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/config-schema.ts', import.meta.url))).toBe(false);
   });
 
   it('keeps the numeric format map as one CLI-owned source', () => {

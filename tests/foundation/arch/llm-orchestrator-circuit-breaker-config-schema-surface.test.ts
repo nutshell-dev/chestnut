@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const configSchemaSource = readFileSync(
-  new URL('../../../src/foundation/llm-orchestrator/config-schema.ts', import.meta.url),
+  new URL('../../../src/core/llm-configuration/config-schema.ts', import.meta.url),
   'utf8',
 );
 const barrelSource = readFileSync(
-  new URL('../../../src/foundation/llm-orchestrator/index.ts', import.meta.url),
+  new URL('../../../src/core/llm-configuration/index.ts', import.meta.url),
   'utf8',
 );
 

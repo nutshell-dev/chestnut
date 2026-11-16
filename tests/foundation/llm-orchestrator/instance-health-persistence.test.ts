@@ -9,8 +9,7 @@ import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js'
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMEvent, LLMInstanceLifecycle } from '../../../src/foundation/llm-orchestrator/types.js';
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
@@ -26,8 +25,8 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await cleanupTempDir(dir);
 });
 
-function config(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, apiFormat: 'anthropic' };
+function config(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic' };
 }
 
 function adapter(name: string, call: () => Promise<LLMResponse> = async () => OK): ProviderAdapter {
@@ -57,7 +56,7 @@ async function fixture() {
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     events,
     lifecycle,
-    createProviderAdapter: provider => adapters.find(item => item.name === provider.name)!,
+    providerFactory: { create: provider => adapters.find(item => item.name === provider.providerId)! },
   });
   return { dir, fs, emitted, statePath, makeOwner };
 }
@@ -145,7 +144,7 @@ describe('LLM instance health persistence', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
 
     failWrites = true;
@@ -163,7 +162,7 @@ describe('LLM instance health persistence', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      createProviderAdapter: () => failure,
+      providerFactory: { create: (_connection) => failure },
     });
     await expect(failingOwner.call(CALL)).rejects.toThrow();
     expect(failingOwner.snapshot().providers[0].consecutiveFailures).toBe(0);
@@ -183,7 +182,7 @@ describe('LLM instance health persistence', () => {
       primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
     await expect(owner.call(CALL)).resolves.toBe(OK);
     expect(lastSuccessProviderOf(owner)).not.toBeNull();
@@ -209,7 +208,7 @@ describe('LLM instance health persistence', () => {
     expect(() => owner.reloadConfig({
       primary: config('next'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: () => {} },
-      createProviderAdapter: () => next,
+      providerFactory: { create: (_connection) => next },
     })).toThrow('reloadConfig');
     expect(owner.getProviderInfo().name).toBe('primary');
     expect(internalsOf(owner).providerRuntime.configGeneration()).toBe(generation);
@@ -257,7 +256,7 @@ describe('LLM instance health persistence', () => {
       primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: () => {} },
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
     expect(disk.providers).toHaveLength(1);

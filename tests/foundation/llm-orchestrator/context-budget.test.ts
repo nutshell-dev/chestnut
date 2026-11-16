@@ -25,8 +25,7 @@ const { LLMContextExceededError } = llmProviderCall;
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMCallOptions = llmProviderCall.LLMCallOptions;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import { replaceProviderStates } from './test-internals.js';
 
 const OK_RESPONSE: LLMResponse = {
@@ -40,15 +39,8 @@ const SMALL_WINDOW = 4_095;
 /** Short provider base; dynamic-timeout assertions derive from this fixture. */
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
-function providerConfig(): ProviderConfig {
-  return {
-    name: 'openrouter',
-    apiKey: 'key',
-    model: SMALL_WINDOW_MODEL,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    apiFormat: 'anthropic',
-  };
+function providerConfig(): ProviderConnection {
+  return { providerId: 'openrouter', authentication: { kind: 'api_key' as const, value: 'key', identity: 'key' }, model: SMALL_WINDOW_MODEL, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 function createOwner(opts: { callError?: Error; streamError?: Error } = {}) {
@@ -78,7 +70,7 @@ function createOwner(opts: { callError?: Error; streamError?: Error } = {}) {
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
     events: sink,
-    createProviderAdapter: () => adapter,
+    providerFactory: { create: (_connection) => adapter },
   });
   return { owner, emitted, received, calls: () => calls };
 }
@@ -157,11 +149,11 @@ describe('Phase 1969: no preflight admission', () => {
     const emitted: LLMEvent[] = [];
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: { ...providerConfig(), name: 'primary' },
-      fallbacks: [{ ...providerConfig(), name: 'fallback' }],
+      primary: { ...providerConfig(), providerId: 'primary' },
+      fallbacks: [{ ...providerConfig(), providerId: 'fallback' }],
       maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
       events: { emit: event => { emitted.push(event); } },
-      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
     });
 
     let caught: unknown;
@@ -192,11 +184,11 @@ describe('Phase 1969: no preflight admission', () => {
       };
       const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-        primary: { ...providerConfig(), name: 'primary' },
-        fallbacks: [{ ...providerConfig(), name: 'fallback' }],
+        primary: { ...providerConfig(), providerId: 'primary' },
+        fallbacks: [{ ...providerConfig(), providerId: 'fallback' }],
         maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
         events: { emit: () => {} },
-        createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+        providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
       });
       if (mode === 'sticky') {
         const now = Date.now();

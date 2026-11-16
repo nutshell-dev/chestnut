@@ -1,3 +1,4 @@
+import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * phase 517 B7 regression：LLMOrchestratorImpl.close() 应清 sdkClientCache、
  * 调 provider 上的 optional close；close 后操作性入口统一拒绝。
@@ -24,11 +25,13 @@ describe('LLMOrchestratorImpl.close', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-    });
+
+        providerFactory: mockProviderFactory,
+      });
 
     // 触发 cache 写入：模 cache.set
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
@@ -43,11 +46,13 @@ describe('LLMOrchestratorImpl.close', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-    });
+
+        providerFactory: mockProviderFactory,
+      });
 
     let closeCalled = false;
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
@@ -61,11 +66,13 @@ describe('LLMOrchestratorImpl.close', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-    });
+
+        providerFactory: mockProviderFactory,
+      });
 
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
     cache.set('test-key', { /* no close */ });
@@ -78,11 +85,13 @@ describe('LLMOrchestratorImpl.close', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-    });
+
+        providerFactory: mockProviderFactory,
+      });
 
     await orch.close();
     await orch.close();
@@ -99,18 +108,19 @@ describe('LLMOrchestratorImpl.close', () => {
     };
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-      createProviderAdapter: () => adapter,
+      providerFactory: { create: (_connection) => adapter },
     });
     const options = { messages: [{ role: 'user' as const, content: 'hi' }] };
     const nextConfig = {
-      primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' as const },
+      primary: { providerId: 'p2', authentication: { kind: 'api_key' as const, value: 'k2', identity: 'k2' }, model: 'm2', apiFormat: 'openai' as const },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
+      providerFactory: { create: (_connection) => adapter },
     };
 
     await orch.close();
@@ -132,11 +142,13 @@ describe('LLMOrchestratorImpl.close', () => {
     const { sink, emitted } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'k1', identity: 'k1' }, model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-    });
+
+        providerFactory: mockProviderFactory,
+      });
 
     const goodClose = vi.fn().mockResolvedValue(undefined);
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;

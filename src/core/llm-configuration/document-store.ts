@@ -17,9 +17,7 @@ import {
 } from '../../foundation/config-store/index.js';
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
-import {
-  llmOrchestratorConfigSchema,
-} from '../../foundation/llm-orchestrator/index.js';
+import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import { createLocalCredentials } from './legacy-credentials/index.js';
 import type { SharedLLM, SharedLLMInput } from './selection.js';

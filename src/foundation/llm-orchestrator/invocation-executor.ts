@@ -721,10 +721,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private baseTimeoutFor(adapter: LLMProvider, isFallback: boolean): number {
     const config = isFallback
       ? (this.config.fallbacks ?? []).find(
-        candidate => candidate.name === adapter.name && candidate.model === adapter.model,
+        candidate => candidate.providerId === adapter.name && candidate.model === adapter.model,
       )
       : this.config.primary;
-    return config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+    return config?.defaults?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
   }
 
   private async _callCore(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): Promise<LLMResponse> {

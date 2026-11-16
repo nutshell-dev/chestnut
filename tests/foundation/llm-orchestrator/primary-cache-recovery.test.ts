@@ -10,8 +10,7 @@ import { LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type LLMResponse = llmProviderCall.LLMResponse;
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { lastSuccessProviderOf, currentStreamingProviderOf } from './test-internals.js';
@@ -20,8 +19,8 @@ const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const dirs: string[] = [];
 
-function config(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, apiFormat: 'anthropic' };
+function config(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic' };
 }
 
 function adapter(name: string, behavior: () => Promise<LLMResponse> = async () => OK): ProviderAdapter {
@@ -50,7 +49,7 @@ function ephemeral(adapters: ProviderAdapter[], resetTimeoutMs?: number, events?
     retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: event => { events?.push(event); } },
     ...(resetTimeoutMs !== undefined ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs } } : {}),
-    createProviderAdapter: provider => adapters.find(item => item.name === provider.name)!,
+    providerFactory: { create: provider => adapters.find(item => item.name === provider.providerId)! },
   });
 }
 
@@ -65,7 +64,7 @@ async function durable(adapters: ProviderAdapter[]) {
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: () => {} },
-    createProviderAdapter: provider => nextAdapters.find(item => item.name === provider.name)!,
+    providerFactory: { create: provider => nextAdapters.find(item => item.name === provider.providerId)! },
   });
   return { dir, fs, makeOwner, owner: makeOwner() };
 }

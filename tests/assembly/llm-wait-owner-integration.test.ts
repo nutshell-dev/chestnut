@@ -34,8 +34,7 @@ import type {
 import { LLMAuthError, LLMNetworkError } from '../../src/foundation/llm-provider/errors.js';
 import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type ProviderConnection = llmProviderCall.ProviderConnection;
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
@@ -49,6 +48,7 @@ import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { ContractSystem } from '../../src/core/contract/manager.js';
 import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-executor.js';
 import { makeTestRegistry } from '../helpers/task-system.js';
+import { testProviderConnection } from '../helpers/llm-provider.js';
 
 const FULL_ID = '550e8400-e29b-41d4-a716-446655440000';
 const ASSEMBLY_PROVIDER_TIMEOUT_MS = 1000; // 1s provider 预算，集成测试不执行真实网络调用。
@@ -83,8 +83,11 @@ function createControllableAdapter(name: string, initial: Behavior) {
   };
 }
 
-function providerConfig(name: string, extra?: Partial<ProviderConfig>): ProviderConfig {
-  return {
+function providerConfig(
+  name: string,
+  extra: { model?: string; apiKey?: string } = {},
+): ProviderConnection {
+  return testProviderConnection({
     name,
     apiKey: `key-${name}`,
     model: `model-${name}`,
@@ -92,7 +95,7 @@ function providerConfig(name: string, extra?: Partial<ProviderConfig>): Provider
     timeoutMs: ASSEMBLY_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
     ...extra,
-  };
+  });
 }
 
 function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
@@ -199,7 +202,10 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     retryDelayMs: 0,
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_CIRCUIT_RESET_TIMEOUT_MS },
-    createProviderAdapter: (c: ProviderConfig) => adapters.get((sameName ? c.model : c.name) ?? '')!,
+    providerFactory: {
+      create: (connection: ProviderConnection) =>
+        adapters.get((sameName ? connection.model : connection.providerId) ?? '')!,
+    },
   };
   const owner = createLLMOrchestrator(orchestratorConfig);
 

@@ -33,6 +33,7 @@ import { llmProviderAbort } from '../../../src/foundation/llm-provider/index.js'
 const { makeExternalAbortError } = llmProviderAbort;
 import { makeTaskSystemDeps, makeTestRegistry } from '../../helpers/task-system.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+import { testProviderConnection, testProviderFactory } from '../../helpers/llm-provider.js';
 
 const FULL_ID = '550e8400-e29b-41d4-a716-446655440000';
 
@@ -246,17 +247,18 @@ describe('Step E-2: 恢复 gate 未就绪/缺席 → 保持 waiting', () => {
     const { audit, events } = makeMockAudit();
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: {
+      primary: testProviderConnection({
         name: 'primary',
         apiKey: 'key-primary',
         model: 'model-primary',
         temperature: 0,
         timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         apiFormat: 'anthropic',
-      },
+      }),
       fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
+      providerFactory: testProviderFactory,
     });
     expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
 

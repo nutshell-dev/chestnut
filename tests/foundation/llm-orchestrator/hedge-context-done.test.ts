@@ -6,8 +6,7 @@ import { LLMError, LLMNetworkError } from '../../../src/foundation/llm-provider/
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/index.js';
 type LLMCallOptions = llmProviderCall.LLMCallOptions;
@@ -63,23 +62,18 @@ function createMockProvider(name: string, options: MockProviderOptions = {}) {
 function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
   const events: LLMEvent[] = [];
   const eventSink: LLMEventSink = { emit: event => events.push(event) };
-  const findAdapter = (config: ProviderConfig) => {
-    if (config.name === primary.name) return primary;
-    return fallbacks.find(fallback => fallback.name === config.name) ?? primary;
+  const findAdapter = (config: ProviderConnection) => {
+    if (config.providerId === primary.name) return primary;
+    return fallbacks.find(fallback => fallback.name === config.providerId) ?? primary;
   };
   const service = new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
-    primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' },
-    fallbacks: fallbacks.map(fallback => ({
-      name: fallback.name,
-      apiKey: 'test',
-      model: fallback.model,
-      apiFormat: 'anthropic',
-    })),
+    primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' },
+    fallbacks: fallbacks.map(fallback => ({ providerId: fallback.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fallback.model, apiFormat: 'anthropic' })),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待，保持流式竞态确定。
     events: eventSink,
-    createProviderAdapter: findAdapter,
+    providerFactory: { create: findAdapter },
   });
   const now = Date.now();
   replaceProviderStates(service, [{

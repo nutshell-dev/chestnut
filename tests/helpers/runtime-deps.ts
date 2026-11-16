@@ -20,6 +20,7 @@ import { ContextInjector } from '../../src/core/runtime/injector.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
+import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 // phase 1243: formatter registry + 业主自家 rendering declarations
@@ -28,6 +29,8 @@ import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../src/core/gateway/index.js';
 import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../src/watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
+import { testProviderConnection, testProviderFactory } from './llm-provider.js';
+import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const TEST_CLAW_ID = 'test-claw';
 /** Shared default for runtime mock LLM configs; callers may still supply llmConfig. */
@@ -55,13 +58,31 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = createInboxReader(systemFs, auditWriter, '.');
+  const supplied = input.llmConfig as (LLMOrchestratorConfig & {
+    createProviderAdapter?: (config: Parameters<typeof testProviderConnection>[0]) => ReturnType<llmProviderCall.ProviderFactory['create']>;
+  }) | undefined;
+  const isConnection = supplied?.primary.authentication !== undefined;
+  const legacyFactory = supplied?.createProviderAdapter;
   const llm = new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
-    ...(input.llmConfig ?? {
-      primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
+    ...(supplied === undefined ? {
+      primary: testProviderConnection({ name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' }),
       maxAttempts: 1,
       retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
       events: { emit: () => {} },
+      providerFactory: testProviderFactory,
+    } : isConnection ? supplied : {
+      ...supplied,
+      primary: testProviderConnection(supplied.primary as unknown as Parameters<typeof testProviderConnection>[0]),
+      fallbacks: supplied.fallbacks?.map(provider =>
+        testProviderConnection(provider as unknown as Parameters<typeof testProviderConnection>[0])),
+      providerFactory: legacyFactory ? {
+        create: connection => {
+          const legacy = resolvedProviderConfig(connection);
+          if (!legacy) throw new Error('legacy test connection projection unavailable');
+          return legacyFactory(legacy);
+        },
+      } : testProviderFactory,
     }),
   });
   const toolRegistry = new ToolRegistryImpl();

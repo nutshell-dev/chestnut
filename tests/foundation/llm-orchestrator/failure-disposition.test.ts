@@ -14,8 +14,7 @@ import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestr
 import type { LLMEventSink, LLMResponse } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import {
   LLMAuthError,
   LLMContextExceededError,
@@ -35,15 +34,8 @@ const OK_RESPONSE: LLMResponse = {
   stop_reason: 'end_turn',
 };
 
-function providerConfig(name: string): ProviderConfig {
-  return {
-    name,
-    apiKey: `key-${name}`,
-    model: `model-${name}`,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    apiFormat: 'anthropic',
-  };
+function providerConfig(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 function makeAdapter(name: string): ProviderAdapter {
@@ -63,7 +55,7 @@ function makeOrchestrator() {
     maxAttempts: 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events,
-    createProviderAdapter: (config) => makeAdapter(config.name),
+    providerFactory: { create: (config) => makeAdapter(config.providerId) },
   });
   return { orchestrator, events };
 }

@@ -1,7 +1,7 @@
 /**
  * LLMOrchestrator (L2b) types — retry/failover/hedge orchestration types.
  *
- * Base types (ProviderStreamChunk, ProviderConfig, ProviderAdapter, LLMCallOptions)
+ * Base types (ProviderStreamChunk, ProviderConnection, LLMCallOptions)
  * are owned by L1 llm-provider per M#5; L2b imports and extends them.
  *
  * Phase 1722 Step E: 组合流协议 `LLMStreamChunk` 归本模块 —— reset / provider_failed
@@ -10,16 +10,13 @@
 
 import type { llmProviderCall } from '../llm-provider/index.js';
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderConnection = llmProviderCall.ProviderConnection;
+type ProviderFactory = llmProviderCall.ProviderFactory;
 type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
 type LLMResponse = llmProviderCall.LLMResponse;
 import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
-type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
 type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
-import type { llmProviderConfigContract } from '../llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
-type PiAiCredentialStore = NonNullable<llmProviderCall.ProviderFactoryOptions['credentialStore']>;
 
 
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
@@ -56,22 +53,15 @@ export type LLMInstanceLifecycle =
   | { mode: 'durable'; fs: FileSystem; stateDir?: string };
 
 export interface LLMOrchestratorConfig {
-  primary: ProviderConfig;
-  fallbacks?: ProviderConfig[];
+  primary: ProviderConnection;
+  fallbacks?: ProviderConnection[];
   maxAttempts: number;
   retryDelayMs: number;
   events: LLMEventSink;
   /** @deprecated 仅兼容接收；当前 Admission 使用 provider retryAt 策略，不读取此配置。 */
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
-  /** phase 1028: provider factory DI seam — tests inject mock adapter, production defaults to real adapter（Phase 1925 Step D 改名，旧名 createAnthropicAdapter） */
-  createProviderAdapter?: (config: ProviderConfig) => ProviderAdapter;
-  /**
-   * Phase 1927 Step E：pi-ai CredentialStore 实例（装配根固定创建注入；
-   * backend 生命周期内不漂移）。OAuth-capable catalog provider 缺席 → 装配期 loud。
-   */
-  credentialStore?: PiAiCredentialStore;
-  /** Assembly-owned artifact capture; absence produces unavailable manifests, never prompt persistence. */
-  inputArtifactOwner?: InputArtifactOwner;
+  /** The only provider construction seam; implementation dependencies stay in its L1 closure. */
+  providerFactory: ProviderFactory;
   /** factory 与直接构造均要求显式选择；reload 不替换实例生命周期。 */
   lifecycle?: LLMInstanceLifecycle;
 }

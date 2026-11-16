@@ -10,7 +10,12 @@ import { createSystemAudit, readWorkspaceAuditRetentionMaxSizeMb, type AuditLog 
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
-import { createLLMOrchestrator, type LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
+import {
+  createLLMOrchestrator,
+  type LLMOrchestratorConfig,
+  type LLMOrchestratorOwner,
+} from '../foundation/llm-orchestrator/index.js';
+import { llmProviderCall } from '../foundation/llm-provider/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
 import {
   resolveLLMConfig,
@@ -57,7 +62,7 @@ export interface CoreInfraOutput {
   parentFs: FileSystem;
   auditWriter: AuditLog;
   processManager: ProcessManager;
-  llmConfig: ReturnType<typeof resolveLLMConfig>;
+  llmConfig: LLMOrchestratorConfig & { lifecycle: NonNullable<LLMOrchestratorConfig['lifecycle']> };
   llmIdentities?: { stable: string; operational: string; reload: string };
   /** Phase 1933 Step E：输出类型升级为 owner（赋值本就是 owner 实例；下游消费均为 LLMOrchestrator 子集用法）。 */
   llm: LLMOrchestratorOwner;
@@ -208,7 +213,8 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     }
 
     // --- 3. LLM Config / Orchestrator (daemon.ts L111-137 的 L3-L5 部分) ---
-    let llmConfig: ReturnType<typeof resolveLLMConfig>;
+    let llmSelection: ReturnType<typeof resolveLLMConfig>;
+    let llmConfig: LLMOrchestratorConfig & { lifecycle: NonNullable<LLMOrchestratorConfig['lifecycle']> };
     let llmIdentities: CoreInfraOutput['llmIdentities'];
     try {
       const snapshot = snapshotLLMConfig(
@@ -219,7 +225,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
           credentials: createLocalCredentials({ fsFactory }),
         },
       );
-      llmConfig = snapshot.config;
+      llmSelection = snapshot.config;
       if (typeof snapshot.identity === 'string' && typeof snapshot.operationalIdentity === 'string') {
         llmIdentities = {
           stable: snapshot.identity,
@@ -266,14 +272,19 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // Phase 1927 Step E：pi-ai CredentialStore 装配期固定创建一次注入——backend
       // 在 orchestrator 生命周期内不漂移（取代 loadGlobalConfig 的全局注册副作用）。
       const credentialStore = createLegacyAuthenticationStore({ fsFactory });
-      llm = createLLMOrchestrator({
-        ...llmConfig,
-        primary: { ...llmConfig.primary, auditLog },
-        fallbacks: llmConfig.fallbacks?.map((fb) => ({ ...fb, auditLog })),
+      const providerFactory: llmProviderCall.ProviderFactory = {
+        create: connection => llmProviderCall.createProviderFromConnection(connection, {
+          credentialStore,
+          auditLog,
+        }),
+      };
+      llmConfig = {
+        ...llmSelection,
+        providerFactory,
         events: llmEvents,
-        credentialStore,
         lifecycle: { mode: 'durable', fs: systemFs, stateDir: STATUS_SUBDIR },
-      });
+      };
+      llm = createLLMOrchestrator(llmConfig);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: LLMOrchestrator construct failed: ${formatErr(e)}`, { cause: e });

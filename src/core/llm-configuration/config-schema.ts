@@ -1,15 +1,15 @@
 /**
- * LLMOrchestrator config schema / phase 10 decentralize Config 拆解
- * Owner: llm-orchestrator（容错编排 + circuit breaker yaml schema 业主）
- * Composed by: src/assembly/compose-config.ts (yaml `llm.*` field)
+ * Persisted LLM configuration document schema. Runtime orchestrator options are
+ * assembled separately from ProviderConnection and ProviderFactory.
+ * Owner: L4 llm-configuration.
  */
 import { z } from 'zod';
 import {
   DEFAULT_LLM_RETRY_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
   DEFAULT_RESET_TIMEOUT_MS,
-} from './defaults.js';
-import { llmProviderConfigContract } from '../llm-provider/index.js';
+} from '../../foundation/llm-orchestrator/index.js';
+import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
 const { llmProviderConfigSchema } = llmProviderConfigContract;
 
 const circuitBreakerConfigSchema = z.object({

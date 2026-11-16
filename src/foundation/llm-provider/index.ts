@@ -23,7 +23,12 @@ export type {
   ToolDefinition,
   JSONSchema7,
 } from './capabilities/protocol.js';
-export type { LLMResponse } from './capabilities/call.js';
+export type {
+  LLMResponse,
+  ProviderAuthentication,
+  ProviderConnection,
+  ProviderFactory,
+} from './capabilities/call.js';
 export {
   LLMError,
   LLMAuthError,
@@ -34,4 +39,3 @@ export {
   LLMQuotaError,
   LLMTimeoutError,
 } from './capabilities/call.js';
-export type { ProviderConfig } from './capabilities/config-contract.js';

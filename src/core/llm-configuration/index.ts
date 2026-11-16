@@ -21,6 +21,7 @@ export {
 export { createLocalCredentials, parseDotEnv } from './legacy-credentials/index.js';
 export type { LocalCredentialsDeps } from './legacy-credentials/index.js';
 export { createLegacyAuthenticationStore } from './authentication-store.js';
+export { llmOrchestratorConfigSchema } from './config-schema.js';
 export { resolveLLMConfig } from './selection.js';
 export type {
   LLMGlobalConfigView,

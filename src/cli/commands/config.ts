@@ -18,7 +18,7 @@ import {
   classifyApiKeyConfigValue,
 } from '../../core/llm-configuration/index.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { toProviderConfig } = llmProviderConfigContract;
+const { toProviderConnection } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 import { llmProviderCatalog } from '../../foundation/llm-provider/index.js';
 const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, catalogProvidersWithoutPreset, deriveCatalogAuthProfile } = llmProviderCatalog;
@@ -478,18 +478,18 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       console.log(`Selected: ${outcome.winner.baseUrl}`);
       verifiedModel = outcome.winnerModel ?? model;
     } else {
-      const providerConfigRuntime = toProviderConfig(providerConfig);
-      if (providerConfigRuntime.apiKey !== undefined) {
-        const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
+      const providerProbeConfig = { ...providerConfig };
+      if (providerProbeConfig.api_key !== undefined) {
+        const resolvedKey = resolveCredentialReference(deps, providerProbeConfig.api_key);
         if (resolvedKey === undefined) {
           throw new CliError(
             `API key reference ${providerConfig.api_key} could not be resolved ` +
             `(not in process env, credentials file, or .env fallbacks)`,
           );
         }
-        providerConfigRuntime.apiKey = resolvedKey;
+        providerProbeConfig.api_key = resolvedKey;
       }
-      const probe = await checkLLMConnectionFor(providerConfigRuntime, {
+      const probe = await checkLLMConnectionFor(toProviderConnection(providerProbeConfig), {
         credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
       });
       if (!probe.ok) {

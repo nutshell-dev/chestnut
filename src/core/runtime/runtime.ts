@@ -132,11 +132,11 @@ function canonicalJson(value: unknown): string {
  */
 function computeConfigRevision(config: LLMOrchestratorConfig): string {
   const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => [
-    c.name ?? '',
-    c.apiFormat ?? '',
-    c.model ?? '',
+    c.providerId,
+    c.apiFormat,
+    c.model,
     c.baseUrl ?? '',
-    c.apiKey ? sha256Hex(c.apiKey).slice(0, 8) : '',
+    c.authentication.identity?.slice(0, 8) ?? '',
   ].join('|'));
   return sha256Hex(identities.join(';')).slice(0, 16);
 }
@@ -1234,7 +1234,7 @@ export class Runtime {
 
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      `provider=${newConfig.primary.name ?? 'unknown'}`,
+      `provider=${newConfig.primary.providerId || 'unknown'}`,
       `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
       `triggered_by=${triggeredBy}`,
       `revision=${revision}`,
@@ -2079,12 +2079,12 @@ export class Runtime {
       pending: { addressed: pending.addressed },
       configurationRevision: this.appliedConfigRevision ?? null,
       provider: {
-        name: providerInfo?.name ?? primary.name,
+        name: providerInfo?.name ?? primary.providerId,
         model: providerInfo?.model ?? primary.model,
         contextWindow: meter?.descriptor.contextWindow ?? null,
         contextWindowSource: meter?.descriptor.windowResolution?.source ?? null,
         contextWindowRevision: meter?.descriptor.windowResolution?.revision ?? null,
-        explicitMaxTokens: primary.maxTokens ?? 0,
+        explicitMaxTokens: primary.defaults?.maxTokens ?? 0,
       },
       trimPolicy: {
         recentWindowMs: this.contextTrimPolicy.recentWindowMs,
@@ -2241,7 +2241,7 @@ export class Runtime {
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
-        explicitMaxTokens: meter.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.maxTokens,
+        explicitMaxTokens: meter.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.defaults?.maxTokens,
       }, {
         targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),

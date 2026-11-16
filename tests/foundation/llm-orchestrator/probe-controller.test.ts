@@ -8,18 +8,17 @@ import type { LLMCallOptions, LLMEvent, LLMOrchestratorConfig } from '../../../s
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const PROBE_TIMEOUT_MS = 1_000;
 const controllers: LLMProbeController[] = [];
 
-function providerConfig(name: string, extra: Partial<ProviderConfig> = {}): ProviderConfig {
-  return { name, model: `model-${name}`, apiKey: `key-${name}`, apiFormat: 'anthropic', ...extra };
+function providerConfig(name: string, extra: Partial<ProviderConnection> = {}): ProviderConnection {
+  return { providerId: name, model: `model-${name}`, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, apiFormat: 'anthropic', ...extra };
 }
 
-function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtra: Partial<ProviderConfig> = {}) {
+function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtra: Partial<ProviderConnection> = {}) {
   const events: LLMEvent[] = [];
   const config: LLMOrchestratorConfig = {
     primary: providerConfig(primary.name, configExtra),
@@ -27,7 +26,7 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtr
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；probe 调度由 fake timers 控制。
     events: { emit: event => { events.push(event); } },
-    createProviderAdapter: provider => [primary, ...fallbacks].find(adapter => adapter.name === provider.name)!,
+    providerFactory: { create: provider => [primary, ...fallbacks].find(adapter => adapter.name === provider.providerId)! },
   };
   const runtime = new LLMProviderRuntime(config);
   const store = new LLMInstanceStateStore({
@@ -67,7 +66,7 @@ describe('ProbeController request and success semantics', () => {
       call: vi.fn(async options => { observed = options; return OK; }),
     };
     const fallback: LLMProvider = { name: 'fallback', model: 'model-fallback', call: vi.fn(async () => OK) };
-    const f = fixture(primary, [fallback], { maxTokens: 32, timeoutMs: PROBE_TIMEOUT_MS });
+    const f = fixture(primary, [fallback], { defaults: { maxTokens: 32, timeoutMs: PROBE_TIMEOUT_MS } });
 
     await expect(f.controller.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
 

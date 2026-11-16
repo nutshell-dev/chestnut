@@ -32,9 +32,9 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type ProviderConnection = llmProviderCall.ProviderConnection;
 import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
+import { testProviderConnection } from '../../helpers/llm-provider.js';
 
 const CLAW_ID = 'worker';
 const CONTRACT_ID = 'contract-1844';
@@ -66,15 +66,15 @@ afterEach(async () => {
   }
 });
 
-function providerConfig(): ProviderConfig {
-  return {
+function providerConfig(): ProviderConnection {
+  return testProviderConnection({
     name: 'primary',
     apiKey: 'key-primary',
     model: 'model-primary',
     temperature: 0,
     timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'anthropic',
-  };
+  });
 }
 
 interface Fixture {
@@ -133,7 +133,7 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createProviderAdapter: () => adapter,
+    providerFactory: { create: (_connection) => adapter },
   });
   let owner = makeOwner();
   cleanupOwners.push(owner);

@@ -34,8 +34,7 @@ import {
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AtomicWriteResult } from '../../../src/foundation/fs/types.js';
 import { internalsOf } from './test-internals.js';
@@ -54,11 +53,8 @@ const FAILURE_EVIDENCE_TIME_STEP_MS = 1_000;
 /** Rate-limit expectations share the production base and its 1/2/4/10/20× curve. */
 const RATE_LIMIT_BACKOFF_BASE_MS = LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[0]!;
 
-function providerConfig(name: string): ProviderConfig {
-  return {
-    name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic',
-  };
+function providerConfig(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 function makeAdapter(name: string, call: ProviderAdapter['call'], onStream?: () => void): ProviderAdapter {
@@ -120,7 +116,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
-    createProviderAdapter: provider => adapters.get(provider.name ?? '') ?? primary,
+    providerFactory: { create: provider => adapters.get(provider.providerId ?? '') ?? primary },
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
   const makeOwner = (primaryConfig = config.primary) => {
@@ -134,7 +130,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
   return {
     dir, fs, sink, emitted, config, owner, controller: controllerOf(owner), makeOwner, readState, statePath,
     advance: (ms: number) => { vi.setSystemTime(Date.now() + ms); },
-    reload: (nextPrimary: ProviderConfig) => owner.reloadConfig({ ...config, primary: nextPrimary }),
+    reload: (nextPrimary: ProviderConnection) => owner.reloadConfig({ ...config, primary: nextPrimary }),
   };
 }
 
@@ -698,7 +694,10 @@ describe('legacy read-only migration into instance state V3', () => {
     const f = await makeFixture();
     await f.owner.close();
     fsNative.rmSync(f.statePath);
-    const currentConfig = { ...providerConfig('primary'), authProfile: 'oauth' as const };
+    const currentConfig = {
+      ...providerConfig('primary'),
+      authentication: { kind: 'api_key' as const, value: 'key-primary', identity: 'key-primary', profile: 'oauth' as const },
+    };
     const legacyId = legacyProviderIdentity(currentConfig);
     // 30_000/120_000ms 是旧状态透传 fixture；保留数值以避免改变迁移输入。
     const legacy = createInitialRecoveryState('foreground', {

@@ -19,7 +19,7 @@
  * 15. 同名异配置候选：聚合失败按身份指纹记账，不被显示名合并（Z-C1 回归）。
  * 16. 同名异配置候选：探针失败记账落到被探候选身份，不覆盖同名首候选（Z-C1 回归）。
  *
- * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 probe-scheduler.test.ts）；
+ * 风格：不用 vi.mock，走 providerFactory DI seam（同 probe-scheduler.test.ts）；
  * 定时器用 vi.useFakeTimers + advanceTimersByTimeAsync。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -41,8 +41,7 @@ import {
 import { internalsOf } from './test-internals.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -68,16 +67,8 @@ function createMockSink() {
   return { sink, emitted };
 }
 
-function providerConfig(name: string, extra?: Partial<ProviderConfig>): ProviderConfig {
-  return {
-    name,
-    apiKey: `key-${name}`,
-    model: `model-${name}`,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    apiFormat: 'anthropic',
-    ...extra,
-  };
+function providerConfig(name: string, extra?: Partial<ProviderConnection>): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS }, ...extra };
 }
 
 type Behavior = 'ok' | 'fail' | 'hang' | 'rate_limit' | 'auth' | 'context';
@@ -133,7 +124,7 @@ function createControllableAdapter(name: string, initial: Behavior) {
 function createOwner(
   primary: ProviderAdapter,
   fallbacks: ProviderAdapter[] = [],
-  configExtra?: Partial<ProviderConfig>,
+  configExtra?: Partial<ProviderConnection>,
 ) {
   const { sink, emitted } = createMockSink();
   const adapters = new Map<string, ProviderAdapter>(
@@ -147,7 +138,7 @@ function createOwner(
     retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    createProviderAdapter: (c: ProviderConfig) => adapters.get(c.name ?? '')!,
+    providerFactory: { create: (c: ProviderConnection) => adapters.get(c.providerId)! },
   };
   const owner = createLLMOrchestrator(config);
   return { owner, emitted, config };
@@ -400,7 +391,9 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     // 配置代次推进（换 key）→ 旧代次探针结果失效
     owner.reloadConfig({
       ...config,
-      primary: providerConfig('primary', { apiKey: 'key-primary-rotated' }),
+      primary: providerConfig('primary', {
+        authentication: { kind: 'api_key' as const, value: 'key-primary-rotated', identity: 'rotated-primary' },
+      }),
     });
     p.setBehavior('ok');
     p.release();
@@ -449,7 +442,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
-      createProviderAdapter: (c: ProviderConfig) => adapters.get(c.name ?? '')!,
+      providerFactory: { create: (c: ProviderConnection) => adapters.get(c.providerId)! },
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();  // 两候选记录故障（代次 N）
@@ -489,7 +482,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await owner.close();
 
     const p2 = createControllableAdapter('primary', 'ok');
-    const { owner: owner2 } = createOwner(p2.adapter, [], { maxTokens: 64 });
+    const { owner: owner2 } = createOwner(p2.adapter, [], { defaults: { maxTokens: 64 } });
     const r2 = await owner2.probe();
     expect(r2.ok).toBe(true);
     expect(p2.callOptions[0].maxTokens).toBe(64);    // 目标配置的合法 maxTokens
@@ -524,7 +517,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
 
   it('probe 带有界 timeout：挂起候选在配置 timeoutMs 内了结，不永久悬挂', async () => {
     const p = createControllableAdapter('primary', 'hang');
-    const { owner } = createOwner(p.adapter, [], { timeoutMs: PROBE_TIMEOUT_MS });
+    const { owner } = createOwner(p.adapter, [], { defaults: { timeoutMs: PROBE_TIMEOUT_MS } });
 
     const probePromise = owner.probe();
     await flush();
@@ -537,7 +530,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
   });
 
   it('同名异配置候选：聚合失败按身份指纹记账，不被显示名合并（Z-C1 回归）', async () => {
-    // 同名不同 model/key = 两个不同候选（身份指纹不同）；createProviderAdapter
+    // 同名不同 model/key = 两个不同候选（身份指纹不同）；providerFactory
     // 按 model 区分（按 name 的 Map 会塌缩——这正是被测场景）。
     const p = createControllableAdapter('same-provider', 'fail');
     const f = createControllableAdapter('same-provider', 'fail');
@@ -545,13 +538,13 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
-      fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
+      primary: providerConfig('same-provider', { model: 'model-a', authentication: { kind: 'api_key' as const, value: 'key-a', identity: 'key-a' } }),
+      fallbacks: [providerConfig('same-provider', { model: 'model-b', authentication: { kind: 'api_key' as const, value: 'key-b', identity: 'key-b' } })],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-      createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,
+      providerFactory: { create: (c: ProviderConnection) => byModel.get(c.model ?? '')! },
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();
@@ -569,13 +562,13 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
-      fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
+      primary: providerConfig('same-provider', { model: 'model-a', authentication: { kind: 'api_key' as const, value: 'key-a', identity: 'key-a' } }),
+      fallbacks: [providerConfig('same-provider', { model: 'model-b', authentication: { kind: 'api_key' as const, value: 'key-b', identity: 'key-b' } })],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-      createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,
+      providerFactory: { create: (c: ProviderConnection) => byModel.get(c.model ?? '')! },
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();

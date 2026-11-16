@@ -17,8 +17,7 @@ import type {
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
@@ -86,18 +85,18 @@ describe('hedge-post-first-chunk-failure', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }
@@ -248,18 +247,18 @@ describe('hedge-double-fail-generator-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }
@@ -429,18 +428,18 @@ describe('hedge-bwins-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-      fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+      primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
     return service;
   }

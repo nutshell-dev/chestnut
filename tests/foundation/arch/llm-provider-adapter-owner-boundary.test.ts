@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const orchestratorTypes = readFileSync(new URL('../../../src/foundation/llm-orchestrator/types.ts', import.meta.url), 'utf8');
-const providerBarrel = readFileSync(new URL('../../../src/foundation/llm-provider/index.ts', import.meta.url), 'utf8');
-const providerCallFacade = readFileSync(new URL('../../../src/foundation/llm-provider/capabilities/call.ts', import.meta.url), 'utf8');
-const callers = [
-  '../../../src/foundation/llm-orchestrator/provider-runtime.ts',
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const orchestratorTypes = read('../../../src/foundation/llm-orchestrator/types.ts');
+const orchestratorRuntime = read('../../../src/foundation/llm-orchestrator/provider-runtime.ts');
+const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
+const providerCallFacade = read('../../../src/foundation/llm-provider/capabilities/call.ts');
+const fixtures = [
   '../../../tests/foundation/llm-service.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
   '../../../tests/foundation/llm-orchestrator/orchestrator.test.ts',
@@ -16,20 +17,22 @@ const callers = [
   '../../../tests/foundation/llm-orchestrator/orchestrator-misc-invariants.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
   '../../../tests/foundation/llm-orchestrator/getProviderInfo-current-streaming.test.ts',
-].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
+].map(read);
 
-describe('ProviderAdapter owner boundary', () => {
-  it('is exported only by LLMProvider and all external callers use owner', () => {
+describe('ProviderFactory owner boundary', () => {
+  it('keeps adapter construction behind the L1 connection factory capability', () => {
     expect(providerBarrel).toMatch(/export \* as llmProviderCall from '\.\/capabilities\/call\.js';/);
-    expect(providerCallFacade).toMatch(/export\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"]\.\.\/types\.js['"]/s);
-    expect(orchestratorTypes).not.toMatch(/export\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}/s);
-    for (const caller of callers) {
-      expect(caller).toMatch(/import\s+(?:type\s*)?\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];[\s\S]*?type ProviderAdapter = llmProviderCall\.ProviderAdapter;/s);
-    }
+    expect(providerCallFacade).toMatch(/\bProviderFactory\b/);
+    expect(providerCallFacade).toMatch(/\bcreateProviderFromConnection\b/);
+    expect(orchestratorTypes).toMatch(/providerFactory:\s*ProviderFactory/);
+    expect(orchestratorRuntime).toMatch(/this\.providerFactory\.create\(connection\)/);
+    expect(orchestratorRuntime).not.toMatch(/\bcreateLLMProvider\b/);
   });
 
-  it('keeps the internal owner import and adapter factory DI', () => {
-    expect(orchestratorTypes).toMatch(/import\s+type\s*\{\s*llmProviderCall\s*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"];[\s\S]*?type ProviderAdapter = llmProviderCall\.ProviderAdapter;/s);
-    expect(orchestratorTypes).toMatch(/createProviderAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
+  it('uses connection-based DI in orchestration fixtures', () => {
+    for (const fixture of fixtures) {
+      expect(fixture).not.toMatch(/\bcreateProviderAdapter\b/);
+      expect(fixture).not.toMatch(/\bProviderConfig\b/);
+    }
   });
 });

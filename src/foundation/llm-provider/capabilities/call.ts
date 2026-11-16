@@ -29,6 +29,7 @@ export type {
   ProviderConnection,
   ProviderFactory,
 } from '../provider-connection.js';
+export { DEFAULT_LLM_TIMEOUT_MS } from '../defaults.js';
 export type ProviderCallConfig = ProviderConfig;
 export type ProviderFactoryOptions = PiAiAdapterOptions;
 export type LLMProviderCallCapability = Pick<LLMProvider, 'call' | 'stream'>;

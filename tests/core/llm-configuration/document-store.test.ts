@@ -96,7 +96,10 @@ describe('LLM configuration document reads', () => {
     const restarted = snapshotLLMConfig(createLLMConfiguration(deps).loadGlobal());
     expect(restarted.identity).toBe(first.identity);
     expect(restarted.operationalIdentity).not.toBe(first.operationalIdentity);
-    expect(restarted.config.primary.apiKey).toBe('rotated-primary-secret');
+    expect(restarted.config.primary.authentication).toMatchObject({
+      kind: 'api_key',
+      value: 'rotated-primary-secret',
+    });
   });
 
   it('resolved read 展开引用并应用 defaults，raw 文档仍保留引用', () => {

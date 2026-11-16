@@ -82,11 +82,11 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -131,12 +131,12 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ providerId: 'fallback', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -184,11 +184,11 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -239,11 +239,11 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -285,12 +285,12 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ providerId: 'fallback', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -348,11 +348,11 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: () => primary,
+      providerFactory: { create: (_connection) => primary },
     });
 
     const promise = (async () => {
@@ -434,15 +434,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
   }
 
   function realPrimaryAdapter(timeoutMs: number): ProviderAdapter {
-    return createLLMProvider({
-      name: 'primary',
-      apiKey: 'sk-test-key',
-      baseUrl: 'https://api.test.invalid/v1',
-      model: 'test-model',
-      temperature: 0.7,
-      timeoutMs,
-      apiFormat: 'openai',
-    });
+    return createLLMProvider({ name: 'primary', apiKey: 'sk-test-key', baseUrl: 'https://api.test.invalid/v1', model: 'test-model', timeoutMs, apiFormat: 'openai', temperature: 0.7 });
   }
 
   it('持续 chunk 总时长超过 provider timeoutMs、间隔 < idleMs → 成功，无 idle 事件（缺陷回归）', async () => {
@@ -459,11 +451,11 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      createProviderAdapter: () => realPrimaryAdapter(3000),
+      providerFactory: { create: (_connection) => realPrimaryAdapter(3000) },
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -496,13 +488,13 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
     const fallback = createMockProvider('fallback');
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
+      primary: { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ providerId: 'fallback', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
-      createProviderAdapter: config => config.name === 'fallback' ? fallback : realPrimaryAdapter(5_000),
+      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : realPrimaryAdapter(5_000) },
     });
 
     const chunks: LLMStreamChunk[] = [];

@@ -24,8 +24,7 @@ import type {
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import { resolveLLMConfig } from '../../../src/core/llm-configuration/index.js';
@@ -98,19 +97,19 @@ function createMockProvider(
 
 function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
   const noopSink: LLMEventSink = { emit: () => {} };
-  const findAdapter = (cfg: ProviderConfig) => {
-    if (cfg.name === primary.name) return primary;
-    return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+  const findAdapter = (cfg: ProviderConnection) => {
+    if (cfg.providerId === primary.name) return primary;
+    return fallbacks.find(fb => fb.name === cfg.providerId) ?? primary;
   };
   const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-    primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
-    fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
+    primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: primary.model, apiFormat: 'anthropic' as const },
+    fallbacks: fallbacks.map(fb => ({ providerId: fb.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
     events: noopSink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-    createProviderAdapter: (cfg) => findAdapter(cfg),
+    providerFactory: { create: (cfg) => findAdapter(cfg) },
   });
   return service;
 }
@@ -165,9 +164,9 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
     });
     const fb1 = createMockProvider('openai');
     const fb2 = createMockProvider('moonshot');
-    const findAdapter = (cfg: ProviderConfig) => {
-      if (cfg.name === primary.name) return primary;
-      if (cfg.name === fb1.name) return fb1;
+    const findAdapter = (cfg: ProviderConnection) => {
+      if (cfg.providerId === primary.name) return primary;
+      if (cfg.providerId === fb1.name) return fb1;
       return fb2;
     };
 
@@ -178,7 +177,7 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      createProviderAdapter: (cfg) => findAdapter(cfg),
+      providerFactory: { create: (cfg) => findAdapter(cfg) },
     });
 
     expect(service.getProviderIdentities()).toHaveLength(3);
@@ -369,8 +368,8 @@ function createMockStreamProvider(
   };
 }
 
-const MOCK_PRIMARY_CONFIG = { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const };
-const MOCK_FALLBACK_CONFIG = { name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const };
+const MOCK_PRIMARY_CONFIG = { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const };
+const MOCK_FALLBACK_CONFIG = { providerId: 'fallback', authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const };
 
 // Delay before the probe aborts the user signal.
 // Derivation: streamIdleTimeoutMs=50ms must fire first; 20ms is short enough
@@ -410,7 +409,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      createProviderAdapter: () => primary as any,
+      providerFactory: { create: (_connection) => primary as any },
     });
 
     const promise = (async () => {
@@ -466,7 +465,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
-      createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+      providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
     });
 
     const failuresBefore = providerState(service, 0)?.consecutiveFailures ?? 0;
@@ -501,7 +500,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
-      createProviderAdapter: () => primary as any,
+      providerFactory: { create: (_connection) => primary as any },
     });
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
@@ -534,7 +533,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
-      createProviderAdapter: () => primary as any,
+      providerFactory: { create: (_connection) => primary as any },
     });
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
@@ -568,7 +567,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+      providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
     });
 
     const chunks: LLMStreamChunk[] = [];

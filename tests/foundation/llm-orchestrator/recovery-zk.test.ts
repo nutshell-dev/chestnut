@@ -18,8 +18,7 @@ import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrat
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import { LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import { internalsOf } from './test-internals.js';
 
@@ -30,8 +29,8 @@ const QUOTA_ERROR = () => new LLMQuotaError('p', 'weekly usage limit quota reach
 /** Positive provider fixture; recovery timing uses fake clocks, not this timeout. */
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
-function providerConfig(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic' };
+function providerConfig(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 const cleanupDirs: string[] = [];
@@ -87,7 +86,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
       maxAttempts: opts.maxAttempts ?? 3,
       retryDelayMs: 0, // 禁用调用内重试等待；恢复窗口由 fake clock 推进。
       events,
-      createProviderAdapter: config => config.name === 'fallback' ? fallbackAdapter : failAdapter,
+      providerFactory: { create: config => config.providerId === 'fallback' ? fallbackAdapter : failAdapter },
       ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS } } : {}),
     });
     owners.push(owner);

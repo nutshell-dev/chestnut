@@ -47,11 +47,11 @@ function buildOrchestrator(primary: ProviderAdapter) {
   const { sink } = createMockSink();
   const orchestrator = new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
-    primary: { name: primary.name, apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+    primary: { providerId: primary.name, authentication: { kind: 'api_key' as const, value: 'test', identity: 'test' }, model: 'test', apiFormat: 'anthropic' as const },
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；本 fixture 只测提前退出清理。
     events: sink,
-    createProviderAdapter: () => primary,
+    providerFactory: { create: (_connection) => primary },
   });
   return orchestrator;
 }

@@ -11,6 +11,7 @@ import type {
   LLMOrchestratorConfig,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+import { mockProviderFactory } from './provider-test-fixtures.js';
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
 
@@ -31,11 +32,20 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], ids?: stri
   const events: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: event => { events.push(event); } };
   const config: LLMOrchestratorConfig = {
-    primary: { name: primary.name, model: primary.model, apiFormat: 'anthropic', timeoutMs: PRIMARY_TIMEOUT_FIXTURE_MS },
-    fallbacks: fallbacks.map(adapter => ({ name: adapter.name, model: adapter.model, apiFormat: 'anthropic', timeoutMs: FALLBACK_TIMEOUT_FIXTURE_MS })),
+    primary: {
+      providerId: primary.name, model: primary.model, apiFormat: 'anthropic',
+      authentication: { kind: 'api_key' as const, value: 'primary', identity: 'primary' },
+      defaults: { timeoutMs: PRIMARY_TIMEOUT_FIXTURE_MS },
+    },
+    fallbacks: fallbacks.map(adapter => ({
+      providerId: adapter.name, model: adapter.model, apiFormat: 'anthropic',
+      authentication: { kind: 'api_key' as const, value: adapter.name, identity: adapter.name },
+      defaults: { timeoutMs: FALLBACK_TIMEOUT_FIXTURE_MS },
+    })),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；failover 顺序由 mock adapter 同步决定。
     events: sink,
+    providerFactory: mockProviderFactory,
   };
   const noteProviderSuccess = vi.fn();
   const noteFailure = vi.fn<(failures: readonly RecoveryFailureInput[]) => void>();

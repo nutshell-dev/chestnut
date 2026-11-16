@@ -10,7 +10,7 @@
 import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
-const { toProviderConfig } = llmProviderConfigContract;
+const { toProviderConnection } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
@@ -155,19 +155,18 @@ export function makeSetupCandidateProbe(
       temperature: 0.7,
       timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
     };
-    const runtime = toProviderConfig(candidateConfig);
-    if (runtime.apiKey !== undefined) {
-      const resolved = deps.resolveKey(runtime.apiKey);
+    if (candidateConfig.api_key !== undefined) {
+      const resolved = deps.resolveKey(candidateConfig.api_key);
       if (resolved === undefined) {
         throw new CliError(
           `API key reference ${input.apiKey} could not be resolved ` +
           `(not in process env, credentials file, or .env fallbacks)`,
         );
       }
-      runtime.apiKey = resolved;
+      candidateConfig.api_key = resolved;
     }
-    runtime.timeoutMs = Math.min(runtime.timeoutMs, SETUP_PROBE_TIMEOUT_MS);
-    return checkLLMConnectionFor(runtime, {
+    candidateConfig.timeout_ms = Math.min(candidateConfig.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS, SETUP_PROBE_TIMEOUT_MS);
+    return checkLLMConnectionFor(toProviderConnection(candidateConfig), {
       ...(deps.credentials !== undefined && { credentials: deps.credentials }),
     });
   };

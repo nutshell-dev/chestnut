@@ -9,8 +9,7 @@ import { LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type LLMResponse = llmProviderCall.LLMResponse;
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { providerStatesOf } from './test-internals.js';
@@ -23,8 +22,8 @@ const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const dirs: string[] = [];
 
-function config(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, apiFormat: 'anthropic' };
+function config(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic' };
 }
 
 function adapter(name: string, behavior: () => Promise<LLMResponse>): ProviderAdapter {
@@ -52,7 +51,7 @@ async function fixture(adapters: ProviderAdapter[], maxAttempts = 3) {
     maxAttempts,
     retryDelayMs: 0, // 立即重试哨兵；Retry-After 本身由 provider 状态延迟。
     events: { emit: event => { events.push(event); } },
-    createProviderAdapter: provider => nextAdapters.find(item => item.name === provider.name)!,
+    providerFactory: { create: provider => nextAdapters.find(item => item.name === provider.providerId)! },
   });
   const owner = makeOwner();
   const readState = () => JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8'));

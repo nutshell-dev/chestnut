@@ -1,14 +1,8 @@
 /** Provider adapter construction, SDK cache and resource lifetime owner. */
-import { llmProviderCall } from '../llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
-type AuditSink = llmProviderCall.AuditSink;
+import type { llmProviderCall } from '../llm-provider/index.js';
 type LLMProvider = llmProviderCall.LLMProvider;
-type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
-type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
-import type { llmProviderConfigContract } from '../llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
-type PiAiCredentialStore = NonNullable<llmProviderCall.ProviderFactoryOptions['credentialStore']>;
+type ProviderConnection = llmProviderCall.ProviderConnection;
+type ProviderFactory = llmProviderCall.ProviderFactory;
 import type { LLMEventSink, LLMOrchestratorConfig } from './types.js';
 import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
 
@@ -35,12 +29,8 @@ export interface ProviderRuntime {
 
 export class LLMProviderRuntime implements ProviderRuntime {
   private readonly events: LLMEventSink;
-  private readonly createProviderAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
-  private readonly credentialStore: PiAiCredentialStore | undefined;
-  private readonly inputArtifactOwner: InputArtifactOwner | undefined;
+  private readonly providerFactory: ProviderFactory;
   private readonly sdkClientCache = new Map<string, LLMProvider>();
-  private readonly auditLogIdMap = new WeakMap<AuditSink, string>();
-  private nextAuditLogId = 0;
   private pendingClose: LLMProvider[] = [];
   private activeConfig: LLMOrchestratorConfig;
   private activePrimary: LLMProvider;
@@ -52,9 +42,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
 
   constructor(config: LLMOrchestratorConfig) {
     this.events = config.events;
-    this.createProviderAdapter = config.createProviderAdapter;
-    this.credentialStore = config.credentialStore;
-    this.inputArtifactOwner = config.inputArtifactOwner;
+    this.providerFactory = config.providerFactory;
     this.activeConfig = config;
     this.activePrimary = this.getSdkClient(config.primary);
     this.activeFallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
@@ -92,29 +80,14 @@ export class LLMProviderRuntime implements ProviderRuntime {
     return this.sdkClientCache;
   }
 
-  private getAuditLogId(auditLog?: AuditSink): string {
-    if (!auditLog) return 'absent';
-    let id = this.auditLogIdMap.get(auditLog);
-    if (!id) {
-      id = `audit-${++this.nextAuditLogId}`;
-      this.auditLogIdMap.set(auditLog, id);
-    }
-    return id;
-  }
-
-  private getSdkClient(config: ProviderConfig): LLMProvider {
-    const key = providerCacheKey(config, this.getAuditLogId(config.auditLog));
+  private getSdkClient(connection: ProviderConnection): LLMProvider {
+    const key = providerCacheKey(connection);
     if (!this.sdkClientCache.has(key)) {
-      const provider = this.createProviderAdapter
-        ? (this.createProviderAdapter(config) as LLMProvider)
-        : createLLMProvider(config, {
-          credentialStore: this.credentialStore,
-          inputArtifactOwner: this.inputArtifactOwner,
-        });
+      const provider = this.providerFactory.create(connection);
       this.sdkClientCache.set(key, provider);
-      this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
+      this.events?.emit({ type: 'sdk_client_cache_miss', preset: connection.apiFormat || 'unknown', model: connection.model || 'unknown' });
     } else {
-      this.events?.emit({ type: 'sdk_client_cache_hit', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
+      this.events?.emit({ type: 'sdk_client_cache_hit', preset: connection.apiFormat || 'unknown', model: connection.model || 'unknown' });
     }
     return this.sdkClientCache.get(key)!;
   }

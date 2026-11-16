@@ -7,7 +7,7 @@
  * Refs: coding plan/phase10/Phase 10 总览.md + Step A.md + Step B.md
  */
 import { z } from 'zod';
-import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/index.js';
+import { llmOrchestratorConfigSchema } from '../../core/llm-configuration/index.js';
 import { runtimeMotionConfigSchema, clawConfigSchema } from '../../core/runtime/index.js';
 import { heartbeatConfigSchema } from '../../core/heartbeat/index.js';
 import { toolsConfigSchema } from '../../foundation/tools/index.js';

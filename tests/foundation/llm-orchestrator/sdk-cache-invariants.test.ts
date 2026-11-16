@@ -1,3 +1,4 @@
+import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * SDK client cache invariants — mechanical merge of the following source files
  * (no assertion logic changed):
@@ -14,8 +15,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import { internalsOf } from './test-internals.js';
 
 /** Cache-identity fixture only; no request waits on this positive provider timeout. */
@@ -55,13 +55,15 @@ describe('sdk-client-cache', () => {
       const { sink, emitted } = createMockSink();
       const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic' },
         fallbacks: [
-          { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
+          { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic' },
         ],
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
 
       // primary = miss, fallback = hit (same config)
@@ -82,13 +84,15 @@ describe('sdk-client-cache', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic' },
         fallbacks: [
-          { name: 'p2', apiKey: 'key-def', model: 'm2', apiFormat: 'openai' },
+          { providerId: 'p2', authentication: { kind: 'api_key' as const, value: 'key-def', identity: 'key-def' }, model: 'm2', apiFormat: 'openai' },
         ],
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
 
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -106,18 +110,22 @@ describe('sdk-client-cache', () => {
 
       const orch1 = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink1,
+
+        providerFactory: mockProviderFactory,
       });
 
       const orch2 = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink2,
+
+        providerFactory: mockProviderFactory,
       });
 
       const p1 = internalsOf(orch1).providerRuntime.primary();
@@ -150,13 +158,15 @@ describe('sdk-client-cache-key', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1' },
         fallbacks: [
-          { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'openai', baseUrl: 'https://my-proxy.example/v1' },
+          { providerId: 'p2', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'openai', baseUrl: 'https://my-proxy.example/v1' },
         ],
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
       // 改前会 cache_hit（key 不含 baseUrl）；改后 2 miss
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -170,13 +180,15 @@ describe('sdk-client-cache-key', () => {
       // 两个末 8 位相同的 apiKey、前缀不同 → 改前 key 同（slice(-8)）、改后 hash 不同
       new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'aaaaaaaa-coll-1234', model: 'm1', apiFormat: 'openai' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'aaaaaaaa-coll-1234', identity: 'aaaaaaaa-coll-1234' }, model: 'm1', apiFormat: 'openai' },
         fallbacks: [
-          { name: 'p2', apiKey: 'bbbbbbbb-coll-1234', model: 'm1', apiFormat: 'openai' },
+          { providerId: 'p2', authentication: { kind: 'api_key' as const, value: 'bbbbbbbb-coll-1234', identity: 'bbbbbbbb-coll-1234' }, model: 'm1', apiFormat: 'openai' },
         ],
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
       expect(misses.length).toBe(2);
@@ -184,7 +196,7 @@ describe('sdk-client-cache-key', () => {
 
     it('同 cfg（apiFormat+model+baseUrl+apiKey）复用 cache：1 miss + N-1 hit', () => {
       const { sink, emitted } = createMockSink();
-      const cfg = { name: 'p', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const, baseUrl: 'https://x.com' };
+      const cfg = { providerId: 'p', authentication: { kind: 'api_key' as const, value: 'k', identity: 'k' }, model: 'm', apiFormat: 'anthropic' as const, baseUrl: 'https://x.com' };
       new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
         primary: cfg,
@@ -192,6 +204,8 @@ describe('sdk-client-cache-key', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
       const hits = emitted.filter(e => e.type === 'sdk_client_cache_hit');
@@ -203,13 +217,15 @@ describe('sdk-client-cache-key', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-        primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
+        primary: { providerId: 'p1', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
         fallbacks: [
-          { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
+          { providerId: 'p2', authentication: { kind: 'api_key' as const, value: 'key-abc', identity: 'key-abc' }, model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
         ],
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
+
+        providerFactory: mockProviderFactory,
       });
       // 改前 name 不参与 key；改后不同 name → 2 miss
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -227,30 +243,23 @@ function createExtendedSink() {
   return { sink, emitted };
 }
 
-function createExtendedProvider(config: ProviderConfig): ProviderAdapter {
+function createExtendedProvider(config: ProviderConnection): ProviderAdapter {
   return {
-    name: config.name,
+    name: config.providerId,
     model: config.model,
     async call() { return { content: [], stop_reason: 'end_turn' } as LLMResponse; },
   };
 }
 
 describe('Phase 2027 extended provider identity cache', () => {
-  const base = {
-    name: 'primary',
-    apiKey: 'key',
-    model: 'model-a',
-    apiFormat: 'anthropic' as const,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-  };
+  const base: ProviderConnection = { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'key', identity: 'key' }, model: 'model-a', apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 
   it.each([
-    ['authProfile', { authProfile: 'oauth' as const }],
-    ['piAiProvider', { piAiProvider: 'catalog-a' }],
-    ['catalogProvider', { catalogProvider: 'metadata-a' }],
-    ['catalogModel', { catalogModel: 'metadata-model-a' }],
-  ])('%s 变化不复用保存旧完整配置的 adapter', (_field, patch) => {
+    ['authentication.profile', { authentication: { kind: 'api_key' as const, value: 'key', identity: 'key', profile: 'oauth' as const } }],
+    ['authentication.identity', { authentication: { kind: 'api_key' as const, value: 'key', identity: 'account-a' } }],
+    ['providerId', { providerId: 'metadata-a' }],
+    ['baseUrl', { baseUrl: 'https://metadata.example.test/v1' }],
+  ])('%s 变化不复用保存旧完整连接的 adapter', (_field, patch) => {
     const { sink, emitted } = createExtendedSink();
     const created: unknown[] = [];
     const orchestrator = new LLMOrchestratorImpl({
@@ -259,10 +268,10 @@ describe('Phase 2027 extended provider identity cache', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
-      createProviderAdapter: (config) => {
+      providerFactory: { create: (config) => {
         created.push(config);
         return createExtendedProvider(config);
-      },
+      } },
     });
     const before = internalsOf(orchestrator).providerRuntime.primary();
     const beforeId = internalsOf(orchestrator).providerRuntime.providerIds()[0];
@@ -272,10 +281,10 @@ describe('Phase 2027 extended provider identity cache', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
-      createProviderAdapter: (config) => {
+      providerFactory: { create: (config) => {
         created.push(config);
         return createExtendedProvider(config);
-      },
+      } },
     });
 
     expect(internalsOf(orchestrator).providerRuntime.primary()).not.toBe(before);

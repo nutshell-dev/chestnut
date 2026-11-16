@@ -11,10 +11,12 @@ export type ProviderAuthentication =
       readonly value: string;
       /** Optional operational revision (for example, an L4-owned secret digest). */
       readonly identity?: string;
+      readonly profile?: 'api_key' | 'ambient' | 'oauth';
     }
   | {
       readonly kind: 'capability';
       readonly identity: string;
+      readonly profile?: 'api_key' | 'ambient' | 'oauth';
       readonly resolve: () => Promise<{ readonly accessToken: string }>;
     };
 
@@ -55,17 +57,23 @@ const resolvedProjections = new WeakMap<ProviderConnection, ProviderConfig>();
  */
 export function providerConnectionFromResolvedConfig(config: ProviderConfig): ProviderConnection {
   const authentication: ProviderAuthentication = config.apiKey !== undefined
-    ? { kind: 'api_key', value: config.apiKey, identity: sha256Hex(config.apiKey) }
+    ? {
+          kind: 'api_key',
+          value: config.apiKey,
+          identity: sha256Hex(config.apiKey),
+          profile: config.authProfile ?? 'api_key',
+        }
     : {
         kind: 'capability',
         identity: `${config.authProfile ?? 'api_key'}:${config.name}`,
+        profile: config.authProfile ?? 'api_key',
         resolve: () => Promise.reject(new Error('Resolved provider authentication requires the L1 factory runtime')),
       };
   const connection: ProviderConnection = {
     providerId: config.name,
     model: config.model,
     ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
-    apiFormat: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'catalog',
+    apiFormat: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'unknown',
     authentication,
     defaults: {
       temperature: config.temperature,

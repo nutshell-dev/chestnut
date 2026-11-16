@@ -218,10 +218,8 @@ describe('first-run wizard — 展示与提交', () => {
 
     expect(outcome.kind).toBe('verified');
     // 候选 probe 使用 resolved preset thinking（adaptive/max + dropThinkingBlocks）
-    const probed = conn.checkLLMConnectionFor.mock.calls[0]?.[0] as {
-      thinkingMode?: string; thinkingEffort?: string; dropThinkingBlocks?: boolean;
-    };
-    expect(probed).toMatchObject({
+    const probed = conn.checkLLMConnectionFor.mock.calls[0]?.[0];
+    expect(probed.defaults).toMatchObject({
       thinkingMode: 'adaptive',
       thinkingEffort: 'max',
       dropThinkingBlocks: true,

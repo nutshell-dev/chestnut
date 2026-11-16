@@ -4,12 +4,10 @@
  * 主配置覆盖、备用顺序与 orchestrator 配置转换的唯一解释入口。
  */
 import type { z } from 'zod';
-import {
-  llmOrchestratorConfigSchema,
-  type LLMOrchestratorConfig,
-} from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { toProviderConfig } = llmProviderConfigContract;
+const { toProviderConnection } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
@@ -37,19 +35,23 @@ export interface LLMConfigInput {
   llm: SharedLLMInput;
 }
 
-/** 将 global 与可选 claw 的 LLM 视图转换为运行配置。 */
+export type LLMConnectionSelection = Omit<
+  LLMOrchestratorConfig,
+  'events' | 'providerFactory' | 'lifecycle'
+>;
+
+/** 将 global 与可选 claw 的 LLM 视图转换为无运行时依赖的连接快照。 */
 export function resolveLLMConfig(
   globalConfig: LLMGlobalConfigView,
   clawConfig?: LLMClawConfigView,
-): LLMOrchestratorConfig {
+): LLMConnectionSelection {
   const llm = globalConfig.llm;
   const cb = llm.circuit_breaker;
   return {
-    primary: toProviderConfig(clawConfig?.llm?.primary ?? llm.primary),
-    fallbacks: (llm.fallbacks ?? []).map(toProviderConfig),
+    primary: toProviderConnection(clawConfig?.llm?.primary ?? llm.primary),
+    fallbacks: (llm.fallbacks ?? []).map(toProviderConnection),
     maxAttempts: llm.retry_attempts,
     retryDelayMs: llm.retry_delay_ms,
-    events: { emit: () => {} },
     circuitBreaker: cb ? {
       failureThreshold: cb.failure_threshold,
       resetTimeoutMs: cb.reset_timeout_ms,

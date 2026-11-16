@@ -9,8 +9,7 @@ import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js'
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMEvent, LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { providerStatesOf, replaceProviderStates } from './test-internals.js';
@@ -27,8 +26,8 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await cleanupTempDir(dir);
 });
 
-function config(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, apiFormat: 'anthropic' };
+function config(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic' };
 }
 
 function adapter(name: string, call: ProviderAdapter['call']): ProviderAdapter {
@@ -49,7 +48,7 @@ async function fixture(primary: ProviderAdapter, fallbacks: ProviderAdapter[] = 
     maxAttempts: 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
-    createProviderAdapter: provider => adapters.get(provider.name ?? '')!,
+    providerFactory: { create: provider => adapters.get(provider.providerId ?? '')! },
   });
   const statePath = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
   const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8'));
@@ -77,7 +76,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: event => { events.push(event); } },
-      createProviderAdapter: () => adapter('primary', async () => OK),
+      providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
     });
     const migrated = makeOwner();
     const saved = f.readState();
@@ -126,7 +125,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
-      events: { emit: () => {} }, createProviderAdapter: () => adapter('primary', async () => OK),
+      events: { emit: () => {} }, providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
     });
     const migrated = f.readState();
     expect(migrated.recovery).toMatchObject({
@@ -167,7 +166,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     expect(() => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
-      events: { emit: () => {} }, createProviderAdapter: () => adapter('primary', async () => OK),
+      events: { emit: () => {} }, providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
     })).toThrow(/scope_mismatch/);
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
   });

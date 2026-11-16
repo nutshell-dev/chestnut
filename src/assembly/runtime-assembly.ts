@@ -195,7 +195,12 @@ export async function createRuntimeAssembly(
       credentials: createLocalCredentials({ fsFactory }),
     });
     return {
-      config: snapshot.config,
+      config: {
+        ...snapshot.config,
+        providerFactory: llmConfig.providerFactory,
+        events: llmConfig.events,
+        lifecycle: llmConfig.lifecycle,
+      },
       revision,
       identity: snapshot.operationalIdentity,
       reloadIdentity: `${snapshot.identity}:${snapshot.operationalIdentity}`,

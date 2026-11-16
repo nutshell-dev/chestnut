@@ -12,7 +12,7 @@
  * 6. ready 后继续按统一 TTL 自主复检。
  * 7. close 取消：scheduleProbe 后 close() → 任意时长 0 调用 0 投递；close 幂等。
  *
- * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 in-process-sharing.test.ts）；
+ * 风格：不用 vi.mock，走 providerFactory DI seam（同 in-process-sharing.test.ts）；
  * 定时器用 vi.useFakeTimers + advanceTimersByTimeAsync（async timer 惯例）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -30,8 +30,7 @@ import {
 } from '../../../src/foundation/llm-provider/errors.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -51,15 +50,8 @@ function createMockSink() {
   return { sink, emitted };
 }
 
-function providerConfig(name: string): ProviderConfig {
-  return {
-    name,
-    apiKey: `key-${name}`,
-    model: `model-${name}`,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    apiFormat: 'anthropic',
-  };
+function providerConfig(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 type Behavior = 'fail' | 'ok' | 'hang' | 'rate_limit' | 'rate_limit_bounded';
@@ -105,7 +97,7 @@ function createOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
     retryDelayMs: 0, // 禁用调用内重试等待；probe 调度由 fake timers 控制。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    createProviderAdapter: config => adapters.find(adapter => adapter.name === config.name) ?? primary,
+    providerFactory: { create: config => adapters.find(adapter => adapter.name === config.providerId) ?? primary },
   });
   return { owner, emitted };
 }

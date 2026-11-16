@@ -53,16 +53,22 @@ export async function createTestRuntime(options: {
 export function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
     primary: {
-      name: 'mock',
-      apiKey: 'test-key',
+      providerId: 'mock',
+      authentication: { kind: 'api_key', value: 'test-key' },
       model: 'test-model',
-      maxTokens: 1024,
-      temperature: 0.7,
-      timeoutMs: TEST_LLM_TIMEOUT_MS,
-      apiFormat: 'anthropic' as const,
+      defaults: {
+        maxTokens: 1024,
+        temperature: 0.7,
+        timeoutMs: TEST_LLM_TIMEOUT_MS,
+      },
+      apiFormat: 'anthropic',
     },
     maxAttempts: 1,
     retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
+    events: { emit: () => {} },
+    providerFactory: {
+      create: connection => ({ name: connection.providerId, model: connection.model }) as never,
+    },
   };
 }
 

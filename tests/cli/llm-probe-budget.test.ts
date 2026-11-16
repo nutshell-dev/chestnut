@@ -8,8 +8,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 const { LLMModelNotFoundError } = llmProviderCall;
-import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type ProviderConnection = llmProviderCall.ProviderConnection;
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), close: vi.fn() }));
 
@@ -24,13 +23,15 @@ vi.mock('../../src/foundation/llm-orchestrator/index.js', async (importOriginal)
 import { LLM_PROBE_MAX_TOKENS } from '../../src/foundation/llm-orchestrator/index.js';
 import { checkLLMConnectionFor, classifyLLMErrorForDisplay, probeLLMConnection } from '../../src/cli/llm-connection-check.js';
 
-function providerConfig(): ProviderConfig {
+function providerConnection(): ProviderConnection {
   return {
-    name: 'p',
-    apiKey: 'k',
+    providerId: 'p',
+    authentication: { kind: 'api_key', value: 'k' },
     model: 'm',
-    temperature: 0.7,
-    timeoutMs: 30_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    defaults: {
+      temperature: 0.7,
+      timeoutMs: 30_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    },
     apiFormat: 'openai',
     baseUrl: 'https://api.test.invalid/v1',
   };
@@ -48,14 +49,14 @@ describe('Phase 1979 probe budget', () => {
 
   it('probeLLMConnection 使用共享常量', async () => {
     await probeLLMConnection({
-      config: { primary: providerConfig() },
+      config: { primary: providerConnection() },
       identity: 'id',
     } as unknown as Parameters<typeof probeLLMConnection>[0]);
     expect(mocks.call).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: LLM_PROBE_MAX_TOKENS }));
   });
 
   it('checkLLMConnectionFor 使用共享常量', async () => {
-    await checkLLMConnectionFor(providerConfig());
+    await checkLLMConnectionFor(providerConnection());
     expect(mocks.call).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: LLM_PROBE_MAX_TOKENS }));
   });
 

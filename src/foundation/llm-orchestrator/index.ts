@@ -76,7 +76,5 @@ export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, LLMOrchestrator
 export type { LLMProviderFailure, LLMFailureEvidence, SerializedErrorEvidence } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
-export { llmOrchestratorConfigSchema } from './config-schema.js';
-
 // phase 1872 Step H: LLM 事件命名空间 + file routing 声明归 owner（原 assembly/llm-audit-events.ts）
 export { LLM_AUDIT_EVENTS, LLM_ORCHESTRATOR_FILE_ROUTING } from './audit-events.js';

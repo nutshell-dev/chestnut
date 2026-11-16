@@ -4,7 +4,7 @@
  * 旧 Anthropic/OpenAI/Gemini/custom adapter 直测段已随旧实现一并删除；
  * 适配器行为等价证据在 tests/foundation/llm-provider/pi-ai-adapter.test.ts。
  * 本文件保留：LLMOrchestratorImpl 重试/failover/backoff/provider-info 语义
- * （经 createProviderAdapter DI seam 或 fetch 级 anthropic SSE 驱动真实 PiAiAdapter）
+ * （经 providerFactory DI seam 或 fetch 级 anthropic SSE 驱动真实 PiAiAdapter）
  * 与 createLLMOrchestrator factory 透传。
  */
 
@@ -12,8 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type ProviderConnection = llmProviderCall.ProviderConnection;
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
@@ -22,6 +21,7 @@ import {
 } from '../../src/foundation/llm-orchestrator/errors.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { providerStatesOf } from './llm-orchestrator/test-internals.js';
+import { testProviderConnection, testProviderFactory } from '../helpers/llm-provider.js';
 
 /** Nonzero retry bases keep the scenarios deterministic without production-length waits. */
 const TEST_RETRY_DELAY_MS = 100;
@@ -47,7 +47,7 @@ function createAnthropicSseResponse(text: string): Response {
 }
 
   describe('LLMOrchestratorImpl', () => {
-    const primaryConfig = {
+    const primaryConfig = testProviderConnection({
       name: 'primary',
       apiKey: 'primary-key',
       baseUrl: 'https://api.anthropic.com',
@@ -56,9 +56,9 @@ function createAnthropicSseResponse(text: string): Response {
       temperature: 0.7,
       timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
-    };
+    });
 
-    const fallbackConfig = {
+    const fallbackConfig = testProviderConnection({
       name: 'fallback',
       apiKey: 'fallback-key',
       baseUrl: 'https://api.anthropic.com',
@@ -67,7 +67,7 @@ function createAnthropicSseResponse(text: string): Response {
       temperature: 0.7,
       timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
-    };
+    });
 
     beforeEach(() => {
       // Phase 1925 Step C: factory 路由 PiAiAdapter → mock 层移到 fetch（SSE）
@@ -91,6 +91,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 3,
         retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       const response = await service.call({
@@ -114,6 +115,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       const response = await service.call({
@@ -134,6 +136,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       await expect(service.call({
@@ -155,6 +158,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       const response = await service.call({
@@ -179,6 +183,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       // First call - should use fallback
@@ -215,6 +220,7 @@ function createAnthropicSseResponse(text: string): Response {
         // All well under 30s cap - test verifies code path exists
         retryDelayMs: BACKOFF_BASE_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       await service.call({
@@ -233,6 +239,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       await service.call({ messages: [{ role: 'user', content: 'Hi' }] });
@@ -251,6 +258,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
+        providerFactory: testProviderFactory,
       });
 
       await service.call({
@@ -299,8 +307,10 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        createProviderAdapter: (config) =>
-          config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
+        providerFactory: {
+          create: (connection) =>
+            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,
+        },
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -358,8 +368,10 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        createProviderAdapter: (config) =>
-          config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
+        providerFactory: {
+          create: (connection) =>
+            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,
+        },
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -402,7 +414,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        createProviderAdapter: () => emptyAdapter,
+        providerFactory: { create: (_connection) => emptyAdapter },
       });
 
       await expect(async () => {
@@ -423,14 +435,14 @@ describe('createLLMOrchestrator factory', () => {
     getProviderInfo: () => ({ name: 'mock', model: 'mock-model' }),
   };
 
-  const mockConfig: ProviderConfig = {
+  const mockConfig: ProviderConnection = testProviderConnection({
     name: 'mock',
     apiKey: 'test-key',
     model: 'mock-model',
     temperature: 0.7,
     timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'anthropic',
-  };
+  });
 
   it('returns LLMOrchestratorImpl instance', () => {
     const orchestrator = createLLMOrchestrator({
@@ -439,7 +451,7 @@ describe('createLLMOrchestrator factory', () => {
       maxAttempts: 1,
       retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
-      createProviderAdapter: () => mockAdapter,
+      providerFactory: { create: (_connection) => mockAdapter },
     });
     expect(orchestrator).toBeInstanceOf(LLMOrchestratorImpl);
   });
@@ -456,18 +468,18 @@ describe('createLLMOrchestrator factory', () => {
     };
     const orchestrator = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: {
+      primary: testProviderConnection({
         name: 'config-test',
         apiKey: 'test-key',
         model: 'test-model',
         temperature: 0.7,
         timeoutMs: TEST_LLM_TIMEOUT_MS,
         apiFormat: 'anthropic',
-      },
+      }),
       maxAttempts: 1,
       retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
-      createProviderAdapter: () => configAdapter,
+      providerFactory: { create: (_connection) => configAdapter },
     });
     await orchestrator.call({ messages: [{ role: 'user', content: 'hi' }] });
     const info = orchestrator.getProviderInfo();

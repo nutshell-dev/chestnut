@@ -31,8 +31,7 @@ import type { llmProviderCall } from '../../../src/foundation/llm-provider/index
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
 import {
@@ -273,18 +272,12 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
   const streamEvents: StreamEvent[] = [];
   const stream: StreamLog = { write: (e) => { streamEvents.push(e); } };
   const sink = createLLMEventSink(audit, stream);
-  const findAdapter = (cfg: ProviderConfig) => {
-    const adapter = opts.providers[cfg.name ?? ''];
-    if (!adapter) throw new Error(`no mock adapter for ${cfg.name}`);
+  const findAdapter = (cfg: ProviderConnection) => {
+    const adapter = opts.providers[cfg.providerId ?? ''];
+    if (!adapter) throw new Error(`no mock adapter for ${cfg.providerId}`);
     return adapter;
   };
-  const providerConfig = (name: string): ProviderConfig => ({
-    name,
-    apiKey: opts.apiKey?.[name] ?? 'test-key',
-    model: 'model-x',
-    apiFormat: 'anthropic' as const,
-    ...(opts.baseUrl?.[name] ? { baseUrl: opts.baseUrl[name] } : {}),
-  });
+  const providerConfig = (name: string): ProviderConnection => ({ providerId: name, authentication: { kind: 'api_key' as const, value: opts.apiKey?.[name] ?? 'test-key', identity: opts.apiKey?.[name] ?? 'test-key' }, model: 'model-x', apiFormat: 'anthropic' as const, ...(opts.baseUrl?.[name] ? { baseUrl: opts.baseUrl[name] } : {}) });
   const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(opts.primaryName),
@@ -293,7 +286,7 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
-    createProviderAdapter: findAdapter,
+    providerFactory: { create: findAdapter },
   });
   return {
     service,
@@ -759,11 +752,11 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const adapter = failProvider('kimi-year', new LLMNetworkError('kimi-year', new Error('ECONNREFUSED')));
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'durable', fs: nfs },
-      primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'kimi-year', authentication: { kind: 'api_key' as const, value: 'test-key', identity: 'test-key' }, model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      createProviderAdapter: () => adapter,
+      providerFactory: { create: (_connection) => adapter },
     });
 
     await expect(orchestrator.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
@@ -804,11 +797,11 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const adapter = streamOkProvider('kimi-year');
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
-      primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
+      primary: { providerId: 'kimi-year', authentication: { kind: 'api_key' as const, value: 'test-key', identity: 'test-key' }, model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      createProviderAdapter: () => adapter,
+      providerFactory: { create: (_connection) => adapter },
     });
     for await (const _chunk of orchestrator.stream(CALL)) { /* drain */ }
 

@@ -156,7 +156,7 @@ describe('config provider add — primary probe', () => {
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const calledWith = connMock.checkLLMConnectionFor.mock.calls[0][0];
-    expect(calledWith.apiKey).toBe('sk-ant-new');
+    expect(calledWith.authentication).toMatchObject({ kind: 'api_key', value: 'sk-ant-new' });
 
     // Phase 1980 Step B：固定服务无低信息量 preview / Save 确认，只有 Connecting 行
     const out = consoleLines.join('\n');
@@ -429,7 +429,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(3);
     // 每个候选 probe 使用用户 key/model + 候选 baseUrl。
     for (const call of connMock.checkLLMConnectionFor.mock.calls) {
-      expect(call[0].apiKey).toBe('sk-kimi-key');
+      expect(call[0].authentication).toMatchObject({ kind: 'api_key', value: 'sk-kimi-key' });
       expect(call[0].model).toBe('k3-256k');
     }
     expect(connMock.checkLLMConnectionFor.mock.calls.map(c => c[0].baseUrl)).toEqual([

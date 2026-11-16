@@ -11,7 +11,7 @@
  * 5. 探针独立：breaker open 时普通 call 被 breaker 拒，probe() 仍发起真实调用；
  *    mock 恢复成功后 probe ok:true 且随后 snapshot() 显示可用。
  *
- * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 orchestrator.test.ts /
+ * 风格：不用 vi.mock，走 providerFactory DI seam（同 orchestrator.test.ts /
  * recovery-zk.test.ts 惯例）。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -31,8 +31,7 @@ import type {
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConnection } from './provider-test-fixtures.js';
 
 /** Positive provider fixture; probe timing is controlled separately by fake clocks. */
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
@@ -48,15 +47,8 @@ function createMockSink() {
   return { sink, emitted };
 }
 
-function providerConfig(name: string): ProviderConfig {
-  return {
-    name,
-    apiKey: `key-${name}`,
-    model: `model-${name}`,
-    temperature: 0,
-    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    apiFormat: 'anthropic',
-  };
+function providerConfig(name: string): ProviderConnection {
+  return { providerId: name, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, model: `model-${name}`, apiFormat: 'anthropic', defaults: { temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS } };
 }
 
 type Behavior = 'fail' | 'ok' | 'hang';
@@ -97,7 +89,7 @@ function createOwner(adapter: ProviderAdapter) {
     retryDelayMs: 0, // 禁用重试等待；probe 恢复窗口由 fake clock 推进。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-    createProviderAdapter: () => adapter,
+    providerFactory: { create: (_connection) => adapter },
   });
   return { owner, emitted };
 }

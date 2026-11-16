@@ -6,7 +6,7 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { getClawDir } from '../../../src/foundation/claw-identity/index.js';
 import { viewportConfigSchema, VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../../src/cli-protocol/index.js';
-import { llmOrchestratorConfigSchema } from '../../../src/foundation/llm-orchestrator/config-schema.js';
+import { llmOrchestratorConfigSchema } from '../../../src/core/llm-configuration/config-schema.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 
 const NEXT_TICK_DELAY_MS = 0; // 仅错开同步调用栈，构造并发写入顺序。
