@@ -169,13 +169,21 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
     const primaryDef = createDeferredMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
-        { type: 'done', stopReason: 'end_turn' },
+        { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 999, outputTokens: 99, totalTokens: 1_098 } },
       ],
     });
     const fallbackDef = createDeferredMockProvider('fb1', {
       callResponse: {
         content: [{ type: 'text', text: 'fb response' }],
         stop_reason: 'end_turn',
+        usage: {
+          inputTokens: 15,
+          outputTokens: 5,
+          cacheReadInputTokens: 3,
+          cacheWriteInputTokens: 2,
+          totalTokens: 20,
+          details: { reasoningTokens: 1 },
+        },
       },
     });
     const service = createOrchestrator(primaryDef.provider, [fallbackDef.provider]);
@@ -207,10 +215,21 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
     expect(committed.length).toBe(1);
     expect((committed[0] as any).primaryError).toBe('A succeeded but race lost (commit fallback for low latency)');
     expect((committed[0] as any).primaryErrorClass).toBe('unknown');
+    const winnerUsage = {
+      inputTokens: 15,
+      outputTokens: 5,
+      cacheReadInputTokens: 3,
+      cacheWriteInputTokens: 2,
+      totalTokens: 20,
+      details: { reasoningTokens: 1 },
+    };
+    expect(committed[0]).toMatchObject({ usage: winnerUsage });
+    expect(committed[0]).not.toMatchObject({ usage: { inputTokens: 999 } });
 
     // fallback response streamed
     expect(chunks.map((c) => c.type)).toEqual(['text_delta', 'done']);
     expect((chunks[0] as { delta?: string }).delta).toBe('fb response');
+    expect(chunks.find(chunk => chunk.type === 'done')?.usage).toEqual(winnerUsage);
   });
 
   it('反向 1: 若改回二分支合成假错 → primaryError 不匹配 sentinel fail', async () => {

@@ -119,14 +119,7 @@ export async function* wrapResponseAsStream(
   yield {
     type: 'done',
     stopReason: typeof response.stop_reason === 'string' ? response.stop_reason : 'end_turn',
-    usage: response.usage
-      ? {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-          cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
-          cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
-        }
-      : undefined,
+    usage: response.usage,
   };
 }
 

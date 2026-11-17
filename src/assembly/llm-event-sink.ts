@@ -5,8 +5,9 @@ import type { LLMEventSink, LLMEvent } from '../foundation/llm-orchestrator/inde
 import type { AuditLog, AuditWriteOutcome } from '../foundation/audit/index.js';
 import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { StreamLog, StreamEvent } from '../foundation/stream/index.js';
-import type { llmProviderModelMeasurement } from '../foundation/llm-provider/index.js';
+import type { llmProviderCall, llmProviderModelMeasurement } from '../foundation/llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
+type ProviderUsage = llmProviderCall.ProviderUsage;
 
 /**
  * phase 1765：AuditWriter/DispatchingAuditWriter 的 write 结构化返回 durability
@@ -115,6 +116,17 @@ function rawUsageForAudit(usage: unknown): string {
     typeof value === 'number' && !Number.isFinite(value) ? String(value) : value) ?? 'none';
 }
 
+function usageForAudit(usage: ProviderUsage | undefined): string {
+  return usage === undefined ? 'none' : JSON.stringify({
+    inputTokens: usage.inputTokens ?? null,
+    outputTokens: usage.outputTokens ?? null,
+    cacheReadInputTokens: usage.cacheReadInputTokens ?? null,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens ?? null,
+    totalTokens: usage.totalTokens ?? null,
+    details: usage.details ?? null,
+  });
+}
+
 function measurementReason(measurement: { kind: string } | undefined): string {
   return measurement && 'reason' in measurement && typeof measurement.reason === 'string'
     ? measurement.reason
@@ -208,8 +220,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       break;
     case 'hedge_primary_recovered':
       w(LLM_AUDIT_EVENTS.HEDGE_PRIMARY_RECOVERED, `provider=${event.provider}`,
-        `cache_creation_input_tokens=${event.cacheCreationInputTokens ?? 0}`,
-        `cache_read_input_tokens=${event.cacheReadInputTokens ?? 0}`);
+        'usage_schema=provider_usage_v1', `usage=${usageForAudit(event.usage)}`);
       break;
     case 'hedge_primary_post_first_chunk_failure':
       w(
@@ -222,8 +233,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       w(LLM_AUDIT_EVENTS.HEDGE_FALLBACK_COMMITTED,
         `winner=${event.winnerProvider}`, `primary=${event.primaryProvider}`,
         `primaryErrorClass=${event.primaryErrorClass}`, `primaryError=${event.primaryError}`,
-        `cache_creation_input_tokens=${event.cacheCreationInputTokens ?? 0}`,
-        `cache_read_input_tokens=${event.cacheReadInputTokens ?? 0}`);
+        'usage_schema=provider_usage_v1', `usage=${usageForAudit(event.usage)}`);
       break;
     case 'hedge_primary_succeeded_after_race_lost':
       w(

@@ -1455,6 +1455,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         trackBCtrl.abort();
         yield winner.chunk;
         let receivedDone = false;
+        let primaryUsage: ProviderStreamChunk['usage'];
         let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
         try {
@@ -1469,6 +1470,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
                 break;
               }
               receivedDone = true;
+              primaryUsage = chunk.usage;
             }
             yield chunk;
           }
@@ -1516,7 +1518,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         if (drainError) throw drainError;
         if (receivedDone) {
           this.recordProviderSuccess(0, this.primary, false, inv.generation);
-          this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+          this.events.emit({
+            type: 'hedge_primary_recovered',
+            provider: this.primary.name,
+            usage: primaryUsage,
+          });
           // Phase 1968 Step B：selection 先于成功返回（hedge A 轨恢复成功）。
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
         }
@@ -1546,8 +1552,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             primaryProvider: this.primary.name,
             primaryError: 'A succeeded but race lost (commit fallback for low latency)',
             primaryErrorClass: 'unknown', // A succeeded、no real error; 'unknown' enum value 不误导 (LLMErrorClass 无 'none')
-            cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
-            cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
+            usage: winner.response.usage,
           });
         } else {
           // A-error (含 AbortError from primaryCtrl.abort propagated to iterator)
@@ -1563,8 +1568,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             primaryProvider: this.primary.name,
             primaryError: primaryErr.message,
             primaryErrorClass: primaryErrClass,
-            cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
-            cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
+            usage: winner.response.usage,
           });
         }
 
@@ -1609,8 +1613,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             primaryProvider: this.primary.name,
             primaryError: winner.error.message,
             primaryErrorClass: classifyLLMError(winner.error),
-            cacheCreationInputTokens: bResult.response.usage?.cache_creation_input_tokens ?? undefined,
-            cacheReadInputTokens: bResult.response.usage?.cache_read_input_tokens ?? undefined,
+            usage: bResult.response.usage,
           });
           this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
           cleanupSignals();
@@ -1637,6 +1640,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         trackBCtrl.abort();
         yield aResult.chunk;
         let receivedDone = false;
+        let primaryUsage: ProviderStreamChunk['usage'];
         let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
         try {
@@ -1651,6 +1655,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
                 break;
               }
               receivedDone = true;
+              primaryUsage = chunk.usage;
             }
             yield chunk;
           }
@@ -1694,7 +1699,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         if (drainError) throw drainError;
         if (receivedDone) {
           this.recordProviderSuccess(0, this.primary, false, inv.generation);
-          this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+          this.events.emit({
+            type: 'hedge_primary_recovered',
+            provider: this.primary.name,
+            usage: primaryUsage,
+          });
           // Phase 1968 Step B：selection 先于成功返回（B 全败后 A 恢复成功）。
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
         }

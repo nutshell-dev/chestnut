@@ -503,8 +503,14 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         provider: 'p',
         model: 'model-x',
         inputSource: 'unlinked',
-        usage: { inputTokens: 12, outputTokens: 3 },
-        totalUsageInputTokens: 12,
+        usage: {
+          unCachedInputTokens: 12,
+          outputTokens: 3,
+          cacheWriteInputTokens: 0,
+          cacheReadInputTokens: 0,
+          totalTokens: 15,
+        },
+        effectiveInputTokens: 12,
         normalizedUsageInputTokens: 12,
         measuredInputTokens: 12,
         deltaTokens: 0,
@@ -626,6 +632,91 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       reason: 'provider_retry_at_policy',
       value: { failureThreshold: 7, resetTimeoutMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     })]);
+  });
+
+  it('persists complete hedge usage without turning missing values into zeroes', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    const usage = {
+      inputTokens: 15,
+      outputTokens: 5,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 2,
+      totalTokens: 20,
+      details: { reasoningTokens: 1 },
+    };
+
+    sink.emit({
+      type: 'hedge_fallback_committed',
+      winnerProvider: 'fallback',
+      primaryProvider: 'primary',
+      primaryError: 'failed',
+      primaryErrorClass: 'transient',
+      usage,
+    });
+    sink.emit({ type: 'hedge_primary_recovered', provider: 'primary' });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'usage_schema=provider_usage_v1',
+      'usage={"inputTokens":15,"outputTokens":5,"cacheReadInputTokens":0,"cacheWriteInputTokens":2,"totalTokens":20,"details":{"reasoningTokens":1}}',
+    ]));
+    expect(audit.writes[1]).toEqual(expect.arrayContaining([
+      'usage_schema=provider_usage_v1',
+      'usage=none',
+    ]));
+    expect(audit.writes.flat()).not.toContain('cache_read_input_tokens=0');
+    expect(stream.events[0]).toMatchObject({ usage });
+    expect(stream.events[1]).toMatchObject({ type: 'hedge_primary_recovered' });
+  });
+
+  it('reads historical measurement aliases and keeps no_usage distinct from zero', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'input_measurement',
+      provider: 'p',
+      model: 'm',
+      observation: {
+        kind: 'completed',
+        requestId: 'historical',
+        provider: 'p',
+        model: 'm',
+        inputSource: 'unlinked',
+        usage: { unCachedInputTokens: 4, outputTokens: 1 },
+        totalUsageInputTokens: 4,
+        normalizedUsageInputTokens: 4,
+        reconciliation: 'unavailable',
+      },
+    });
+    sink.emit({
+      type: 'input_measurement',
+      provider: 'p',
+      model: 'm',
+      observation: {
+        kind: 'completed',
+        requestId: 'no-usage',
+        provider: 'p',
+        model: 'm',
+        inputSource: 'unlinked',
+        reconciliation: 'no_usage',
+      },
+    });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'effective_input_tokens=4',
+      'usage_input_tokens=4',
+      'normalized_usage_input_tokens=4',
+    ]));
+    expect(audit.writes[1]).toEqual(expect.arrayContaining([
+      'effective_input_tokens=none',
+      'usage_input_tokens=none',
+      'normalized_usage_input_tokens=none',
+      'raw_usage=none',
+      'reconciliation=no_usage',
+    ]));
   });
 
   it('normalizes Error payload to readable string in stream', () => {

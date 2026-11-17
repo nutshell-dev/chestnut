@@ -14,6 +14,7 @@ type ProviderInput = llmProviderCall.ProviderInput;
 type ProviderFactory = llmProviderCall.ProviderFactory;
 type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
 type LLMResponse = llmProviderCall.LLMResponse;
+type ProviderUsage = llmProviderCall.ProviderUsage;
 import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
@@ -94,9 +95,9 @@ export type LLMEvent =
   // Phase 1826: 确定性错误短路同时覆盖 permanent 与 quota（quota 走 owner 时间窗安排）。
   | { type: typeof STREAM_EVENT_NAMES.PERMANENT_SKIP_RETRY; provider: string; attempt: number; errorClass: 'permanent' | 'quota' }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_STARTED; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
-  | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_RECOVERED; provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_RECOVERED; provider: string; usage?: ProviderUsage }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_POST_FIRST_CHUNK_FAILURE; provider: string; error: Error }
-  | { type: typeof STREAM_EVENT_NAMES.HEDGE_FALLBACK_COMMITTED; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_FALLBACK_COMMITTED; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; usage?: ProviderUsage }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST; primaryProvider: string; winnerProvider: string }
   | { type: typeof STREAM_EVENT_NAMES.ALL_PROVIDERS_CONTEXT_EXCEEDED; totalAttempted: number; skippedCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RACE_LOSER_CLEANED; provider: string; reason: string; schemaVersion?: 1; invocationId?: string; attemptId?: string; providerAttemptId?: string }

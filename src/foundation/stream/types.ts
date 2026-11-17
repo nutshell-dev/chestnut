@@ -2,6 +2,9 @@
  * Stream module types (L2)
  */
 
+import type { llmProviderCall } from '../llm-provider/index.js';
+type ProviderUsage = llmProviderCall.ProviderUsage;
+
 /**
  * stream.jsonl 相对路径常量
  */
@@ -148,9 +151,9 @@ export interface StreamEventMap {
   context_exceeded_throwthrough: { provider: string; trace_id?: string };
   permanent_skip_retry: { provider: string; attempt: number; errorClass: string; trace_id?: string };
   hedge_started: { primary: string; fallbackChain: string[]; triggerErrorClass: string; trace_id?: string };
-  hedge_primary_recovered: { provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; trace_id?: string };
+  hedge_primary_recovered: { provider: string; usage?: ProviderUsage; trace_id?: string };
   hedge_primary_post_first_chunk_failure: { provider: string; error: string; trace_id?: string };
-  hedge_fallback_committed: { winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; trace_id?: string };
+  hedge_fallback_committed: { winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: string; usage?: ProviderUsage; trace_id?: string };
   hedge_primary_succeeded_after_race_lost: { primaryProvider: string; winnerProvider: string; trace_id?: string };
   all_providers_context_exceeded: { totalAttempted: number; skippedCount: number; trace_id?: string };
   race_loser_cleaned: { provider: string; reason: string; trace_id?: string };

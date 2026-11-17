@@ -155,7 +155,18 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     const primary = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
-        { type: 'done', stopReason: 'end_turn' },
+        {
+          type: 'done',
+          stopReason: 'end_turn',
+          usage: {
+            inputTokens: 15,
+            outputTokens: 5,
+            cacheReadInputTokens: 3,
+            cacheWriteInputTokens: 2,
+            totalTokens: 20,
+            details: { reasoningTokens: 1 },
+          },
+        },
       ],
     });
     const fallback = createMockProvider('fb1', {
@@ -175,10 +186,30 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     }
 
     expect(events.some((e) => e.type === 'hedge_started')).toBe(true);
-    expect(events.some((e) => e.type === 'hedge_primary_recovered')).toBe(true);
+    const recovered = events.find((e) => e.type === 'hedge_primary_recovered');
+    expect(recovered).toMatchObject({
+      usage: {
+        inputTokens: 15,
+        cacheReadInputTokens: 3,
+        cacheWriteInputTokens: 2,
+        totalTokens: 20,
+        details: { reasoningTokens: 1 },
+      },
+    });
     expect(chunks).toEqual([
       { type: 'text_delta', delta: 'hello' },
-      { type: 'done', stopReason: 'end_turn' },
+      {
+        type: 'done',
+        stopReason: 'end_turn',
+        usage: {
+          inputTokens: 15,
+          outputTokens: 5,
+          cacheReadInputTokens: 3,
+          cacheWriteInputTokens: 2,
+          totalTokens: 20,
+          details: { reasoningTokens: 1 },
+        },
+      },
     ]);
     expect(service.getProviderInfo()?.name).toBe('primary');
     expect(providerStatesOf(service)[0]).toMatchObject({
@@ -198,7 +229,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       callResponse: {
         content: [{ type: 'text', text: 'fb response' }],
         stop_reason: 'end_turn',
-        usage: { input_tokens: 10, output_tokens: 5 },
+        usage: { inputTokens: 10, outputTokens: 5 },
       },
       callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       measurementRequestId: 'hedge-fallback-request',

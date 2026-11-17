@@ -905,12 +905,12 @@ describe('hedge-cache-token-emit', () => {
     return emitted;
   }
 
-  describe('hedge cache token emit (phase 1169 α-4)', () => {
+  describe('hedge ProviderUsage emit (phase 2191)', () => {
     beforeEach(() => {
       vi.clearAllMocks();
     });
 
-    it('reverse 1: hedge_fallback_committed event includes cache cols when provider returns cache_*', async () => {
+    it('preserves the complete winner usage in the event and wrapped stream', async () => {
       /** Fallback responds at 50ms before the primary's 100ms delayed failure. */
       const PRIMARY_STREAM_DELAY_MS = 100;
       const FALLBACK_CALL_DELAY_MS = 50;
@@ -923,10 +923,12 @@ describe('hedge-cache-token-emit', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
           usage: {
-            input_tokens: 100,
-            output_tokens: 50,
-            cache_creation_input_tokens: 20,
-            cache_read_input_tokens: 80,
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheWriteInputTokens: 20,
+            cacheReadInputTokens: 80,
+            totalTokens: 150,
+            details: { reasoningTokens: 5 },
           },
         },
         callDelayMs: FALLBACK_CALL_DELAY_MS,
@@ -942,17 +944,21 @@ describe('hedge-cache-token-emit', () => {
 
       const committed = events.find((e) => e.type === 'hedge_fallback_committed');
       expect(committed).toBeDefined();
-      expect((committed as any).cacheCreationInputTokens).toBe(20);
-      expect((committed as any).cacheReadInputTokens).toBe(80);
+      const expectedUsage = {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheWriteInputTokens: 20,
+        cacheReadInputTokens: 80,
+        totalTokens: 150,
+        details: { reasoningTokens: 5 },
+      };
+      expect(committed).toMatchObject({ usage: expectedUsage });
 
-      // done chunk should also carry cache tokens through wrapResponseAsStream
       const doneChunk = chunks.find((c) => c.type === 'done');
-      expect(doneChunk).toBeDefined();
-      expect((doneChunk as any).usage?.cacheCreationInputTokens).toBe(20);
-      expect((doneChunk as any).usage?.cacheReadInputTokens).toBe(80);
+      expect(doneChunk?.usage).toEqual(expectedUsage);
     });
 
-    it('reverse 2: A-error wait B path includes cache cols in hedge_fallback_committed', async () => {
+    it('preserves complete winner usage on the A-error wait-B path', async () => {
       /** A fails immediately; B's 50ms response exercises the wait-B path. */
       const FALLBACK_CALL_DELAY_MS = 50;
       const primary = createMockProvider('primary', {
@@ -963,10 +969,12 @@ describe('hedge-cache-token-emit', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
           usage: {
-            input_tokens: 200,
-            output_tokens: 100,
-            cache_creation_input_tokens: 50,
-            cache_read_input_tokens: 150,
+            inputTokens: 200,
+            outputTokens: 100,
+            cacheWriteInputTokens: 50,
+            cacheReadInputTokens: 150,
+            totalTokens: 300,
+            details: { reasoningTokens: 20 },
           },
         },
         callDelayMs: FALLBACK_CALL_DELAY_MS,
@@ -982,11 +990,19 @@ describe('hedge-cache-token-emit', () => {
 
       const committed = events.find((e) => e.type === 'hedge_fallback_committed');
       expect(committed).toBeDefined();
-      expect((committed as any).cacheCreationInputTokens).toBe(50);
-      expect((committed as any).cacheReadInputTokens).toBe(150);
+      expect(committed).toMatchObject({
+        usage: {
+          inputTokens: 200,
+          outputTokens: 100,
+          cacheWriteInputTokens: 50,
+          cacheReadInputTokens: 150,
+          totalTokens: 300,
+          details: { reasoningTokens: 20 },
+        },
+      });
     });
 
-    it('reverse 3: non-Anthropic provider 0 cache_* → emit absent cache cols (undefined)', async () => {
+    it('keeps unreported cache fields absent instead of inventing zeroes', async () => {
       /** Fallback responds at 50ms before the primary's 100ms delayed failure. */
       const PRIMARY_STREAM_DELAY_MS = 100;
       const FALLBACK_CALL_DELAY_MS = 50;
@@ -998,7 +1014,7 @@ describe('hedge-cache-token-emit', () => {
         callResponse: {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         },
         callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
@@ -1013,13 +1029,16 @@ describe('hedge-cache-token-emit', () => {
 
       const committed = events.find((e) => e.type === 'hedge_fallback_committed');
       expect(committed).toBeDefined();
-      expect((committed as any).cacheCreationInputTokens).toBeUndefined();
-      expect((committed as any).cacheReadInputTokens).toBeUndefined();
+      expect(committed).toMatchObject({
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      });
+      if (committed?.type === 'hedge_fallback_committed') {
+        expect(committed.usage?.cacheWriteInputTokens).toBeUndefined();
+        expect(committed.usage?.cacheReadInputTokens).toBeUndefined();
+      }
 
       const doneChunk = chunks.find((c) => c.type === 'done');
-      expect(doneChunk).toBeDefined();
-      expect((doneChunk as any).usage?.cacheCreationInputTokens).toBeUndefined();
-      expect((doneChunk as any).usage?.cacheReadInputTokens).toBeUndefined();
+      expect(doneChunk?.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
     });
   });
 });
