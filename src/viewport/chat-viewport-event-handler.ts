@@ -137,6 +137,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         if (!streamBuf) break;
         const clean = streamBuf.endsWith('▋') ? streamBuf.slice(0, -1) : streamBuf;
         deps.mainUI.setPreview({ kind: 'text', text: clean, streaming: false });
+        deps.mainUI.flushDisplay();
         break;
       }
 
@@ -154,6 +155,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'send_content_end': {
         deps.mainUI.flushStreamingNormal();
         deps.mainUI.clearPreview();
+        deps.mainUI.flushDisplay();
         break;
       }
 
@@ -201,7 +203,9 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const display = typeof msg === 'string' ? msg
           : interruptSrc === 'esc' ? 'Interrupted (Esc)' : 'Interrupted';
         deps.turnTracker.interrupted();
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: display });
+        deps.sink.emit({
+          kind: 'text-line', color: '\x1b[33m', text: display });
+        deps.mainUI.flushDisplay();
         break;
       }
 

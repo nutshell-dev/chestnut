@@ -95,6 +95,8 @@ export function isRepeatedWrite(
 
 /** phase 1942 Step B: 进程内可对账计数（RenderAccounting 口径，见 Phase 1942 总览 D2）。 */
 export interface RenderAccounting {
+  displayRequests: number;
+  coalescedDisplayRequests: number;
   renderRequests: number;
   repeatedRenderRequests: number;
   terminalWrites: number;
@@ -107,6 +109,8 @@ export interface RenderAccounting {
 }
 
 interface RenderRequestBatch {
+  displayRequests: number;
+  coalescedDisplayRequests: number;
   requests: number;
   repeatedRequests: number;
   firstTs: number;
@@ -153,6 +157,8 @@ export function createViewportObservability(deps: Deps) {
   let lastRenderFingerprint: RenderFingerprint | undefined;
   let lastWriteSample: TerminalWriteSample | undefined;
   const accounting: RenderAccounting = {
+    displayRequests: 0,
+    coalescedDisplayRequests: 0,
     renderRequests: 0,
     repeatedRenderRequests: 0,
     terminalWrites: 0,
@@ -226,6 +232,8 @@ export function createViewportObservability(deps: Deps) {
     if (!renderRequest) return;
     deps.audit.write(
       VIEWPORT_AUDIT_EVENTS.RENDER_REQUEST_BATCH,
+      `display_requests=${renderRequest.displayRequests}`,
+      `coalesced_display_requests=${renderRequest.coalescedDisplayRequests}`,
       `requests=${renderRequest.requests}`,
       `repeated=${renderRequest.repeatedRequests}`,
       `span_ms=${now() - renderRequest.firstTs}`,
@@ -286,6 +294,22 @@ export function createViewportObservability(deps: Deps) {
     }
   };
 
+  const recordDisplayRequest = (coalesced: boolean) => {
+    accounting.displayRequests += 1;
+    if (coalesced) accounting.coalescedDisplayRequests += 1;
+    if (!renderRequest) {
+      renderRequest = {
+        displayRequests: 0,
+        coalescedDisplayRequests: 0,
+        requests: 0,
+        repeatedRequests: 0,
+        firstTs: now(),
+      };
+    }
+    renderRequest.displayRequests += 1;
+    if (coalesced) renderRequest.coalescedDisplayRequests += 1;
+  };
+
   /**
    * phase 1942 Step B: 记录一次 requestRender 的稳定状态指纹。
    * 指纹不含正文；与上一次相同 → repeated（同一渲染状态的重复请求）。
@@ -296,8 +320,15 @@ export function createViewportObservability(deps: Deps) {
     lastRenderFingerprint = fingerprint;
     accounting.renderRequests += 1;
     if (repeated) accounting.repeatedRenderRequests += 1;
-    if (!renderRequest)
-      renderRequest = { requests: 0, repeatedRequests: 0, firstTs: t };
+    if (!renderRequest) {
+      renderRequest = {
+        displayRequests: 0,
+        coalescedDisplayRequests: 0,
+        requests: 0,
+        repeatedRequests: 0,
+        firstTs: t,
+      };
+    }
     renderRequest.requests += 1;
     if (repeated) renderRequest.repeatedRequests += 1;
     if (
@@ -453,6 +484,7 @@ export function createViewportObservability(deps: Deps) {
   return {
     recordEvent,
     recordRender,
+    recordDisplayRequest,
     recordRenderRequest,
     recordTerminalWrite,
     getRenderAccounting,

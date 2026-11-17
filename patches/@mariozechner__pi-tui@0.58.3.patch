@@ -1,5 +1,5 @@
 diff --git a/dist/stdin-buffer.js b/dist/stdin-buffer.js
-index f48d9b8ba7ce608e4b0e02910c90edc4d043e8e8..78955fd86a0342365e78dcb01792d92f4868bb80 100644
+index f48d9b8ba7ce608e4b0e02910c90edc4d043e8e8..74e532fc5ea8d746921e4f6edf5f6402bace0485 100644
 --- a/dist/stdin-buffer.js
 +++ b/dist/stdin-buffer.js
 @@ -231,9 +231,13 @@ export class StdinBuffer extends EventEmitter {
@@ -17,15 +17,44 @@ index f48d9b8ba7ce608e4b0e02910c90edc4d043e8e8..78955fd86a0342365e78dcb01792d92f
              if (endIndex !== -1) {
                  const pastedContent = this.pasteBuffer.slice(0, endIndex);
                  const remaining = this.pasteBuffer.slice(endIndex + BRACKETED_PASTE_END.length);
+diff --git a/dist/tui.d.ts b/dist/tui.d.ts
+index 9ae2730825f571e5319e92334e2844a5524da15d..c9dea07ed62f3af7ddbb1094e3a3cd12e3be491e 100644
+--- a/dist/tui.d.ts
++++ b/dist/tui.d.ts
+@@ -143,6 +143,9 @@ export declare class TUI extends Container {
+     private renderRequested;
+     private cursorRow;
+     private hardwareCursorRow;
++    private hardwareCursorCol;
++    private hardwareCursorVisible;
++    private renderWriteBuffer;
+     private inputBuffer;
+     private cellSizeQueryPending;
+     private showHardwareCursor;
+@@ -185,6 +188,7 @@ export declare class TUI extends Container {
+     private queryCellSize;
+     stop(): void;
+     requestRender(force?: boolean): void;
++    flush(): void;
+     private handleInput;
+     private parseCellSizeResponse;
+     /**
+@@ -210,6 +214,7 @@ export declare class TUI extends Container {
+      */
+     private extractCursorPosition;
+     private doRender;
++    private doRenderFrame;
+     /**
+      * Position the hardware cursor for IME candidate window.
+      * @param cursorPos The cursor position extracted from rendered output, or null
 diff --git a/dist/tui.js b/dist/tui.js
+index 8a0d2a61ac2af465ce62b23f66498b1ccc672595..271966c96b46d3b05ecefc6c1c00de2c434b1a86 100644
 --- a/dist/tui.js
 +++ b/dist/tui.js
-@@ -60,7 +60,20 @@
-             lines.push(...child.render(width));
-         }
+@@ -62,6 +62,19 @@ export class Container {
          return lines;
-+    }
-+}
+     }
+ }
 +/**
 + * chestnut patch (phase 1942 Step C): 严格单行 cap rollover 判定——
 + * previous 去掉首行后与 next 去掉末行逐行相同（旧首行移出、末行追加）。
@@ -36,13 +65,178 @@ diff --git a/dist/tui.js b/dist/tui.js
 +    for (let i = 1; i < previous.length; i++) {
 +        if (previous[i] !== next[i - 1])
 +            return false;
-     }
++    }
 +    return true;
- }
++}
  /**
   * TUI - Main class for managing terminal UI with differential rendering
-\ No newline at end of file
-@@ -808,6 +821,33 @@
+  */
+@@ -77,6 +90,9 @@ export class TUI extends Container {
+     renderRequested = false;
+     cursorRow = 0; // Logical cursor row (end of rendered content)
+     hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
++    hardwareCursorCol = null;
++    hardwareCursorVisible = null;
++    renderWriteBuffer = null;
+     inputBuffer = ""; // Buffer for parsing terminal responses
+     cellSizeQueryPending = false;
+     showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
+@@ -95,6 +111,20 @@ export class TUI extends Container {
+             this.showHardwareCursor = showHardwareCursor;
+         }
+     }
++    writeTerminal(data, cursorWrite = false) {
++        if (!cursorWrite)
++            this.hardwareCursorCol = null;
++        if (this.renderWriteBuffer)
++            this.renderWriteBuffer.push(data);
++        else
++            this.terminal.write(data);
++    }
++    setHardwareCursorVisible(visible) {
++        if (this.hardwareCursorVisible === visible)
++            return;
++        this.hardwareCursorVisible = visible;
++        this.writeTerminal(visible ? "\x1b[?25h" : "\x1b[?25l", true);
++    }
+     get fullRedraws() {
+         return this.fullRedrawCount;
+     }
+@@ -106,7 +136,7 @@ export class TUI extends Container {
+             return;
+         this.showHardwareCursor = enabled;
+         if (!enabled) {
+-            this.terminal.hideCursor();
++            this.setHardwareCursorVisible(false);
+         }
+         this.requestRender();
+     }
+@@ -149,7 +179,7 @@ export class TUI extends Container {
+         if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
+             this.setFocus(component);
+         }
+-        this.terminal.hideCursor();
++        this.setHardwareCursorVisible(false);
+         this.requestRender();
+         // Return handle for controlling this overlay
+         return {
+@@ -163,7 +193,7 @@ export class TUI extends Container {
+                         this.setFocus(topVisible?.component ?? entry.preFocus);
+                     }
+                     if (this.overlayStack.length === 0)
+-                        this.terminal.hideCursor();
++                        this.setHardwareCursorVisible(false);
+                     this.requestRender();
+                 }
+             },
+@@ -219,7 +249,7 @@ export class TUI extends Container {
+             this.setFocus(topVisible?.component ?? overlay.preFocus);
+         }
+         if (this.overlayStack.length === 0)
+-            this.terminal.hideCursor();
++            this.setHardwareCursorVisible(false);
+         this.requestRender();
+     }
+     /** Check if there are any visible overlays */
+@@ -254,7 +284,7 @@ export class TUI extends Container {
+     start() {
+         this.stopped = false;
+         this.terminal.start((data) => this.handleInput(data), () => this.requestRender());
+-        this.terminal.hideCursor();
++        this.setHardwareCursorVisible(false);
+         this.queryCellSize();
+         this.requestRender();
+     }
+@@ -275,23 +305,24 @@ export class TUI extends Container {
+         // Query terminal for cell size in pixels: CSI 16 t
+         // Response format: CSI 6 ; height ; width t
+         this.cellSizeQueryPending = true;
+-        this.terminal.write("\x1b[16t");
++        this.writeTerminal("\x1b[16t");
+     }
+     stop() {
++        this.flush();
+         this.stopped = true;
+         // Move cursor to the end of the content to prevent overwriting/artifacts on exit
+         if (this.previousLines.length > 0) {
+             const targetRow = this.previousLines.length; // Line after the last content
+             const lineDiff = targetRow - this.hardwareCursorRow;
+             if (lineDiff > 0) {
+-                this.terminal.write(`\x1b[${lineDiff}B`);
++                this.writeTerminal(`\x1b[${lineDiff}B`);
+             }
+             else if (lineDiff < 0) {
+-                this.terminal.write(`\x1b[${-lineDiff}A`);
++                this.writeTerminal(`\x1b[${-lineDiff}A`);
+             }
+-            this.terminal.write("\r\n");
++            this.writeTerminal("\r\n");
+         }
+-        this.terminal.showCursor();
++        this.setHardwareCursorVisible(true);
+         this.terminal.stop();
+     }
+     requestRender(force = false) {
+@@ -308,10 +339,18 @@ export class TUI extends Container {
+             return;
+         this.renderRequested = true;
+         process.nextTick(() => {
++            if (!this.renderRequested)
++                return;
+             this.renderRequested = false;
+             this.doRender();
+         });
+     }
++    flush() {
++        if (!this.renderRequested || this.stopped)
++            return;
++        this.renderRequested = false;
++        this.doRender();
++    }
+     handleInput(data) {
+         if (this.inputListeners.size > 0) {
+             let current = data;
+@@ -653,6 +692,21 @@ export class TUI extends Container {
+         return null;
+     }
+     doRender() {
++        if (this.stopped)
++            return;
++        const previousBuffer = this.renderWriteBuffer;
++        const writes = [];
++        this.renderWriteBuffer = writes;
++        try {
++            this.doRenderFrame();
++        }
++        finally {
++            this.renderWriteBuffer = previousBuffer;
++            if (writes.length > 0)
++                this.terminal.write(writes.join(""));
++        }
++    }
++    doRenderFrame() {
+         if (this.stopped)
+             return;
+         const width = this.terminal.columns;
+@@ -689,7 +743,7 @@ export class TUI extends Container {
+                 buffer += newLines[i];
+             }
+             buffer += "\x1b[?2026l"; // End synchronized output
+-            this.terminal.write(buffer);
++            this.writeTerminal(buffer);
+             this.cursorRow = Math.max(0, newLines.length - 1);
+             this.hardwareCursorRow = this.cursorRow;
+             // Reset max lines when clearing, otherwise track growth
+@@ -793,7 +847,7 @@ export class TUI extends Container {
+                     buffer += `\x1b[${extraLines}A`;
+                 }
+                 buffer += "\x1b[?2026l";
+-                this.terminal.write(buffer);
++                this.writeTerminal(buffer);
+                 this.cursorRow = targetRow;
+                 this.hardwareCursorRow = targetRow;
+             }
+@@ -808,6 +862,33 @@ export class TUI extends Container {
          // Use previousLines.length (not maxLinesRendered) to avoid false positives after content shrinks
          const previousContentViewportTop = Math.max(0, this.previousLines.length - height);
          if (firstChanged < previousContentViewportTop) {
@@ -63,7 +257,7 @@ diff --git a/dist/tui.js b/dist/tui.js
 +                buffer += "\r\n"; // 原生滚动 1 行：顶部可见行移入 scrollback（语义正确）
 +                buffer += "\x1b[2K" + newLines[newLines.length - 1];
 +                buffer += "\x1b[?2026l";
-+                this.terminal.write(buffer);
++                this.writeTerminal(buffer);
 +                this.cursorRow = newLines.length - 1;
 +                this.hardwareCursorRow = newLines.length - 1;
 +                this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
@@ -76,4 +270,47 @@ diff --git a/dist/tui.js b/dist/tui.js
              // First change is above previous viewport - need full re-render
              logRedraw(`firstChanged < viewportTop (${firstChanged} < ${previousContentViewportTop})`);
              fullRender(true);
-\ No newline at end of file
+@@ -923,7 +1004,7 @@ export class TUI extends Container {
+             fs.writeFileSync(debugPath, debugData);
+         }
+         // Write entire buffer at once
+-        this.terminal.write(buffer);
++        this.writeTerminal(buffer);
+         // Track cursor position for next render
+         // cursorRow tracks end of content (for viewport calculation)
+         // hardwareCursorRow tracks actual terminal cursor position (for movement)
+@@ -945,7 +1026,7 @@ export class TUI extends Container {
+      */
+     positionHardwareCursor(cursorPos, totalLines) {
+         if (!cursorPos || totalLines <= 0) {
+-            this.terminal.hideCursor();
++            this.setHardwareCursorVisible(false);
+             return;
+         }
+         // Clamp cursor position to valid range
+@@ -960,17 +1041,20 @@ export class TUI extends Container {
+         else if (rowDelta < 0) {
+             buffer += `\x1b[${-rowDelta}A`; // Move up
+         }
+-        // Move to absolute column (1-indexed)
+-        buffer += `\x1b[${targetCol + 1}G`;
++        if (this.hardwareCursorCol !== targetCol) {
++            // Move to absolute column (1-indexed) only when the cached column differs.
++            buffer += `\x1b[${targetCol + 1}G`;
++        }
+         if (buffer) {
+-            this.terminal.write(buffer);
++            this.writeTerminal(buffer, true);
+         }
+         this.hardwareCursorRow = targetRow;
++        this.hardwareCursorCol = targetCol;
+         if (this.showHardwareCursor) {
+-            this.terminal.showCursor();
++            this.setHardwareCursorVisible(true);
+         }
+         else {
+-            this.terminal.hideCursor();
++            this.setHardwareCursorVisible(false);
+         }
+     }
+ }

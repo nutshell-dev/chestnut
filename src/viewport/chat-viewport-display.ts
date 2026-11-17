@@ -50,6 +50,7 @@ export function createDisplay(deps: DisplayDeps) {
   let contentRevision = 0;
   let previewRevision = 0;
   let lastSuffixBody: string | null = null;
+  let pendingDisplay: object | null = null;
 
   const invalidateBodyCache = () => { bodyCache = null; };
 
@@ -126,13 +127,32 @@ export function createDisplay(deps: DisplayDeps) {
     });
   };
 
+  const requestDisplayUpdate = () => {
+    const coalesced = pendingDisplay !== null;
+    deps.observability.recordDisplayRequest(coalesced);
+    if (pendingDisplay) return;
+    const token = {};
+    pendingDisplay = token;
+    process.nextTick(() => {
+      if (pendingDisplay !== token) return;
+      pendingDisplay = null;
+      updateDisplay();
+    });
+  };
+
+  const flushDisplay = () => {
+    if (!pendingDisplay) return;
+    pendingDisplay = null;
+    updateDisplay();
+  };
+
   const appendOutput = (color: string, text: string, wrap = false, hangIndent = '') => {
     outputLines.push({ color, text, wrap, hangIndent });
     if (outputLines.length > OUTPUT_LINES_CAP) {
       outputLines.splice(0, outputLines.length - OUTPUT_LINES_CAP);
     }
     invalidateBodyCache();   // outputLines 变 / cache 失效 / 下次 updateDisplay 重算
-    updateDisplay();
+    requestDisplayUpdate();
   };
 
   const clearOutputLines = () => { outputLines.length = 0; };
@@ -141,7 +161,7 @@ export function createDisplay(deps: DisplayDeps) {
     deps.updateClawPanel(deps.clawTrackMap);
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
     refreshStatusTexts(cols);
-    updateDisplay();
+    requestDisplayUpdate();
   };
 
   const descriptorSink: DescriptorSink = {
@@ -178,13 +198,14 @@ export function createDisplay(deps: DisplayDeps) {
       }
     }
     invalidateBodyCache();
-    updateDisplay();
+    requestDisplayUpdate();
   };
 
   return {
     outputLines,
     invalidateBodyCache,
-    updateDisplay,
+    updateDisplay: requestDisplayUpdate,
+    flushDisplay,
     appendOutput,
     clearOutputLines,
     resolvePending,

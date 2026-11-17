@@ -43,6 +43,7 @@ function makeHarness(taskStatusBar?: TaskStatusBarController) {
   });
   return {
     display,
+    observability,
     get rendered() { return rendered; },
     get renders() { return renders; },
     get migratedExecText() { return migratedExecText; },
@@ -76,6 +77,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     const h = makeHarness();
     h.setPreviewText(Array.from({ length: 30 }, (_, i) => `preview line ${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     const lines = h.rendered.split('\n');
     // body 1 行（初始 watching 行）+ 后缀 ≤ 23 行
@@ -91,6 +93,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     h.setStatus('⠋ Thinking...');
     h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     const lines = h.rendered.split('\n');
     expect(lines.length).toBe(1 + 23);
@@ -104,10 +107,12 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     const h = makeHarness();
     h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered.split('\n').length).toBe(24);
 
     h.setPreviewText('');
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered).toBe('[test] Watching daemon activity...');
   });
 
@@ -116,10 +121,12 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     const h = makeHarness();
     h.setPreviewText(Array.from({ length: 200 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
     const before = bodyLineCount(h.rendered);
 
     h.setPreviewText('');
     h.display.updateDisplay();
+    h.display.flushDisplay();
     const after = bodyLineCount(h.rendered);
 
     // 从任意高度折叠到空：删除行数 = 23 = rows-1 < 24（屏高）
@@ -134,11 +141,14 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     h.display.appendOutput('', 'body 2');
     h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
     // body 3 行（含初始行）+ 23 后缀
     expect(h.rendered.split('\n').length).toBe(3 + 23);
 
     setSize(COLS, 10);
     h.display.onResize();
+    h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered.split('\n').length).toBe(3 + 9);
     expect(h.rendered).toContain('body 1');
     expect(h.rendered).toContain('body 2');
@@ -152,6 +162,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     h.setStatus('⠋ Thinking...');
     h.setPreviewText('p1\np2');
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered).toBe('[test] Watching daemon activity...');
   });
 
@@ -162,6 +173,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     expect(h.display.outputLines.length).toBe(101);   // 初始行 + 100
     h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.display.outputLines.length).toBe(101);   // 后缀预算不触碰永久历史
     expect(h.rendered.split('\n').length).toBe(101 + 23);
   });
@@ -174,13 +186,53 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
       { text: '  line2', style: 'dim' },
     ]);
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered).toContain('\x1b[2m⏺ [thinking] line1\x1b[0m');
     expect(h.rendered).toContain('\x1b[2m  line2\x1b[0m');
 
     h.setPreviewLines([{ text: '➤ send', style: 'plain' }]);
     h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.rendered).toContain('➤ send');
     expect(h.rendered).not.toContain('\x1b[2m➤');
+  });
+});
+
+
+describe('Phase 2189 Step C: display commit coalescing', () => {
+  it('materializes only the latest state once per tick', async () => {
+    setSize(COLS, 24);
+    const h = makeHarness();
+    h.setPreviewText('first');
+    h.display.updateDisplay();
+    h.setPreviewText('second');
+    h.display.updateDisplay();
+    h.setPreviewText('latest');
+    h.display.updateDisplay();
+
+    expect(h.renders).toBe(0);
+    await new Promise<void>(resolve => process.nextTick(resolve));
+
+    expect(h.renders).toBe(1);
+    expect(h.rendered).toContain('latest');
+    expect(h.rendered).not.toContain('first');
+    const accounting = h.observability.getRenderAccounting();
+    expect(accounting.displayRequests).toBe(3);
+    expect(accounting.coalescedDisplayRequests).toBe(2);
+    expect(accounting.renderRequests).toBe(1);
+  });
+
+  it('flush commits immediately and invalidates the queued callback', async () => {
+    setSize(COLS, 24);
+    const h = makeHarness();
+    h.setPreviewText('final');
+    h.display.updateDisplay();
+    h.display.updateDisplay();
+    h.display.flushDisplay();
+    expect(h.renders).toBe(1);
+
+    await new Promise<void>(resolve => process.nextTick(resolve));
+    expect(h.renders).toBe(1);
   });
 });
 
@@ -195,12 +247,16 @@ describe('Phase 2079: migrated exec resize with the real task status bar', () =>
 
     setSize(40, 24);
     h.display.onResize();
+    h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(stringWidth(h.migratedExecText)).toBeLessThanOrEqual(40);
     expect(h.migratedExecText).toContain('…');
     expect(h.migratedExecText).not.toContain(tailMarker);
 
     setSize(stringWidth(command) + 40, 24);
     h.display.onResize();
+    h.display.updateDisplay();
+    h.display.flushDisplay();
     expect(h.migratedExecText).toContain(command);
     expect(h.migratedExecText).toContain(tailMarker);
     expect(h.migratedExecText).not.toContain('…');

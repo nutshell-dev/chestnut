@@ -250,6 +250,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   mainUI = createMainTurnUI({
     appendOutput: displayWithHolder.appendOutput,
     updateDisplay: displayWithHolder.updateDisplay,
+    flushDisplay: displayWithHolder.flushDisplay,
     trimOutputNewlines,
     getThinkingMode: () => thinkingMode,
     audit: options.audit,
@@ -617,6 +618,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     mainUI.flushStreaming();
     mainUI.clearPreview();
     mainUI.enterPhase('idle');
+    displayWithHolder.flushDisplay();
+    tui.flush();
     observability.recordShutdown(shutdownReason);
     if (clawScanInterval) clearInterval(clawScanInterval);
     clearInterval(statusBarRefreshInterval);

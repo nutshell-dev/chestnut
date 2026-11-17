@@ -279,7 +279,9 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     setColumns(80);
     const h = makeDisplayHarness();
     h.display.updateDisplay();
+    h.display.flushDisplay();
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     expect(h.requestRender).toHaveBeenCalledTimes(2);
     const acc = h.observability.getRenderAccounting();
@@ -291,8 +293,11 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     setColumns(80);
     const h = makeDisplayHarness();
     h.display.updateDisplay();
+    h.display.flushDisplay();
     h.display.appendOutput('', 'new line');
+    h.display.flushDisplay();
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     const acc = h.observability.getRenderAccounting();
     // req1(A) → req2(B, appendOutput 内部 updateDisplay) → req3(B 再次 → 唯一一次重复)
@@ -304,8 +309,10 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     setColumns(80);
     const h = makeDisplayHarness();
     h.display.updateDisplay();
+    h.display.flushDisplay();
     h.setPreviewText('streaming chunk');
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     const acc = h.observability.getRenderAccounting();
     expect(acc.repeatedRenderRequests).toBe(0);
@@ -315,8 +322,10 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     setColumns(80);
     const h = makeDisplayHarness();
     h.display.updateDisplay();
+    h.display.flushDisplay();
     setColumns(100);
     h.display.onResize();
+    h.display.flushDisplay();
 
     const acc = h.observability.getRenderAccounting();
     expect(acc.repeatedRenderRequests).toBe(0);
@@ -326,9 +335,11 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     setColumns(80);
     const h = makeDisplayHarness();
     h.display.updateDisplay();
+    h.display.flushDisplay();
     h.display.appendOutput('', 'a');
     h.setPreviewText('p');
     h.display.updateDisplay();
+    h.display.flushDisplay();
 
     expect(h.observability.getRenderAccounting().renderRequests)
       .toBe(h.requestRender.mock.calls.length);

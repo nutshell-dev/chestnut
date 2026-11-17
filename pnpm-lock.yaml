@@ -9,7 +9,7 @@ patchedDependencies:
     hash: 877ba857aeac65c52d05807dae43cc6ff7881562dfd46c78c1dd4af166b651fc
     path: patches/@earendil-works__pi-ai@1.4.0.patch
   '@mariozechner/pi-tui@0.58.3':
-    hash: 68793e1c018c551d5d9051bb1132a64a9b8c76fe341eb68c02f5003fdb375300
+    hash: 69410011574ce1d104504893611c0118b78f24ec94f61dd9e22b025ed83021bc
     path: patches/@mariozechner__pi-tui@0.58.3.patch
   tsup@8.5.1:
     hash: 7750aeb7389aaacd38286bb354cba9c91fae3b99e1319fe4b9d11415ce3a4477
@@ -27,7 +27,7 @@ importers:
         version: 0.2.0
       '@mariozechner/pi-tui':
         specifier: ^0.58.3
-        version: 0.58.3(patch_hash=68793e1c018c551d5d9051bb1132a64a9b8c76fe341eb68c02f5003fdb375300)
+        version: 0.58.3(patch_hash=69410011574ce1d104504893611c0118b78f24ec94f61dd9e22b025ed83021bc)
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
@@ -2105,7 +2105,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@mariozechner/pi-tui@0.58.3(patch_hash=68793e1c018c551d5d9051bb1132a64a9b8c76fe341eb68c02f5003fdb375300)':
+  '@mariozechner/pi-tui@0.58.3(patch_hash=69410011574ce1d104504893611c0118b78f24ec94f61dd9e22b025ed83021bc)':
     dependencies:
       '@types/mime-types': 2.1.4
       chalk: 5.6.2

@@ -60,6 +60,7 @@ export interface PreviewLine {
 export interface MainTurnUIDeps {
   appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
   updateDisplay: () => void;
+  flushDisplay?: () => void;
   trimOutputNewlines: boolean;
   getThinkingMode: () => 'compact' | 'full' | 'off';
   audit: AuditLog;
@@ -71,6 +72,7 @@ export interface MainTurnUIController {
   getPhase(): TurnUIPhase;
   setPreview(block: PreviewBlock | null): void;
   clearPreview(): void;
+  flushDisplay(): void;
   getStatus(): string;
   getPreviewLines(): readonly PreviewLine[];
   appendToBuffer(delta: string): string;
@@ -258,6 +260,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     previewLines = [];
     deps.updateDisplay();
   };
+  const flushDisplay = () => deps.flushDisplay?.();
 
   // Phase 1992 Step C: flush 与 preview 共用同一 renderer 的字符串出口
   const styleColor = (style: PreviewLine['style']): string =>
@@ -315,7 +318,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   return {
     enterPhase,
     getPhase: () => phase,
-    setPreview, clearPreview,
+    setPreview, clearPreview, flushDisplay,
     getStatus: () => statusText,
     getPreviewLines: () => previewLines,
     appendToBuffer, flushStreaming, flushStreamingNormal,
