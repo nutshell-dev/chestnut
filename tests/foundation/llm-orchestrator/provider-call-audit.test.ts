@@ -102,8 +102,8 @@ function observingProvider(name: string): ProviderAdapter {
         provider: name,
         model: 'model-x',
         inputSource: 'unlinked',
-        usage: { inputTokens: 12, outputTokens: 2 },
-        totalUsageInputTokens: 12,
+        usage: { unCachedInputTokens: 12, outputTokens: 2, totalTokens: 14 },
+        effectiveInputTokens: 12,
         normalizedUsageInputTokens: 12,
         measuredInputTokens: 12,
         deltaTokens: 0,
@@ -144,7 +144,8 @@ function artifactObservingProvider(name: string, requestId: string, error?: Erro
         : {
             kind: 'completed', requestId, provider: name, model: 'model-x', inputSource: 'unlinked',
             reconciliation: 'matched', measurement, measuredInputTokens: 12,
-            usage: { inputTokens: 12, outputTokens: 2 }, normalizedUsageInputTokens: 12, artifactRef,
+            usage: { unCachedInputTokens: 12, outputTokens: 2, totalTokens: 14 },
+            effectiveInputTokens: 12, normalizedUsageInputTokens: 12, artifactRef,
           });
       if (error) throw error;
       return OK_RESPONSE;
@@ -180,8 +181,8 @@ function retryingObservingProvider(name: string): ProviderAdapter {
       }
       options.onInputMeasurement?.({
         kind: 'completed', requestId, provider: name, model: 'model-x', inputSource: 'unlinked',
-        usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 2 },
-        normalizedUsageInputTokens: 12, totalUsageInputTokens: 12,
+        usage: { unCachedInputTokens: 10, outputTokens: 2, cacheReadInputTokens: 2, totalTokens: 14 },
+        effectiveInputTokens: 12, normalizedUsageInputTokens: 12,
         measuredInputTokens: 12, deltaTokens: 0, reconciliation: 'matched',
         descriptorRevision: 'rev-retry', inputHash: `hash-${requestId}`, measurement: prepared.measurement,
       });
@@ -338,9 +339,9 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       provider: 'observed', model: 'model-x', method: 'deepseek-v41-template', input_tokens: '12', input_source: 'unlinked',
     }));
     expect(measurements[1]).toEqual(expect.objectContaining({
-      reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: '12', delta_tokens: '0',
-      normalized_usage_input_tokens: '12', revision: 'rev-observed', input_hash: 'hash-observed',
-      input_source: 'unlinked', measurement_kind: 'counted', raw_usage: '{"inputTokens":12,"outputTokens":2}',
+      reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: 'none', delta_tokens: '0',
+      effective_input_tokens: '12', normalized_usage_input_tokens: '12', revision: 'rev-observed', input_hash: 'hash-observed',
+      input_source: 'unlinked', measurement_kind: 'counted', raw_usage: '{"unCachedInputTokens":12,"outputTokens":2,"totalTokens":14}',
     }));
     expect(observations).toHaveLength(2);
     expect(observations.every(fact => fact.invocationId === inv && fact.attemptId === providerAttemptId)).toBe(true);
@@ -376,8 +377,8 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(measurements.every(row => row.input_source === 'unlinked')).toBe(true);
     expect(measurements[1]).toEqual(expect.objectContaining({ reason: 'transient retry', measurement_kind: 'counted' }));
     expect(measurements[3]).toEqual(expect.objectContaining({
-      raw_usage: '{"inputTokens":10,"outputTokens":2,"cacheReadInputTokens":2}',
-      normalized_usage_input_tokens: '12', reconciliation: 'matched',
+      raw_usage: '{"unCachedInputTokens":10,"outputTokens":2,"cacheReadInputTokens":2,"totalTokens":14}',
+      effective_input_tokens: '12', normalized_usage_input_tokens: '12', reconciliation: 'matched',
     }));
     expect(observations).toHaveLength(4);
     expect(observations.every(fact => fact.invocationId === inv)).toBe(true);

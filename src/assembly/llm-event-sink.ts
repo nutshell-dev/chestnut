@@ -392,6 +392,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
               `reconciliation=${observation.reconciliation}`,
               `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`,
               `usage_input_tokens=${observation.totalUsageInputTokens ?? 'none'}`,
+              `effective_input_tokens=${observation.effectiveInputTokens ?? observation.normalizedUsageInputTokens ?? observation.totalUsageInputTokens ?? 'none'}`,
               `delta_tokens=${observation.deltaTokens ?? 'none'}`,
               `normalized_usage_input_tokens=${observation.normalizedUsageInputTokens ?? observation.totalUsageInputTokens ?? 'none'}`,
               `raw_usage=${rawUsageForAudit(observation.usage)}`,

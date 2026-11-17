@@ -527,8 +527,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       [
         'llm_input_measurement', 'request=req-1', 'phase=completed',
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
-        'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=12', 'delta_tokens=0',
-        'normalized_usage_input_tokens=12', 'raw_usage={"inputTokens":12,"outputTokens":3}',
+        'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=none', 'effective_input_tokens=12', 'delta_tokens=0',
+        'normalized_usage_input_tokens=12', 'raw_usage={"unCachedInputTokens":12,"outputTokens":3,"cacheWriteInputTokens":0,"cacheReadInputTokens":0,"totalTokens":15}',
         'revision=rev-1', 'input_hash=hash-1', 'input_source=unlinked', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
         'artifact_id=none', 'artifact_status=none', 'artifact_schema=none', 'artifact_hash_alg=none',
         'artifact_hash=none', 'artifact_bytes=none', 'redaction_policy=none', 'artifact_reason=none',

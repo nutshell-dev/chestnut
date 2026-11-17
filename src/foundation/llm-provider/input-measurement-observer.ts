@@ -2,10 +2,15 @@ import type { InputMeasurement, InputMeterDescriptor } from './input-meter-types
 import { formatErr, sha256Hex } from '../node-utils/index.js';
 
 export interface InputMeasurementUsage {
-  inputTokens: number;
+  /** PiAi-normalized uncached input; this is not the effective input total. */
+  unCachedInputTokens: number;
   outputTokens: number;
-  cacheCreationInputTokens?: number;
+  cacheWriteInputTokens?: number;
   cacheReadInputTokens?: number;
+  /** Derived effective input total, when populated by a historical observation. */
+  effectiveInputTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
 }
 
 export type InputArtifactStatus = 'available' | 'unavailable' | 'redacted';
@@ -55,8 +60,11 @@ export type InputMeasurementObservation =
       model: string;
       /** Raw SDK usage; normalization is recorded separately and never rewrites these values. */
       usage?: InputMeasurementUsage;
-      /** Backward-compatible alias of normalizedUsageInputTokens. */
+      /** Effective supplier input used for reconciliation; never a local estimate. */
+      effectiveInputTokens?: number;
+      /** @deprecated Historical audit alias; new producers write effectiveInputTokens. */
       totalUsageInputTokens?: number;
+      /** @deprecated Compatibility alias of effectiveInputTokens. */
       normalizedUsageInputTokens?: number;
       measuredInputTokens?: number;
       deltaTokens?: number;

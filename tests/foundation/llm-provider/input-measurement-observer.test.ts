@@ -5,7 +5,7 @@ import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provide
 const { emitInputMeasurement, inputProjectionHash } = llmProviderModelMeasurement;
 type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
-import { normalizeUsageInputTokens } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
+import { normalizeProviderUsageForMeasurement } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 
 /** Five seconds leaves ample room for the mocked SDK request to finish. */
 const INPUT_OBSERVER_TIMEOUT_MS = 5_000;
@@ -45,8 +45,9 @@ describe('input measurement observer', () => {
       kind: 'completed',
       requestId: 'r2', provider: 'p', model: 'm',
       inputSource: 'unlinked',
-      usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 4 },
-      totalUsageInputTokens: 14,
+      usage: { unCachedInputTokens: 10, outputTokens: 2, cacheReadInputTokens: 4 },
+      effectiveInputTokens: 14,
+      normalizedUsageInputTokens: 14,
       measuredInputTokens: 12,
       deltaTokens: 2,
       reconciliation: 'mismatch',
@@ -72,7 +73,14 @@ describe('input measurement observer', () => {
     expect(observations[0]!.requestId).toBe(observations[1]!.requestId);
     expect(observations[1]).toMatchObject({
       kind: 'completed',
-      totalUsageInputTokens: 3,
+      usage: {
+        unCachedInputTokens: 3,
+        outputTokens: 1,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
+        totalTokens: 4,
+      },
+      effectiveInputTokens: 3,
       normalizedUsageInputTokens: 3,
       inputSource: 'unlinked',
       descriptorRevision: observations[0]!.kind === 'prepared' ? observations[0].descriptor.revision : undefined,
@@ -244,6 +252,7 @@ describe('input measurement observer', () => {
       reconciliation: 'unavailable',
       inputSource: 'unlinked',
       measurement: { kind: 'unavailable', reason: 'meter setup unavailable' },
+      effectiveInputTokens: 3,
       normalizedUsageInputTokens: 3,
     });
   });
@@ -276,21 +285,49 @@ describe('input measurement observer', () => {
     const prepared = observations[0]!;
     const completed = observations[1]!;
     expect(completed).toMatchObject({
-      usage: { inputTokens: 10, outputTokens: 4, cacheCreationInputTokens: 2, cacheReadInputTokens: 3 },
+      usage: {
+        unCachedInputTokens: 10,
+        outputTokens: 4,
+        cacheWriteInputTokens: 2,
+        cacheReadInputTokens: 3,
+        totalTokens: 19,
+      },
+      effectiveInputTokens: 15,
       normalizedUsageInputTokens: 15,
-      totalUsageInputTokens: 15,
       inputSource: 'unlinked',
       descriptorRevision: prepared.kind === 'prepared' ? prepared.descriptor.revision : undefined,
       inputHash: prepared.kind === 'prepared' ? prepared.inputHash : undefined,
     });
+    expect(completed).not.toHaveProperty('totalUsageInputTokens');
     if (completed.kind === 'completed') {
-      expect(completed.deltaTokens).toBe(completed.normalizedUsageInputTokens! - completed.measuredInputTokens!);
+      expect(completed.deltaTokens).toBe(completed.effectiveInputTokens! - completed.measuredInputTokens!);
     }
   });
 
-  it('classifies invalid SDK usage without producing a normalized value', () => {
-    const usage = { inputTokens: -1, outputTokens: 1 };
-    expect(normalizeUsageInputTokens(usage)).toEqual({ invalidFields: ['inputTokens'] });
-    expect(usage).toEqual({ inputTokens: -1, outputTokens: 1 });
+  it('returns no effective input when supplier usage is absent', () => {
+    expect(normalizeProviderUsageForMeasurement(undefined)).toEqual({ invalidFields: [] });
+  });
+
+  it.each([
+    [{ unCachedInputTokens: -1, outputTokens: 1 }, ['unCachedInputTokens']],
+    [{ unCachedInputTokens: 1.5, outputTokens: 1 }, ['unCachedInputTokens']],
+    [{ unCachedInputTokens: Number.MAX_SAFE_INTEGER + 1, outputTokens: 1 }, ['unCachedInputTokens']],
+    [{ unCachedInputTokens: 1, outputTokens: 1, reasoningTokens: -1 }, ['reasoningTokens']],
+  ])('classifies invalid supplier usage without producing an effective value', (usage, invalidFields) => {
+    expect(normalizeProviderUsageForMeasurement(usage)).toEqual({ invalidFields });
+  });
+
+  it('classifies an unsafe effective-input sum without mutating raw usage', () => {
+    const usage = {
+      unCachedInputTokens: Number.MAX_SAFE_INTEGER,
+      outputTokens: 1,
+      cacheReadInputTokens: 1,
+    };
+    expect(normalizeProviderUsageForMeasurement(usage)).toEqual({ invalidFields: ['effectiveInputTokens'] });
+    expect(usage).toEqual({
+      unCachedInputTokens: Number.MAX_SAFE_INTEGER,
+      outputTokens: 1,
+      cacheReadInputTokens: 1,
+    });
   });
 });

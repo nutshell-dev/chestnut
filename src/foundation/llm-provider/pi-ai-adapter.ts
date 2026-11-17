@@ -384,7 +384,7 @@ export class PiAiAdapter implements ProviderAdapter {
         if (event.type === 'done' && !terminalObserved) {
           terminalObserved = true;
           const usage = rawMeasurementUsage(event.message.usage);
-          const { normalizedUsageInputTokens, invalidFields } = normalizeUsageInputTokens(usage);
+          const { effectiveInputTokens, invalidFields } = normalizeProviderUsageForMeasurement(usage);
           emitInputMeasurement(options.onInputMeasurement, {
             kind: 'completed',
             requestId,
@@ -396,18 +396,18 @@ export class PiAiAdapter implements ProviderAdapter {
             artifactRef,
             ...(measurement !== undefined ? { measurement } : {}),
             ...(usage !== undefined ? { usage } : {}),
-            ...(normalizedUsageInputTokens !== undefined ? {
-              totalUsageInputTokens: normalizedUsageInputTokens,
-              normalizedUsageInputTokens,
+            ...(effectiveInputTokens !== undefined ? {
+              effectiveInputTokens,
+              normalizedUsageInputTokens: effectiveInputTokens,
             } : {}),
             ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
-            ...(normalizedUsageInputTokens !== undefined && measuredInputTokens !== undefined
-              ? { deltaTokens: normalizedUsageInputTokens - measuredInputTokens } : {}),
+            ...(effectiveInputTokens !== undefined && measuredInputTokens !== undefined
+              ? { deltaTokens: effectiveInputTokens - measuredInputTokens } : {}),
             reconciliation: usage === undefined || invalidFields.length > 0
               ? 'no_usage'
               : measuredInputTokens === undefined
                 ? 'unavailable'
-                : normalizedUsageInputTokens === measuredInputTokens ? 'matched' : 'mismatch',
+                : effectiveInputTokens === measuredInputTokens ? 'matched' : 'mismatch',
             ...(invalidFields.length > 0 ? { reason: `invalid_usage:${invalidFields.join(',')}` } : {}),
           });
         }
@@ -525,41 +525,45 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 }
 
-/** Preserve SDK usage for observation without the response mapping's zero-value elision. */
+/** Copy PiAi usage facts without replacing them with derived or local measurements. */
 function rawMeasurementUsage(usage: PiAi.Usage | undefined): InputMeasurementUsage | undefined {
   if (!usage) return undefined;
   return {
-    inputTokens: usage.input,
+    unCachedInputTokens: usage.input,
     outputTokens: usage.output,
-    ...(usage.cacheWrite !== undefined ? { cacheCreationInputTokens: usage.cacheWrite } : {}),
+    ...(usage.cacheWrite !== undefined ? { cacheWriteInputTokens: usage.cacheWrite } : {}),
     ...(usage.cacheRead !== undefined ? { cacheReadInputTokens: usage.cacheRead } : {}),
+    ...(usage.totalTokens !== undefined ? { totalTokens: usage.totalTokens } : {}),
+    ...(usage.reasoning !== undefined ? { reasoningTokens: usage.reasoning } : {}),
   };
 }
 
-/** The single owner of usage-input normalization and numeric validity classification. */
-export function normalizeUsageInputTokens(usage: InputMeasurementUsage | undefined): {
-  normalizedUsageInputTokens?: number;
+/** The single owner of measurement usage validation and effective-input normalization. */
+export function normalizeProviderUsageForMeasurement(usage: InputMeasurementUsage | undefined): {
+  effectiveInputTokens?: number;
   invalidFields: string[];
 } {
   if (!usage) return { invalidFields: [] };
-  const fields: Array<keyof InputMeasurementUsage> = [
-    'inputTokens',
+  const fields = [
+    'unCachedInputTokens',
     'outputTokens',
-    'cacheCreationInputTokens',
+    'cacheWriteInputTokens',
     'cacheReadInputTokens',
-  ];
+    'totalTokens',
+    'reasoningTokens',
+  ] as const;
   const invalidFields: string[] = fields.filter(field => {
     const value = usage[field];
     return value !== undefined && (!Number.isSafeInteger(value) || value < 0);
   });
-  const normalized = usage.inputTokens
-    + (usage.cacheCreationInputTokens ?? 0)
-    + (usage.cacheReadInputTokens ?? 0);
-  if (!Number.isSafeInteger(normalized)) invalidFields.push('normalizedUsageInputTokens');
-  return {
-    ...(invalidFields.length === 0 ? { normalizedUsageInputTokens: normalized } : {}),
-    invalidFields,
-  };
+  if (invalidFields.length > 0) return { invalidFields };
+  const effectiveInputTokens = usage.unCachedInputTokens
+    + (usage.cacheReadInputTokens ?? 0)
+    + (usage.cacheWriteInputTokens ?? 0);
+  if (!Number.isSafeInteger(effectiveInputTokens)) {
+    return { invalidFields: ['effectiveInputTokens'] };
+  }
+  return { effectiveInputTokens, invalidFields: [] };
 }
 
 /** pi-ai AssistantMessage → chestnut LLMResponse（call 路径）。 */
