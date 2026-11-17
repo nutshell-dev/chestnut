@@ -43,12 +43,44 @@ describe('stream-writer', () => {
       expect(parsed.type).toBe('test');
     });
 
-    it('write before open does not throw + emits WRITE_AFTER_CLOSE audit (phase 1203)', () => {
+    it('write before open does not throw + emits distinct lifecycle evidence', () => {
       const { audit, events } = makeAudit();
       const writer = new StreamWriter(fs, audit);
       expect(() => writer.write({ ts: 1, type: 'dropped' })).not.toThrow();
       expect(fsSync.existsSync(path.join(tmpDir, 'stream.jsonl'))).toBe(false);
-      expect(events.some(e => e[0] === 'stream_write_after_close')).toBe(true);
+      const evidence = events.find(e => e[0] === STREAM_AUDIT_EVENTS.WRITE_BEFORE_OPEN);
+      expect(evidence).toEqual(expect.arrayContaining([
+        'path=stream.jsonl',
+        'type=dropped',
+        'ts=1',
+        'state=created',
+        'reason=writer_not_open',
+      ]));
+      expect(events.some(e => e[0] === STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE)).toBe(false);
+    });
+
+    it('open failure keeps created state and preserves original error', () => {
+      const { audit, events } = makeAudit();
+      fs.writeExclusiveSync = vi.fn(() => { throw new Error('open blocked'); });
+      const writer = new StreamWriter(fs, audit);
+
+      expect(() => writer.open()).toThrow('open blocked');
+      expect(() => writer.write({ ts: 2, type: 'after_failed_open' })).not.toThrow();
+      expect(events.find(e => e[0] === STREAM_AUDIT_EVENTS.WRITE_BEFORE_OPEN)).toEqual(
+        expect.arrayContaining(['type=after_failed_open', 'ts=2', 'state=created']),
+      );
+    });
+
+    it('repeated open is idempotent and does not archive twice', () => {
+      const { audit, events } = makeAudit();
+      fsSync.writeFileSync(path.join(tmpDir, 'stream.jsonl'), '{"ts":0}\n');
+      const writer = new StreamWriter(fs, audit);
+
+      writer.open();
+      writer.open();
+
+      expect(fsSync.readdirSync(path.join(tmpDir, 'logs', 'stream'))).toHaveLength(1);
+      expect(events.filter(e => e[0] === STREAM_AUDIT_EVENTS.WRITER_OPEN_CREATED_EMPTY)).toHaveLength(1);
     });
 
     it('open archives existing stream.jsonl', () => {

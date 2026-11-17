@@ -22,6 +22,24 @@ import { makeAudit } from '../helpers/audit.js';
 import { makeClawNotifyTargetResolver } from '../../src/core/claw-topology/index.js';
 import { createClawNotifier } from '../../src/foundation/messaging/index.js';
 
+describe('StreamWriter assembly ownership (phase 2187)', () => {
+  it('core-infrastructure 是唯一 open owner，且 open 先于 LLM sink 创建', () => {
+    const coreSource = fsNative.readFileSync(
+      new URL('../../src/assembly/core-infrastructure.ts', import.meta.url),
+      'utf-8',
+    );
+    const runtimeSource = fsNative.readFileSync(
+      new URL('../../src/assembly/runtime-assembly.ts', import.meta.url),
+      'utf-8',
+    );
+
+    expect(coreSource.match(/\bstreamWriter\.open\(\)/g)).toHaveLength(1);
+    expect(runtimeSource.match(/\bstreamWriter\.open\(\)/g) ?? []).toHaveLength(0);
+    expect(coreSource.indexOf('streamWriter.open();'))
+      .toBeLessThan(coreSource.indexOf('createLLMEventSink(auditWriter, streamWriter)'));
+  });
+});
+
 describe('tool-context-resolution', () => {
   /**
    * @module Tests.Assembly

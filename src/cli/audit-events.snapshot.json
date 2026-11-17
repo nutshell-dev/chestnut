@@ -982,6 +982,7 @@
       "stream_truncation_repaired",
       "stream_truncation_repair_failed",
       "stream_write_after_close",
+      "stream_write_before_open",
       "stream_writer_open_created_empty",
       "stream_writer_open_preserved_raced"
     ],

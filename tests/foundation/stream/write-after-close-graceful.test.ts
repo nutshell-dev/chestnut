@@ -44,13 +44,19 @@ describe('StreamWriter write-after-close graceful (phase 1203 Issue 2)', () => {
     expect(afterCloseAudit).toContainEqual('reason=writer_closed');
   });
 
-  it('反向 2: open() 前 write() 仍不 throw + audit', () => {
+  it('反向 2: open() 前 write() 不 throw + 独立 WRITE_BEFORE_OPEN audit', () => {
     const writer = new StreamWriter(fs, mockAudit, { maxFiles: 10, maxDays: 30 });
-    // 不 open 直接 write
     expect(() =>
-      writer.write({ ts: Date.now(), type: 'session_boundary', reason: 'test_pre_open' }),
+      writer.write({ ts: 1234, type: 'session_boundary', reason: 'test_pre_open' }),
     ).not.toThrow();
-    expect(auditWrites.some(w => w[0] === STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE)).toBe(true);
+    const beforeOpenAudit = auditWrites.find(w => w[0] === STREAM_AUDIT_EVENTS.WRITE_BEFORE_OPEN);
+    expect(beforeOpenAudit).toEqual(expect.arrayContaining([
+      'type=session_boundary',
+      'ts=1234',
+      'state=created',
+      'reason=writer_not_open',
+    ]));
+    expect(auditWrites.some(w => w[0] === STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE)).toBe(false);
   });
 
   it('反向 3: open() → write() → close() → write() — 第 1 次 write 正常落盘、第 2 次 graceful drop', () => {

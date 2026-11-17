@@ -5,6 +5,7 @@
  * 字符串值与 phase148 起 events.ts 中央注册表的 STREAM_* 系列等价 / 0 漂移。
  */
 export const STREAM_AUDIT_EVENTS = {
+  WRITE_BEFORE_OPEN: 'stream_write_before_open',
   WRITE_AFTER_CLOSE: 'stream_write_after_close',
   APPEND_FAILED: 'stream_append_failed',
   ARCHIVE_FAILED: 'stream_archive_failed',
@@ -31,6 +32,7 @@ export const STREAM_AUDIT_EVENTS = {
  * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
  */
 export const STREAM_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+  stream_write_before_open: 'audit',
   stream_write_after_close: 'audit',
   stream_append_failed: 'audit',
   stream_archive_failed: 'audit',

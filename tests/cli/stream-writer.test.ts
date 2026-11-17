@@ -23,12 +23,13 @@ describe('StreamWriter', () => {
     await cleanupTempDir(tmpDir);
   });
 
-  it('write() before open does not throw + emits WRITE_AFTER_CLOSE audit (phase 1203)', () => {
+  it('write() before open does not throw + emits WRITE_BEFORE_OPEN audit', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const { audit, events } = makeAudit();
     const sw = new StreamWriter(fs, audit);
     expect(() => sw.write({ ts: 1, type: 'test' })).not.toThrow();
-    expect(events.some(e => e[0] === 'stream_write_after_close')).toBe(true);
+    expect(events.some(e => e[0] === 'stream_write_before_open')).toBe(true);
+    expect(events.some(e => e[0] === 'stream_write_after_close')).toBe(false);
   });
 
   it('write() when appendSync throws audits and does not propagate', () => {

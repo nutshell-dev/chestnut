@@ -3,7 +3,13 @@
  */
 import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../node-utils/index.js";
-import { STREAM_FILE, STREAM_EVENT_NAMES, type StreamEvent, type StreamLog } from './types.js';
+import {
+  STREAM_FILE,
+  STREAM_EVENT_NAMES,
+  type StreamEvent,
+  type StreamLog,
+  type StreamWriterLifecycleState,
+} from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from  '../node-utils/index.js';
@@ -22,7 +28,7 @@ export class StreamWriter implements StreamLog {
   private fs: FileSystem;
   private audit: AuditLog;
   private retention: StreamRetentionOptions;
-  private isOpen = false;
+  private state: StreamWriterLifecycleState = 'created';
 
   constructor(fs: FileSystem, audit: AuditLog, retention: StreamRetentionOptions = {}) {
     this.fs = fs;
@@ -32,7 +38,7 @@ export class StreamWriter implements StreamLog {
 
   /** lifecycle init: archives old files (caller-managed) */
   open(): void {
-    if (this.isOpen) return;
+    if (this.state === 'open') return;
 
     let archiveFailed = false;
     if (this.fs.existsSync(STREAM_FILE)) {
@@ -115,7 +121,7 @@ export class StreamWriter implements StreamLog {
     }
 
     this.pruneArchives();
-    this.isOpen = true;
+    this.state = 'open';
     if (archiveFailed) {
       this.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.SESSION_BOUNDARY, reason: 'archive_failed' });
     }
@@ -123,15 +129,17 @@ export class StreamWriter implements StreamLog {
 
   /** 写一行事件 */
   write(event: StreamEvent): void {
-    if (!this.isOpen) {
-      // cancel / disassemble 期间异步 cleanup 调 write 是预期 race
-      // DP「中断可恢复」+ M#10 不合理停下 → graceful drop + audit
-      // phase 593: 加 path forensic col、与 APPEND_FAILED/TRUNCATION_REPAIR_FAILED/ARCHIVE_FAILED 对齐
+    if (this.state !== 'open') {
+      // created 与 closed 是不同生命周期事实：都拒绝写入，但分别保留可重建证据。
+      // cancel / disassemble 期间异步 cleanup 调 write 是预期 race，保持 graceful drop。
+      const beforeOpen = this.state === 'created';
       this.audit.write(
-        STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE,
+        beforeOpen ? STREAM_AUDIT_EVENTS.WRITE_BEFORE_OPEN : STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE,
         `path=${STREAM_FILE}`,
         `type=${event.type}`,
-        `reason=writer_closed`,
+        `ts=${event.ts}`,
+        `state=${this.state}`,
+        `reason=${beforeOpen ? 'writer_not_open' : 'writer_closed'}`,
       );
       return;
     }
@@ -156,8 +164,8 @@ export class StreamWriter implements StreamLog {
    * （audit 02_lifecycle_dispose 6/9 模块已有、3/9 缺、本处补齐）。
    */
   close(): void {
-    if (!this.isOpen) return;
-    this.isOpen = false;
+    if (this.state !== 'open') return;
+    this.state = 'closed';
   }
 
   private pruneArchives(): void {

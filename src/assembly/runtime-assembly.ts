@@ -98,15 +98,8 @@ export async function createRuntimeAssembly(
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=snapshot`, `phase=recovery-commit`, `reason=${recoveryResult.error.kind}`);
   }
 
-  // --- StreamWriter open：复用 CoreInfrastructure 构造的同一实例 ---
-  // phase 1872 Step F: parentStreamLog / onNotify 均已在 owner 工厂构造参数固定
-  // （setParentStreamLog / setOnNotify setter 退役）——此处只 open。
-  try {
-    streamWriter.open();
-  } catch (e) {
-    auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${formatErr(e)}`);
-    throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
-  }
+  // StreamWriter 已由 CoreInfrastructure 在创建任何 event sink 前打开；
+  // runtime assembly 只消费同一实例，不重复建立 session boundary。
 
   // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
   const messagingDeps = {

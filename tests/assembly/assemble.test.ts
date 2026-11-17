@@ -40,6 +40,8 @@ const capturedLlmInstances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
 const capturedTaskSystems: Array<{ shutdown: ReturnType<typeof vi.fn> }> = [];
 /** phase 1872 Step C: 次生失败注入（下一次 llm.close 拒绝）。 */
 let failNextLlmClose = false;
+/** Phase 2187: 在 orchestrator 构造点注入 early event，验证 writer 已 open。 */
+let emitEarlyLlmEvent = false;
 /** phase 1872 Step F: 交付时点 tool registry 快照（createRuntime 调用瞬间的工具名）。 */
 let toolNamesAtRuntimeConstruction: string[] = [];
 /** phase 1872 Step F: 交付给 Runtime 的 registry 实例（装配期内继续注册 shadowTool 的同一对象）。 */
@@ -114,6 +116,17 @@ vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
     ...mod,
     createStreamWriter: vi.fn(function () { return mockStreamWriter; }),
     STREAM_FILE_ROUTING: {},
+  };
+});
+
+vi.mock('../../src/assembly/llm-event-sink.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/llm-event-sink.js')>();
+  return {
+    ...actual,
+    createLLMEventSink: vi.fn(function (...args: Parameters<typeof actual.createLLMEventSink>) {
+      callOrder.push('LLMEventSink');
+      return actual.createLLMEventSink(...args);
+    }),
   };
 });
 
@@ -258,7 +271,12 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
   });
   return {
     LLMOrchestratorImpl,
-    createLLMOrchestrator: vi.fn(function (config: any) { return new (LLMOrchestratorImpl as any)(config); }),
+    createLLMOrchestrator: vi.fn(function (config: any) {
+      if (emitEarlyLlmEvent) {
+        config.events.emit({ type: 'sdk_client_cache_hit', preset: 'mock', model: 'mock-model' });
+      }
+      return new (LLMOrchestratorImpl as any)(config);
+    }),
   };
 });
 
@@ -453,6 +471,9 @@ describe('assemble', () => {
     capturedLlmInstances.length = 0;
     capturedTaskSystems.length = 0;
     mockAuditWrite.mockClear();
+    emitEarlyLlmEvent = false;
+    mockStreamWriter.open.mockImplementation(function () { callOrder.push('StreamWriter.open'); });
+    mockStreamWriter.write.mockImplementation(function () { callOrder.push('StreamWriter.write'); });
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
   });
@@ -540,6 +561,23 @@ describe('assemble', () => {
     expect(result.dispose).toEqual(expect.any(Function));
   });
 
+  it('StreamWriter 在 LLM sink 创建和构造期 early write 前完成唯一一次 open', async () => {
+    emitEarlyLlmEvent = true;
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
+
+    expect(callOrder.slice(0, 3)).toEqual([
+      'StreamWriter.open',
+      'LLMEventSink',
+      'StreamWriter.write',
+    ]);
+    expect(mockStreamWriter.open).toHaveBeenCalledTimes(1);
+    expect(mockStreamWriter.write).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'sdk_client_cache_hit',
+      preset: 'mock',
+      model: 'mock-model',
+    }));
+  });
+
   // --------------------------------------------------------------------------
   // audit 事件
   // --------------------------------------------------------------------------
@@ -621,6 +659,31 @@ describe('assemble', () => {
       'phase=construct',
       'reason=stream fail'
     );
+  });
+
+  it('StreamWriter open 失败 → 保留原错误、阻断 sink 构造并 rollback close', async () => {
+    const openError = new Error('open boom');
+    mockStreamWriter.open.mockImplementationOnce(function () {
+      callOrder.push('StreamWriter.open');
+      throw openError;
+    });
+
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions }))
+      .rejects.toMatchObject({
+        message: 'Assembly: StreamWriter open failed: open boom',
+        cause: openError,
+      });
+
+    expect(mockAuditWrite).toHaveBeenCalledWith(
+      'assemble_failed',
+      'module=stream_writer',
+      'phase=open',
+      'reason=open boom',
+    );
+    expect(callOrder).not.toContain('LLMEventSink');
+    expect(capturedLlmInstances).toHaveLength(0);
+    expect(mockStreamWriter.close).toHaveBeenCalledTimes(1);
+    expect(mockAuditDispose).toHaveBeenCalled();
   });
 
   it('CronRunner 构造失败 → assemble_failed + 抛 Error', async () => {

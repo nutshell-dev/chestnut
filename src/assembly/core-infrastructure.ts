@@ -252,7 +252,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     const toolTimeoutMs = globalConfig.tool_timeout_ms;
     const idleTimeoutMs = globalConfig.motion.llm_idle_timeout_ms;
 
-    // --- L2b StreamWriter: construct early (no open) so LLMOrchestrator events can fan out ---
+    // --- L2b StreamWriter: open before any event sink can receive early events ---
     let streamWriter: StreamWriter;
     try {
       streamWriter = createStreamWriter(systemFs, auditWriter, {
@@ -264,6 +264,12 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
     }
     rollback.register('stream_writer', () => streamWriter.close());
+    try {
+      streamWriter.open();
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=open`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: StreamWriter open failed: ${formatErr(e)}`, { cause: e });
+    }
 
     let llm: LLMOrchestratorOwner;
     try {

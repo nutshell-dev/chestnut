@@ -198,6 +198,9 @@ export interface StreamLog {
   write(event: StreamEvent): void;
 }
 
+/** StreamWriter 生命周期；created 与 closed 的误写证据不得混为一类。 */
+export type StreamWriterLifecycleState = 'created' | 'open' | 'closed';
+
 /**
  * Direct LLM output event types (excludes infrastructure events like llm_start/tool_result).
  * Used by watchdog (claw activity tracking) and chat-viewport (UI rendering).
