@@ -13,7 +13,11 @@ const eventCollectorSource = readSource('../../../src/core/contract/jobs/event-c
 
 describe('FileSystem stat instance boundary', () => {
   it('keeps bare stat internal and routes the external caller through FileSystem', () => {
-    expect(barrelSource).not.toMatch(/\bstat\b/);
+    // Absolute-path aliases are intentional (phase 2186); only a bare `stat` export
+    // would erase the caller's path boundary and violate this contract.
+    expect(barrelSource).not.toMatch(/export\s*\{[^}]*\bstat\s*[,}]/);
+    expect(barrelSource).toMatch(/\bstat\s+as\s+statAbsolute\b/);
+    expect(barrelSource).toMatch(/\bstatSync\s+as\s+statSyncAbsolute\b/);
     expect(eventCollectorSource).not.toMatch(
       /import\s*\{[^}]*\bstat\b[^}]*\}\s*from\s*['"][^'"]*foundation\/fs\/index\.js['"]/,
     );
