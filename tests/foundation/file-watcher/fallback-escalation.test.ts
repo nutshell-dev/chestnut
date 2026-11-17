@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createWatcher } from '../../../src/foundation/file-watcher/index.js';
 import path from 'node:path';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, promises as fsPromises, rmSync, writeFileSync, type Stats } from 'node:fs';
 import os from 'node:os';
 
 /**
@@ -34,6 +34,19 @@ describe('fallback poller escalation', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fallback-test-'));
     testFile = path.join(tmpDir, 'test.txt');
     writeFileSync(testFile, '');
+
+    // Each fallback observation must represent a real metadata change. Native chokidar
+    // remains quiet because the fixture file itself is not modified by these tests.
+    let fallbackMtimeMs = 0;
+    vi.spyOn(fsPromises, 'stat').mockImplementation(async () => ({
+      size: 0,
+      mtimeMs: ++fallbackMtimeMs,
+      mtime: new Date(fallbackMtimeMs),
+      ctime: new Date(0),
+      isDirectory: () => false,
+      isFile: () => true,
+      mode: 0,
+    }) as Stats);
   });
 
   afterEach(() => {

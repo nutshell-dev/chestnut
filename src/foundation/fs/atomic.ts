@@ -5,7 +5,7 @@
  * - All operations use fs/promises for async I/O
  */
 
-import { promises as fs } from 'fs';
+import { promises as fs, statSync as fsStatSync, type Stats } from 'fs';
 import * as path from 'path';
 import { formatErr, newUuid } from  '../node-utils/index.js';
 import type { AtomicWriteResult, StatInfo } from './types.js';
@@ -220,11 +220,7 @@ export async function exists(filePath: string): Promise<boolean> {
   }
 }
 
-/**
- * Get file stats
- */
-export async function stat(filePath: string): Promise<StatInfo> {
-  const stats = await fs.stat(filePath);
+function toStatInfo(stats: Stats): StatInfo {
   return {
     size: stats.size,
     mtime: stats.mtime,
@@ -233,6 +229,16 @@ export async function stat(filePath: string): Promise<StatInfo> {
     isDirectory: stats.isDirectory(),
     mode: stats.mode,
   };
+}
+
+/** Get file stats */
+export async function stat(filePath: string): Promise<StatInfo> {
+  return toStatInfo(await fs.stat(filePath));
+}
+
+/** Get file stats synchronously for an observation baseline */
+export function statSync(filePath: string): StatInfo {
+  return toStatInfo(fsStatSync(filePath));
 }
 
 /**

@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createInterruptWatcher } from '../../src/daemon/interrupt-watcher.js';
 import type { Watcher } from '../../src/foundation/file-watcher/index.js';
 import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
+import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
 
 interface MockFs {
   deleteSync: ReturnType<typeof vi.fn>;
@@ -213,5 +214,38 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     expect(agentFs.deleteSync).not.toHaveBeenCalled();
     expect(onInterrupt).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('absent interrupt over 100 real fallback probes creates no discovered/delete failure audit', async () => {
+    const agentDir = await createTrackedTempDir('interrupt-absent-storm-');
+    let tick: (() => Promise<void>) | null = null;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler) => {
+      tick = handler as () => Promise<void>;
+      return { unref: vi.fn() } as unknown as NodeJS.Timeout;
+    });
+    const agentFs = makeFs();
+    const onInterrupt = vi.fn();
+    const onError = vi.fn();
+    const audit = makeAudit();
+    const watcher = createInterruptWatcher({
+      agentFs: agentFs as never,
+      agentDir,
+      onInterrupt,
+      onError,
+      audit,
+    });
+
+    try {
+      if (tick === null) throw new Error('fallback timer was not registered');
+      for (let i = 0; i < 100; i++) await tick();
+      expect(audit.write).not.toHaveBeenCalled();
+      expect(agentFs.deleteSync).not.toHaveBeenCalled();
+      expect(onInterrupt).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      await watcher.close();
+      vi.restoreAllMocks();
+      await cleanupTempDir(agentDir);
+    }
   });
 });

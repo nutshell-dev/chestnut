@@ -6,6 +6,7 @@
 
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
 import { formatErr } from '../node-utils/index.js';
+import { isFileNotFound, statAbsolute, statSyncAbsolute } from '../fs/index.js';
 import type { Watcher, WatchEvent, WatchEventType, WatcherErrorContext } from './types.js';
 
 /**
@@ -146,6 +147,50 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
   }
 }
 
+type FallbackSnapshot =
+  | { kind: 'absent' }
+  | { kind: 'present'; size: number; mtimeMs: number; ino?: number };
+
+function snapshotFromStats(stats: { size: number; mtime: Date; ino: number }): FallbackSnapshot {
+  return { kind: 'present', size: stats.size, mtimeMs: stats.mtime.getTime(), ino: stats.ino };
+}
+
+function fallbackSnapshotFromStatInfo(stats: { size: number; mtime: Date }): FallbackSnapshot {
+  return { kind: 'present', size: stats.size, mtimeMs: stats.mtime.getTime() };
+}
+
+function probeFallbackSnapshotSync(absolutePath: string): FallbackSnapshot {
+  try {
+    return fallbackSnapshotFromStatInfo(statSyncAbsolute(absolutePath));
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'absent' };
+    throw err;
+  }
+}
+
+async function probeFallbackSnapshot(absolutePath: string): Promise<FallbackSnapshot> {
+  try {
+    return fallbackSnapshotFromStatInfo(await statAbsolute(absolutePath));
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'absent' };
+    throw err;
+  }
+}
+
+function fallbackEventType(
+  previous: FallbackSnapshot | undefined,
+  current: FallbackSnapshot,
+): 'add' | 'change' | null {
+  if (previous === undefined) return null;
+  if (previous.kind === 'absent') return current.kind === 'present' ? 'add' : null;
+  if (current.kind === 'absent') return null;
+  return previous.size !== current.size ||
+    previous.mtimeMs !== current.mtimeMs ||
+    (previous.ino !== undefined && current.ino !== undefined && previous.ino !== current.ino)
+    ? 'change'
+    : null;
+}
+
 /**
  * Create a file watcher wrapping chokidar.
  *
@@ -219,11 +264,35 @@ export function createWatcher(
         },
   });
 
+  const enableFallback = options?.stability === 'immediate';
+  let fallbackSnapshot: FallbackSnapshot | undefined;
+  if (enableFallback) {
+    try {
+      // Capture the pre-poll baseline before callers can write after construction.
+      fallbackSnapshot = probeFallbackSnapshotSync(absolutePath);
+    } catch (err) {
+      reportError(err, 'fallback_probe');
+    }
+  }
+  let fallbackRevision = 0;
+
   // Map chokidar events to our format
   watcher.on('all', (event, filePath, stats) => {
     const type = mapEventType(event);
     if (!type) {
       return;
+    }
+
+    if (enableFallback && filePath === absolutePath) {
+      if (type === 'add' || type === 'change' || type === 'addDir' ||
+        type === 'unlink' || type === 'unlinkDir') {
+        fallbackRevision++;
+        if (type === 'unlink' || type === 'unlinkDir') {
+          fallbackSnapshot = { kind: 'absent' };
+        } else {
+          fallbackSnapshot = stats ? snapshotFromStats(stats) : undefined;
+        }
+      }
     }
 
     const watchEvent: WatchEvent = {
@@ -267,42 +336,56 @@ export function createWatcher(
   // Fallback poll for chokidar native-watcher silent stall (cross-platform, phase 352 / 469 / 760)
   // macOS FSEvents + Linux CI inotify + Windows ReadDirectoryChangesW silent stall 同型治理
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
-  const enableFallback = options?.stability === 'immediate';
   if (enableFallback) {
     const intervalMs = options?.fallbackPollMs ?? DEFAULT_FALLBACK_POLL_MS;
     let consecutiveCallbackFails = 0;
-    fallbackTimer = setInterval(() => {
-      // phase 1128 P1-5: mirror 主事件路径的 Promise.resolve 包裹，同步/异步
-      // callback 失败统一经 onFail 处理，避免 async rejection → unhandledRejection。
-      // fallback poll 为异步 tick，因此等 async callback settle 后再重置计数，
-      // 保证连续 async 失败能正确触发 escalation（与主事件路径「不等 async」有
-      // 语义差异，但 fallback 路径需观测完整 callback 生命周期）。
-      const onFail = (err: unknown): void => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        consecutiveCallbackFails++;
-        reportError(error, 'callback');
-        if (consecutiveCallbackFails >= FALLBACK_CONSECUTIVE_FAIL_LIMIT) {
-          // phase 1082: reset counter instead of permanent disable to avoid silent stall
-          consecutiveCallbackFails = 0;
-          reportError(
-            new Error(`fallback poller callback failure limit reached: ${error.message}`),
-            'fallback_limit_reset',
-          );
-        }
-      };
-      const onSuccess = (): void => {
+    let fallbackProbeInFlight = false;
+    const onFail = (err: unknown): void => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      consecutiveCallbackFails++;
+      reportError(error, 'callback');
+      if (consecutiveCallbackFails >= FALLBACK_CONSECUTIVE_FAIL_LIMIT) {
+        // phase 1082: reset counter instead of permanent disable to avoid silent stall
         consecutiveCallbackFails = 0;
-      };
-      try {
-        void Promise.resolve(callback({ type: 'change', path: absolutePath })).then(
-          onSuccess,
-          onFail,
+        reportError(
+          new Error(`fallback poller callback failure limit reached: ${error.message}`),
+          'fallback_limit_reset',
         );
-      } catch (err) {
-        // silent: sync callback throw is routed to onFail which reports via options.onError('callback')
-        onFail(err);
       }
-    }, intervalMs);
+    };
+    const pollFallback = async (): Promise<void> => {
+      if (fallbackProbeInFlight) return;
+      fallbackProbeInFlight = true;
+      const probeRevision = fallbackRevision;
+      try {
+        let current: FallbackSnapshot;
+        try {
+          current = await probeFallbackSnapshot(absolutePath);
+        } catch (err) {
+          reportError(err, 'fallback_probe');
+          return;
+        }
+
+        // A native event observed while stat was in flight owns the newer baseline.
+        if (probeRevision !== fallbackRevision) return;
+        const previous = fallbackSnapshot;
+        fallbackSnapshot = current;
+        const type = fallbackEventType(previous, current);
+        if (type === null) return;
+
+        // Keep callback failures distinct from probe failures and observe async settlement.
+        try {
+          await Promise.resolve(callback({ type, path: absolutePath }));
+          consecutiveCallbackFails = 0;
+        } catch (err) {
+          // silent: sync/async callback failure is routed through onFail for error evidence.
+          onFail(err);
+        }
+      } finally {
+        fallbackProbeInFlight = false;
+      }
+    };
+    fallbackTimer = setInterval(pollFallback, intervalMs);
     fallbackTimer.unref?.();
   }
 

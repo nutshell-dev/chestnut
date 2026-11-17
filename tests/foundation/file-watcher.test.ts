@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import * as fsSync from 'fs';
+import { promises as fsPromises } from 'node:fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { watch as chokidarWatch } from 'chokidar';
@@ -89,6 +90,18 @@ describe('FileWatcher', () => {
       const onReady = () => resolve(watcher);
       watcher = setupWatcher(onReady);
     });
+  }
+
+  function captureFallbackTick(): () => Promise<void> {
+    let tick: (() => Promise<void>) | null = null;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler) => {
+      tick = handler as () => Promise<void>;
+      return { unref: vi.fn() } as unknown as NodeJS.Timeout;
+    });
+    return async () => {
+      if (tick === null) throw new Error('fallback timer was not registered');
+      await tick();
+    };
   }
 
   it('callback receives add/change/unlink events', async () => {
@@ -416,21 +429,81 @@ describe('FileWatcher', () => {
     },
   );
 
-  it('fallback poll emits change event to callback', async () => {
-    const events = makeEventBuffer<{ type: string; path: string }>();
-
+  it('fallback poll emits only real add/change transitions', async () => {
+    const events: { type: string; path: string }[] = [];
+    const watchedPath = path.join(tmpDir, 'watch.txt');
+    const tick = captureFallbackTick();
     const watcher = createWatcher(
-      path.join(tmpDir, 'watch.txt'),
-      (ev) => events.push({ type: ev.type, path: path.basename(ev.path) }),
-      { stability: 'immediate', fallbackPollMs: 50 },
+      watchedPath,
+      (ev) => { events.push({ type: ev.type, path: path.basename(ev.path) }); },
+      { stability: 'immediate' },
     );
 
-    await events.awaitN(1);
-
-    expect(events.arr.length).toBeGreaterThanOrEqual(1);
-    expect(events.arr.every(e => e.type === 'change')).toBe(true);
+    // Write before the first async tick: the construction-time baseline must preserve it.
+    fsSync.writeFileSync(watchedPath, 'a');
+    await tick(); // absent -> present
+    await tick(); // unchanged
+    fsSync.writeFileSync(watchedPath, 'changed');
+    await tick(); // size change
+    fsSync.rmSync(watchedPath);
+    await tick(); // present -> absent is not a synthetic change
+    fsSync.writeFileSync(watchedPath, 'recreated');
+    await tick(); // absent -> present again
+    await tick(); // unchanged
 
     await watcher.close();
+    expect(events).toEqual([
+      { type: 'add', path: 'watch.txt' },
+      { type: 'change', path: 'watch.txt' },
+      { type: 'add', path: 'watch.txt' },
+    ]);
+  });
+
+  it('native events update the fallback baseline without a duplicate fallback event', async () => {
+    const events: string[] = [];
+    const watchedPath = path.join(tmpDir, 'watch.txt');
+    fsSync.writeFileSync(watchedPath, 'initial');
+    const tick = captureFallbackTick();
+    const watcher = createWatcher(
+      watchedPath,
+      (ev) => { events.push(ev.type); },
+      { stability: 'immediate' },
+    );
+
+    await tick(); // initial present baseline
+    fsSync.writeFileSync(watchedPath, 'native change');
+    fakeWatcherInstance.emit('all', 'change', watchedPath, fsSync.statSync(watchedPath));
+    await tick();
+
+    await watcher.close();
+    expect(events).toEqual(['change']);
+  });
+
+  it('fallback probe failure preserves fallback_probe context and is not a change', async () => {
+    const events: string[] = [];
+    const errors: { err: Error; context: string }[] = [];
+    const watchedPath = path.join(tmpDir, 'watch.txt');
+    const probeError = new Error('permission denied') as NodeJS.ErrnoException;
+    probeError.code = 'EACCES';
+    vi.spyOn(fsPromises, 'stat').mockRejectedValueOnce(probeError);
+    const tick = captureFallbackTick();
+    const watcher = createWatcher(
+      watchedPath,
+      (ev) => { events.push(ev.type); },
+      {
+        stability: 'immediate',
+        onError: (err, context) => { errors.push({ err, context }); },
+      },
+    );
+
+    await tick(); // failed probe keeps the previous baseline and emits nothing
+    await tick(); // initial absent baseline after recovery
+    fsSync.writeFileSync(watchedPath, 'created');
+    await tick();
+
+    await watcher.close();
+    expect(errors).toEqual([{ err: probeError, context: 'fallback_probe' }]);
+    expect(events).toEqual(['add']);
   });
 
   it('close clears fallback poll timer / no resource leak', async () => {
