@@ -1,7 +1,6 @@
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { isFileNotFound } from '../foundation/fs/index.js';
-import { classifyDirFsyncError } from '../foundation/fs/atomic.js';
+import { classifyDirFsyncError, isFileNotFound } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 

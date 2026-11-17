@@ -20,7 +20,7 @@ export { FileNotFoundError, isFileNotFound, PathGuardError } from './types.js';
 export { NodeFileSystem } from './node-fs.js';
 
 // Atomic file operations
-export { IGNORE_PATTERN, stat as statAbsolute, statSync as statSyncAbsolute } from './atomic.js';
+export { IGNORE_PATTERN, classifyDirFsyncError, stat as statAbsolute, statSync as statSyncAbsolute } from './atomic.js';
 
 // Byte-faithful recursive directory copy (absolute paths, Phase 1919 Step B)
 export { copyDirAbsolute } from './copy-dir.js';

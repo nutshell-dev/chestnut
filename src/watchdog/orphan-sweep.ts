@@ -67,6 +67,7 @@ function inspectionEvidence(
         ? { kind: 'local', root: record.owner.workspace_root }
         : { kind: 'foreign', root: record.owner.workspace_root };
     } catch {
+      // silent: a relative legacy root stays explicitly unknown in the evidence
       workspace = { kind: 'unknown', root: record.owner.workspace_root };
     }
   }

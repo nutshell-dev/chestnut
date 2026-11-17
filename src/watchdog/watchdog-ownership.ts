@@ -341,7 +341,10 @@ export function inspectWatchdogGenerationRecords(
       try {
         entries = fs.listSync(root, { includeDirs: true });
       } catch (err) {
-        if (isFsNotFound(err)) continue;
+        if (isFsNotFound(err)) {
+          // silent: an absent generation directory contains no records
+          continue;
+        }
         throw err;
       }
       for (const entry of entries) {
@@ -357,6 +360,7 @@ export function inspectWatchdogGenerationRecords(
     }
     return { kind: 'ok', records };
   } catch (error) {
+    // silent: converted below to typed unknown with the original error evidence
     return { kind: 'unknown', reason: 'generation_malformed', error };
   }
 }
