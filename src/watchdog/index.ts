@@ -5,7 +5,7 @@
  * Phase 1878 Step J: 主 loop 退出 barrel——只由 watchdog-entry 内部启动
  * （外部经 entry 面，不可绕过 crash handler 与进程启动协议）。
  */
-export { ensureWatchdog, type EnsureWatchdogResult } from './ensure.js';
+export { ensureWatchdog, WatchdogOrphanInspectionError, type EnsureWatchdogResult } from './ensure.js';
 export type {
   WatchdogRecoveryWindow,
   WatchdogCandidateAdmission,
@@ -24,7 +24,7 @@ export { inspectWatchdogHealth } from './health.js';
 export { createWatchdogActionAudit, type WatchdogActionAudit } from './audit-wiring.js';
 export { spawnWatchdogCandidate, WatchdogCandidateAdmissionRejectedError } from './spawn.js';
 export { stopWatchdog, type WatchdogStopOutcome } from './watchdog-control.js';
-export { sweepOrphanWatchdogs } from './orphan-sweep.js';
+export { sweepOrphanWatchdogs, inspectOrphanWatchdogs } from './orphan-sweep.js';
 export { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 export { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 export { WATCHDOG_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
@@ -35,7 +35,11 @@ export type {
   DirectoryEvidence,
   SupervisionCoverage,
 } from './claws-observation.js';
-export type { WatchdogOrphanSweepOutcome } from './orphan-sweep.js';
+export type {
+  WatchdogOrphanSweepOutcome,
+  WatchdogOrphanInspectionReport,
+  WatchdogOrphanDecision,
+} from './orphan-sweep.js';
 // phase 1890 Step J：迁移协议实体（config-migration-journal/migration/
 // state-migration/legacy-retirement）退役删除；fresh init 直调 live 创建面。
 export {

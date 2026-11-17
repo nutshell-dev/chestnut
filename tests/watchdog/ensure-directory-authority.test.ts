@@ -195,7 +195,25 @@ describe('ensureWatchdog 目录 authority', () => {
       return commit(...args);
     });
 
-    const pending = Promise.all(Array.from({ length: 20 }, () => ensureWatchdog(fsFactory)));
+    let inspectionRelease!: () => void;
+    let allInspected!: () => void;
+    const inspectionGate = new Promise<void>((resolve) => { inspectionRelease = resolve; });
+    const allInspectionsStarted = new Promise<void>((resolve) => { allInspected = resolve; });
+    let inspectionCount = 0;
+    const inspectionDeps = {
+      findProcessesAsync: async () => {
+        inspectionCount += 1;
+        if (inspectionCount === 20) allInspected();
+        await inspectionGate;
+        return [];
+      },
+    };
+    const pending = Promise.all(Array.from({ length: 20 }, () => ensureWatchdog(fsFactory, inspectionDeps)));
+    await allInspectionsStarted;
+    inspectionRelease();
+    // Let every caller finish read-only inspection and enter admission before any
+    // spawned candidate can commit and close this recovery window.
+    await new Promise<void>(resolve => setImmediate(resolve));
     release();
     const results = await pending;
 

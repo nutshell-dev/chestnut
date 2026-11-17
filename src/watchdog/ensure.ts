@@ -19,8 +19,13 @@ import { admitWatchdogCandidate } from './candidate-recovery.js';
 import { getChestnutFs } from './watchdog-context.js';
 import { writeCandidateOutcome } from './watchdog-ownership.js';
 import { formatErr } from '../foundation/node-utils/index.js';
+import {
+  inspectOrphanWatchdogs,
+  type WatchdogOrphanInspectionDeps,
+  type WatchdogOrphanInspectionReport,
+} from './orphan-sweep.js';
 
-export type EnsureWatchdogResult =
+export type EnsureWatchdogResult = (
   | { kind: 'already_running'; pid: number }
   | { kind: 'candidate_spawned'; pid: number; attemptId: string; windowId: string }
   | {
@@ -28,7 +33,15 @@ export type EnsureWatchdogResult =
       reason: 'budget_exhausted' | 'window_closed';
       attemptId: string;
       windowId: string;
-    };
+    }
+) & { startupInspection?: WatchdogOrphanInspectionReport };
+
+export class WatchdogOrphanInspectionError extends Error {
+  constructor(readonly report: WatchdogOrphanInspectionReport) {
+    super(`Watchdog orphan inspection is ${report.kind}; startup refused without explicit recovery`);
+    this.name = 'WatchdogOrphanInspectionError';
+  }
+}
 
 /**
  * 唯一入口、所有 caller 必经此。
@@ -39,18 +52,29 @@ export type EnsureWatchdogResult =
  */
 export async function ensureWatchdog(
   fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogOrphanInspectionDeps,
 ): Promise<EnsureWatchdogResult> {
   // Phase 1878 Step I: writer 生命周期归 action/进程——CLI action 已安装则复用
   // （非 owner handle、dispose no-op）；未安装则本调用 scoped own + 终态 dispose
   // （旧 ensureAuditWired lazy 悬挂语义退役）。
   const actionAudit = createWatchdogActionAudit(fsFactory);
   try {
-    const inspection = inspectWatchdogOwner(fsFactory);
+    const inspection = inspectWatchdogOwner(fsFactory, deps);
     if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
       throw new WatchdogOwnerInspectionError(inspection);
     }
     if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
-    if (inspection.kind === 'alive') return { kind: 'already_running', pid: inspection.pid };
+    const startupInspection = await inspectOrphanWatchdogs(fsFactory, deps);
+    if (startupInspection.kind === 'blocked') throw new WatchdogOrphanInspectionError(startupInspection);
+    if (startupInspection.kind === 'recovery_required' && inspection.kind !== 'alive') {
+      throw new WatchdogOrphanInspectionError(startupInspection);
+    }
+    const inspectionEvidence = startupInspection.decisions.length > 0
+      ? { startupInspection }
+      : {};
+    if (inspection.kind === 'alive') {
+      return { kind: 'already_running', pid: inspection.pid, ...inspectionEvidence };
+    }
 
     const staleOwner = inspection.kind !== 'none' && inspection.source === 'active' && inspection.owner
       ? inspection.owner
@@ -60,7 +84,9 @@ export async function ensureWatchdog(
       // A concurrent winner may have committed between the first inspection and
       // admission. Prefer that durable owner over surfacing a stale rejection.
       const current = inspectWatchdogOwner(fsFactory);
-      if (current.kind === 'alive') return { kind: 'already_running', pid: current.pid };
+      if (current.kind === 'alive') {
+        return { kind: 'already_running', pid: current.pid, ...inspectionEvidence };
+      }
       return {
         kind: 'rejected',
         reason: admission.reason,
@@ -76,6 +102,7 @@ export async function ensureWatchdog(
         pid,
         attemptId: admission.admission.attemptId,
         windowId: admission.admission.windowId,
+        ...inspectionEvidence,
       };
     } catch (error) {
       try {

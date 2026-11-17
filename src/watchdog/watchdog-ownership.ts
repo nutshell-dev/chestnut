@@ -286,6 +286,81 @@ function isFsNotFound(err: unknown): boolean {
   return false;
 }
 
+export interface WatchdogGenerationRecord {
+  generation: 'active' | 'candidate' | 'retired';
+  owner: WatchdogOwnerRecord;
+  candidateOutcome: 'lost' | 'failed' | null;
+}
+
+export type WatchdogGenerationRecordsInspection =
+  | { kind: 'ok'; records: readonly WatchdogGenerationRecord[] }
+  | { kind: 'unknown'; reason: string; error?: unknown };
+
+function readGenerationOwner(
+  fs: FileSystem,
+  ownerPath: string,
+  generation: WatchdogGenerationRecord['generation'],
+  candidateOutcome: WatchdogGenerationRecord['candidateOutcome'],
+): WatchdogGenerationRecord {
+  const parsed: unknown = JSON.parse(fs.readSync(ownerPath));
+  if (!isOwnerRecord(parsed)) throw new Error(`owner_shape_mismatch:${ownerPath}`);
+  return { generation, owner: parsed, candidateOutcome };
+}
+
+function readCandidateOutcome(fs: FileSystem, dir: string): 'lost' | 'failed' | null {
+  try {
+    const parsed = JSON.parse(fs.readSync(`${dir}/${WATCHDOG_OUTCOME_FILE}`)) as {
+      outcome?: unknown;
+    };
+    if (parsed.outcome !== 'lost' && parsed.outcome !== 'failed') {
+      throw new Error(`candidate_outcome_shape_mismatch:${dir}`);
+    }
+    return parsed.outcome;
+  } catch (err) {
+    if (isFsNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/** Read every generation through the ownership schema owner; never infer identity from argv alone. */
+export function inspectWatchdogGenerationRecords(
+  fs: FileSystem,
+): WatchdogGenerationRecordsInspection {
+  const records: WatchdogGenerationRecord[] = [];
+  try {
+    const active = inspectActive(fs);
+    if (active.status === 'malformed') {
+      return { kind: 'unknown', reason: 'generation_malformed', error: active.cause };
+    }
+    if (active.status === 'ok') {
+      records.push({ generation: 'active', owner: active.owner, candidateOutcome: null });
+    }
+    for (const generation of ['candidates', 'retired'] as const) {
+      const root = generation === 'candidates' ? WATCHDOG_CANDIDATES_DIR : WATCHDOG_RETIRED_DIR;
+      let entries;
+      try {
+        entries = fs.listSync(root, { includeDirs: true });
+      } catch (err) {
+        if (isFsNotFound(err)) continue;
+        throw err;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory) continue;
+        const dir = `${root}/${entry.name}`;
+        records.push(readGenerationOwner(
+          fs,
+          `${dir}/${WATCHDOG_OWNER_FILE}`,
+          generation === 'candidates' ? 'candidate' : 'retired',
+          generation === 'candidates' ? readCandidateOutcome(fs, dir) : null,
+        ));
+      }
+    }
+    return { kind: 'ok', records };
+  } catch (error) {
+    return { kind: 'unknown', reason: 'generation_malformed', error };
+  }
+}
+
 function isFsExists(err: unknown): boolean {
   if (err && typeof err === 'object' && 'code' in err) {
     const code = (err as NodeJS.ErrnoException).code;
