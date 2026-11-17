@@ -30,6 +30,7 @@ const DIRECTORY_MODULES = new Map([
   ['skill-system', 'L2c.SkillSystem'],
   ['snapshot', 'L2a.Snapshot'],
   ['stream', 'L2b.Stream'],
+  ['supervision', 'L1.Supervision'],
   ['tool-protocol', 'L2b.ToolProtocol'],
   ['tools', 'L2c.Tools'],
   ['transport', 'L1.Transport'],

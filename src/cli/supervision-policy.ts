@@ -20,7 +20,9 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { ensureWatchdog, inspectWatchdogLivenessForCli, createWatchdogActionAudit } from '../watchdog/index.js';
+import { newUuid } from '../foundation/node-utils/index.js';
+import type { HostSupervisor, SupervisorReceipt } from '../foundation/supervision/index.js';
+import { ensureWatchdog, inspectWatchdogLivenessForCli, createWatchdogActionAudit, type WatchdogActionAudit } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
 import { createCliActionScope, setCurrentActionScope, registerActionResource, type CliActionScope } from './action-scope.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
@@ -35,6 +37,105 @@ export type SupervisionPolicy =
 
 interface SupervisionContext {
   fsFactory: (baseDir: string) => FileSystem;
+  hostSupervisor?: HostSupervisor;
+}
+
+export class HostSupervisionError extends Error {
+  constructor(readonly receipt: SupervisorReceipt) {
+    super(`Host supervisor did not start Watchdog: result=${receipt.result}`);
+    this.name = 'HostSupervisionError';
+  }
+}
+
+function writeActionAudit(actionAudit: WatchdogActionAudit, event: string, ...cols: string[]): void {
+  try {
+    actionAudit.audit?.write(event, ...cols);
+  } catch (err) {
+    console.error(`[cli] audit write failed: ${event}: ${String(err)}`);
+  }
+}
+
+function reportUnavailable(
+  actionAudit: WatchdogActionAudit,
+  correlationId: string,
+  reason: string,
+): void {
+  writeActionAudit(
+    actionAudit,
+    CLI_AUDIT_EVENTS.SUPERVISION_UNAVAILABLE,
+    `correlation_id=${correlationId}`,
+    `reason=${reason}`,
+  );
+  console.error(`[cli] supervision=unavailable reason=${reason}`);
+}
+
+async function performEnsure(
+  ctx: SupervisionContext,
+  reason: string,
+): Promise<SupervisionReceipt> {
+  const correlationId = newUuid();
+  const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
+  const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
+  try {
+    const supervisor = ctx.hostSupervisor;
+    if (supervisor) {
+      const availability = await supervisor.inspectAvailability();
+      if (availability.kind === 'available') {
+        const request = { reason, correlationId };
+        writeActionAudit(
+          actionAudit,
+          CLI_AUDIT_EVENTS.SUPERVISION_REQUEST,
+          `correlation_id=${correlationId}`,
+          `reason=${reason}`,
+          `owner_id=${availability.ownerId}`,
+          `mechanism=${availability.mechanism}`,
+        );
+        const supervisorReceipt = await supervisor.ensureWatchdog(request);
+        if (supervisorReceipt.request.correlationId !== correlationId) {
+          writeActionAudit(
+            actionAudit,
+            CLI_AUDIT_EVENTS.SUPERVISION_RESULT,
+            `correlation_id=${correlationId}`,
+            'result=rejected',
+            `receipt_result=${supervisorReceipt.result}`,
+            `receipt_correlation_id=${supervisorReceipt.request.correlationId}`,
+          );
+          throw new HostSupervisionError(supervisorReceipt);
+        }
+        writeActionAudit(
+          actionAudit,
+          CLI_AUDIT_EVENTS.SUPERVISION_RESULT,
+          `correlation_id=${correlationId}`,
+          `result=${supervisorReceipt.result}`,
+          `attempt=${supervisorReceipt.attempt ?? 'none'}`,
+          `owner_id=${supervisorReceipt.owner?.ownerId ?? availability.ownerId}`,
+        );
+        if (supervisorReceipt.result === 'started' || supervisorReceipt.result === 'already_running') {
+          return { grantedAt: Date.now(), via: 'host_supervisor_ensure', correlationId, supervisorReceipt };
+        }
+        if (supervisorReceipt.result !== 'unavailable') throw new HostSupervisionError(supervisorReceipt);
+        reportUnavailable(actionAudit, correlationId, 'capability_changed');
+      } else {
+        reportUnavailable(actionAudit, correlationId, availability.reason);
+      }
+    } else {
+      reportUnavailable(actionAudit, correlationId, 'not_installed');
+    }
+
+    // Only an explicitly unavailable capability may fall back to the historical
+    // human/CLI ensure. A failed available supervisor must not cause a second start.
+    const result = await ensureWatchdog(ctx.fsFactory);
+    writeActionAudit(
+      actionAudit,
+      CLI_AUDIT_EVENTS.WATCHDOG_ENSURE,
+      `correlation_id=${correlationId}`,
+      `trigger=cli_manual`,
+      `result=${result?.kind ?? 'unknown'}`,
+    );
+    return { grantedAt: Date.now(), via: 'watchdog_ensure', correlationId };
+  } finally {
+    if (!scoped) actionAudit.dispose();
+  }
 }
 
 async function executePolicy(
@@ -42,18 +143,9 @@ async function executePolicy(
   ctx: SupervisionContext,
 ): Promise<void> {
   switch (policy) {
-    case 'required': {
-      // Phase 1878 Step I: action 级安装 writer 并注册 scope dispose——action 全程
-      // 深调用（watchdog-pid 等）可写、终态统一释放；无 scope（测试直调）则本调用内释放。
-      const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
-      const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
-      try {
-        await ensureWatchdog(ctx.fsFactory);
-      } finally {
-        if (!scoped) actionAudit.dispose();
-      }
+    case 'required':
+      await performEnsure(ctx, 'cli_action');
       return;
-    }
     case 'observe_only': {
       // 读取存活状态但不启动；foreign workspace 等异常上抛给 withCliErrorHandling
       const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
@@ -172,7 +264,9 @@ export function cliAction<TArgs extends unknown[]>(
  */
 export interface SupervisionReceipt {
   readonly grantedAt: number;
-  readonly via: 'watchdog_ensure';
+  readonly via: 'watchdog_ensure' | 'host_supervisor_ensure';
+  readonly correlationId: string;
+  readonly supervisorReceipt?: SupervisorReceipt;
 }
 
 /**
@@ -188,25 +282,14 @@ export interface SupervisionReceipt {
 export type EnsureSupervision = () => Promise<SupervisionReceipt>;
 
 /** phase 1874 Step K: 记忆化 receipt 工厂（每 action 一份、重复调用幂等）。 */
-export function makeEnsureSupervision(fsFactory: (baseDir: string) => FileSystem): EnsureSupervision {
+export function makeEnsureSupervision(
+  fsFactory: (baseDir: string) => FileSystem,
+  hostSupervisor?: HostSupervisor,
+): EnsureSupervision {
   let granted: Promise<SupervisionReceipt> | null = null;
   return () => {
     if (!granted) {
-      granted = (async () => {
-        // Phase 1878 Step I: 同 executePolicy——deferred 路径同样在首次行使时
-        // action 级安装 writer + scope dispose（无 scope 则本调用内释放）。
-        const actionAudit = createWatchdogActionAudit(fsFactory);
-        const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
-        try {
-          await ensureWatchdog(fsFactory);
-        } finally {
-          if (!scoped) actionAudit.dispose();
-        }
-        return {
-          grantedAt: Date.now(),
-          via: 'watchdog_ensure' as const,
-        };
-      })();
+      granted = performEnsure({ fsFactory, ...(hostSupervisor ? { hostSupervisor } : {}) }, 'cli_deferred_action');
     }
     return granted;
   };
@@ -225,5 +308,5 @@ export function cliDeferredRequiredAction<TArgs extends unknown[]>(
   ctx: SupervisionContext,
 ): (...args: TArgs) => Promise<void> {
   return withCliErrorHandling((...args) =>
-    runWithActionScope(ctx, () => handler(makeEnsureSupervision(ctx.fsFactory), ...args)));
+    runWithActionScope(ctx, () => handler(makeEnsureSupervision(ctx.fsFactory, ctx.hostSupervisor), ...args)));
 }

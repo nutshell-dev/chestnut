@@ -99,6 +99,10 @@
       "cli_settled",
       "cli_skill_install",
       "cli_stream_shutdown_failed",
+      "cli_supervision_request",
+      "cli_supervision_result",
+      "cli_supervision_unavailable",
+      "cli_watchdog_ensure",
       "cli_start_probe_attempted",
       "cli_start_probe_aborted",
       "cli_start_probe_failed",
@@ -978,6 +982,12 @@
       "stream_write_after_close",
       "stream_writer_open_created_empty",
       "stream_writer_open_preserved_raced"
+    ],
+    "foundation_supervision_audit-events": [
+      "supervision_heartbeat_loss",
+      "supervision_start",
+      "supervision_takeover",
+      "supervision_unavailable"
     ],
     "watchdog_audit-events": [
       "watchdog_candidate_admitted",

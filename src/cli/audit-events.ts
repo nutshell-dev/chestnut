@@ -46,4 +46,10 @@ export const CLI_AUDIT_EVENTS = {
   // owner mutation 事件仍归各业务 owner（本事件不替代 owner commit event）。
   CLI_INVOKE: 'cli_invoke',
   CLI_SETTLED: 'cli_settled',
+  // Phase 2184: host-supervisor availability/request evidence stays distinct
+  // from the legacy human/CLI-triggered ensure fallback.
+  SUPERVISION_REQUEST: 'cli_supervision_request',
+  SUPERVISION_RESULT: 'cli_supervision_result',
+  SUPERVISION_UNAVAILABLE: 'cli_supervision_unavailable',
+  WATCHDOG_ENSURE: 'cli_watchdog_ensure',
 } as const;

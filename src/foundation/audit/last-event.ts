@@ -31,16 +31,23 @@ export type LastAuditEventResult =
   | { kind: 'io_error'; error: unknown };
 
 /**
- * 读取 audit.tsv 的最后一行非空记录（owner 内部完成 tail 读与解析）。
+ * 读取最后一行非空记录；可选 eventType 过滤会扫描完整文件，避免把
+ * “尾部没有该事件”误判成“文件中从未发生”（owner 内部完成读取与解析）。
  */
-export function readLastAuditEvent(fs: FileSystem, auditPath: string): LastAuditEventResult {
+export function readLastAuditEvent(
+  fs: FileSystem,
+  auditPath: string,
+  eventType?: string,
+): LastAuditEventResult {
   let lines: string[];
   try {
     if (!fs.existsSync(auditPath)) return { kind: 'none' };
     const stat = fs.statSync(auditPath);
     if (stat.size === 0) return { kind: 'none' };
 
-    if (stat.size <= TAIL_BYTES) {
+    if (eventType !== undefined || stat.size <= TAIL_BYTES) {
+      // A filtered query must not confuse "absent from the tail" with absent
+      // from the file when unrelated high-frequency events fill the tail.
       lines = fs.readSync(auditPath).split('\n').filter(Boolean);
     } else {
       const offset = stat.size - TAIL_BYTES;
@@ -70,7 +77,9 @@ export function readLastAuditEvent(fs: FileSystem, auditPath: string): LastAudit
       if (parts[1].startsWith('seq=') && parts.length >= 3) {
         typeIdx = 2;
       }
-      return { kind: 'found', event: { ts: parts[0], type: parts[typeIdx], cols: parts.slice(typeIdx + 1) } };
+      const type = parts[typeIdx];
+      if (eventType !== undefined && type !== eventType) continue;
+      return { kind: 'found', event: { ts: parts[0], type, cols: parts.slice(typeIdx + 1) } };
     }
   }
   return { kind: 'none' };

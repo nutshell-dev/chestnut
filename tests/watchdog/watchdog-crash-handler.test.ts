@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { inspectWatchdogHealth } from '../../src/watchdog/index.js';
 import { WATCHDOG_PATHS } from '../../src/watchdog/layout.js';
 import {
   setAuditWriter,
@@ -115,6 +116,11 @@ describe('recordCrashTerminal typed results', () => {
 
     expect(result.kind).toBe('already_recorded');
     expect(JSON.parse(fs.readFileSync(terminalPath, 'utf8'))).toEqual(first);
+    expect(inspectWatchdogHealth(fsFactory)).toMatchObject({
+      kind: 'terminal',
+      terminal: 'crashed',
+      evidence: { terminal: first },
+    });
   });
 
   it('no_active：无 owner 时显式返回，不伪装已记录', () => {

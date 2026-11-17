@@ -11,11 +11,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { cliAction, cliDeferredRequiredAction } from '../../src/cli/supervision-policy.js';
+import { cliAction, cliDeferredRequiredAction, makeEnsureSupervision } from '../../src/cli/supervision-policy.js';
+import type { HostSupervisor, SupervisorReceipt, SupervisorRequest } from '../../src/foundation/supervision/index.js';
 import { ensureWatchdog } from '../../src/watchdog/ensure.js';
 import { inspectWatchdogLivenessForCli } from '../../src/watchdog/watchdog-pid.js';
 import { withCliErrorHandling } from '../../src/cli/with-cli-error-handling.js';
 import { CliError } from '../../src/cli/errors.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 vi.mock('../../src/watchdog/ensure.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/ensure.js')>();
@@ -222,5 +228,141 @@ describe('cliDeferredRequiredAction (phase 1280)', () => {
     await expect(wrapped()).rejects.toThrow('exit:1');
     expect(handlerCalls).toEqual([]);
     exitSpy.mockRestore();
+  });
+});
+
+
+function supervisorReceipt(
+  request: SupervisorRequest,
+  result: SupervisorReceipt['result'],
+): SupervisorReceipt {
+  return {
+    request,
+    attempt: result === 'unavailable' ? null : 'attempt-1',
+    owner: { ownerId: 'host-1', mechanism: 'fixture' },
+    result,
+    evidence: { adapter: 'fixture', result },
+  };
+}
+
+describe('Phase 2184 host-supervisor policy boundary', () => {
+  it('available supervisor performs ensure once and deferred callers share its receipt', async () => {
+    const supervisor: HostSupervisor = {
+      inspectAvailability: vi.fn().mockResolvedValue({
+        kind: 'available', ownerId: 'host-1', mechanism: 'fixture',
+      }),
+      ensureWatchdog: vi.fn().mockImplementation(async (request) => supervisorReceipt(request, 'started')),
+    };
+    const receipts: unknown[] = [];
+    const wrapped = cliDeferredRequiredAction(async (ensure) => {
+      expect(supervisor.inspectAvailability).not.toHaveBeenCalled();
+      receipts.push(await ensure());
+      receipts.push(await ensure());
+    }, { fsFactory, hostSupervisor: supervisor });
+
+    await wrapped();
+
+    expect(supervisor.inspectAvailability).toHaveBeenCalledTimes(1);
+    expect(supervisor.ensureWatchdog).toHaveBeenCalledTimes(1);
+    expect(supervisor.ensureWatchdog).toHaveBeenCalledWith({
+      reason: 'cli_deferred_action', correlationId: expect.any(String),
+    });
+    expect(ensureWatchdog).not.toHaveBeenCalled();
+    expect(receipts[0]).toBe(receipts[1]);
+    expect(receipts[0]).toMatchObject({
+      via: 'host_supervisor_ensure',
+      supervisorReceipt: { result: 'started' },
+    });
+  });
+
+  it.each(['not_installed', 'permission_denied', 'unsupported'] as const)(
+    'typed %s preserves manual ensure fallback and visible unavailable state',
+    async (reason) => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const supervisor: HostSupervisor = {
+        inspectAvailability: vi.fn().mockResolvedValue({ kind: 'unavailable', reason, evidence: {} }),
+        ensureWatchdog: vi.fn(),
+      };
+      const wrapped = cliAction('required', async () => { handlerCalls.push('handler'); }, {
+        fsFactory, hostSupervisor: supervisor,
+      });
+
+      await wrapped();
+
+      expect(ensureWatchdog).toHaveBeenCalledTimes(1);
+      expect(supervisor.ensureWatchdog).not.toHaveBeenCalled();
+      expect(handlerCalls).toEqual(['handler']);
+      expect(consoleSpy).toHaveBeenCalledWith(`[cli] supervision=unavailable reason=${reason}`);
+      consoleSpy.mockRestore();
+    },
+  );
+
+  it('available supervisor failure does not trigger a competing manual ensure', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit:${code}`); });
+    const supervisor: HostSupervisor = {
+      inspectAvailability: vi.fn().mockResolvedValue({
+        kind: 'available', ownerId: 'host-1', mechanism: 'fixture',
+      }),
+      ensureWatchdog: vi.fn().mockImplementation(async (request) => supervisorReceipt(request, 'failed')),
+    };
+    const wrapped = cliAction('required', async () => { handlerCalls.push('handler'); }, {
+      fsFactory, hostSupervisor: supervisor,
+    });
+
+    await expect(wrapped()).rejects.toThrow('exit:1');
+    expect(ensureWatchdog).not.toHaveBeenCalled();
+    expect(handlerCalls).toEqual([]);
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
+  it('rejects a mismatched supervisor correlation before accepting a started receipt', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supervisor: HostSupervisor = {
+      inspectAvailability: vi.fn().mockResolvedValue({
+        kind: 'available', ownerId: 'host-1', mechanism: 'fixture',
+      }),
+      ensureWatchdog: vi.fn().mockImplementation(async (request) =>
+        supervisorReceipt({ ...request, correlationId: 'other-operation' }, 'started')),
+    };
+
+    await expect(makeEnsureSupervision(fsFactory, supervisor)()).rejects.toMatchObject({
+      name: 'HostSupervisionError',
+    });
+    expect(ensureWatchdog).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('manual fallback and unavailable request share correlation evidence in audit', async () => {
+    const previousRoot = process.env.CHESTNUT_ROOT;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const tmpDir = path.join(os.tmpdir(), `cli-supervision-${randomUUID()}`);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(ensureWatchdog).mockResolvedValue({ kind: 'already_running', pid: 123 });
+    try {
+      process.env.CHESTNUT_ROOT = tmpDir;
+      const realFsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
+      const supervisor: HostSupervisor = {
+        inspectAvailability: vi.fn().mockResolvedValue({
+          kind: 'unavailable', reason: 'not_installed', evidence: { installed: false },
+        }),
+        ensureWatchdog: vi.fn(),
+      };
+      const receipt = await makeEnsureSupervision(realFsFactory, supervisor)();
+      const audit = fs.readFileSync(path.join(tmpDir, '.chestnut', 'audit', 'audit.tsv'), 'utf8');
+
+      expect(receipt.via).toBe('watchdog_ensure');
+      expect(audit).toContain('cli_supervision_unavailable');
+      expect(audit).toContain('cli_watchdog_ensure');
+      expect(audit).toContain('trigger=cli_manual');
+      expect(audit).toContain(`correlation_id=${receipt.correlationId}`);
+      expect(audit).not.toContain('supervision_takeover');
+    } finally {
+      consoleSpy.mockRestore();
+      if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
+      else process.env.CHESTNUT_ROOT = previousRoot;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

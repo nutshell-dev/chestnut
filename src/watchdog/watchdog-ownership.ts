@@ -298,6 +298,16 @@ function isFsExists(err: unknown): boolean {
  * 读取 winner generation 的 terminal 终局。
  * terminal 只存在于 active/retired 的 generation 目录内，candidate outcome 不是 terminal。
  */
+function parseTerminal(content: string): TerminalInspection {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isTerminalRecord(parsed)) return { status: 'malformed', cause: 'terminal_shape_mismatch' };
+    return { status: 'ok', terminal: parsed };
+  } catch (err) {
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+}
+
 export function inspectTerminal(fs: FileSystem): TerminalInspection {
   let content: string;
   try {
@@ -306,13 +316,47 @@ export function inspectTerminal(fs: FileSystem): TerminalInspection {
     if (isFsNotFound(err)) return { status: 'none' };
     return { status: 'malformed', cause: formatErr(err) };
   }
+  return parseTerminal(content);
+}
+
+function terminalTimeMs(terminal: WatchdogGenerationTerminal): number {
+  return Date.parse(terminal.kind === 'unclean' ? terminal.detected_at : terminal.recorded_at);
+}
+
+/** Read the newest retired terminal without exposing the generation layout to callers. */
+export function inspectLatestRetiredTerminal(fs: FileSystem): TerminalInspection {
+  let entries;
   try {
-    const parsed: unknown = JSON.parse(content);
-    if (!isTerminalRecord(parsed)) return { status: 'malformed', cause: 'terminal_shape_mismatch' };
-    return { status: 'ok', terminal: parsed };
+    entries = fs.listSync(WATCHDOG_RETIRED_DIR, { includeDirs: true });
   } catch (err) {
+    if (isFsNotFound(err)) return { status: 'none' };
     return { status: 'malformed', cause: formatErr(err) };
   }
+  let latest: WatchdogGenerationTerminal | null = null;
+  let latestMs = -Infinity;
+  for (const entry of entries) {
+    if (!entry.isDirectory) continue;
+    let content: string;
+    try {
+      content = fs.readSync(`${WATCHDOG_RETIRED_DIR}/${entry.name}/${WATCHDOG_TERMINAL_FILE}`);
+    } catch (err) {
+      if (isFsNotFound(err)) continue;
+      return { status: 'malformed', cause: formatErr(err) };
+    }
+    const inspected = parseTerminal(content);
+    if (inspected.status !== 'ok') {
+      return inspected.status === 'malformed'
+        ? inspected
+        : { status: 'malformed', cause: 'terminal_read_failed' };
+    }
+    const atMs = terminalTimeMs(inspected.terminal);
+    if (!Number.isFinite(atMs)) return { status: 'malformed', cause: 'terminal_timestamp_invalid' };
+    if (atMs > latestMs) {
+      latest = inspected.terminal;
+      latestMs = atMs;
+    }
+  }
+  return latest === null ? { status: 'none' } : { status: 'ok', terminal: latest };
 }
 
 /**
