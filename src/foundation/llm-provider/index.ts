@@ -25,6 +25,7 @@ export type {
 } from './capabilities/protocol.js';
 export type {
   LLMResponse,
+  ProviderUsage,
   ProviderAuthenticationInput,
   ProviderDescriptor,
   ProviderFactory,

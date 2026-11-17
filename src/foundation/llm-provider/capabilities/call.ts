@@ -19,6 +19,7 @@ export type {
   LLMProvider,
   LLMCallOptions,
   LLMResponse,
+  ProviderUsage,
   ProviderStreamChunk,
   ProviderAdapter,
   AuditSink,

@@ -18,6 +18,7 @@ export const FACADES = {
     module: './capabilities/call.js',
     roots: [
       'foundation/llm-orchestrator',
+      'foundation/stream',
       'core/step-executor',
       'core/llm-configuration',
       'assembly',
@@ -99,6 +100,7 @@ export const ROOT_TYPE_EXPORTS = [
   'ToolDefinition',
   'JSONSchema7',
   'LLMResponse',
+  'ProviderUsage',
   'ProviderAuthenticationInput',
   'ProviderDescriptor',
   'ProviderFactory',

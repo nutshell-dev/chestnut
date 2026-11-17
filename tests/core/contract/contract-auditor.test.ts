@@ -33,7 +33,7 @@ function makeMockLLM(verdictText: string): LLMOrchestrator {
       const response: LLMResponse = {
         content: [{ type: 'text', text: verdictText }],
         stop_reason: 'end_turn',
-        usage: { input_tokens: 100, output_tokens: 50 },
+        usage: { inputTokens: 100, outputTokens: 50 },
       };
       return response;
     },

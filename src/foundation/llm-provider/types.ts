@@ -89,15 +89,30 @@ export interface ToolDefinition {
   input_schema: JSONSchema7;
 }
 
+/** Supplier-reported token usage for one provider attempt, normalized by L1. */
+export interface ProviderUsage {
+  /** Effective input total: uncached input plus cache reads and writes. */
+  inputTokens?: number;
+  /** Total output; reasoningTokens is a detail and must not be added again. */
+  outputTokens?: number;
+  /** Cached input read (hit) by this attempt. */
+  cacheReadInputTokens?: number;
+  /** New cached input written by this attempt; distinct from cache hits. */
+  cacheWriteInputTokens?: number;
+  /** Supplier total, preserved without recomputing it from other dimensions. */
+  totalTokens?: number;
+  details?: {
+    reasoningTokens?: number;
+    toolUsePromptTokens?: number;
+    thoughtsTokens?: number;
+    safetyTokens?: number;
+  };
+}
+
 export interface LLMResponse {
   content: ContentBlock[];
   stop_reason: 'tool_use' | 'end_turn' | 'max_tokens' | string;
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_input_tokens?: number | null;
-    cache_read_input_tokens?: number | null;
-  };
+  usage?: ProviderUsage;
   model?: string;
 }
 
@@ -228,13 +243,8 @@ export interface ProviderStreamChunk {
     partialInput?: string;
   };
 
-  /** Usage info (usually in final chunk) */
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationInputTokens?: number;
-    cacheReadInputTokens?: number;
-  };
+  /** Supplier usage from the terminal chunk; never filled from local estimates. */
+  usage?: ProviderUsage;
 
   /** Thinking block signature (for Anthropic extended thinking) */
   signature?: string;

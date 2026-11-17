@@ -587,14 +587,7 @@ function assistantMessageToLLMResponse(message: PiAi.AssistantMessage): LLMRespo
   return {
     content,
     stop_reason: mapStopReason(message.stopReason),
-    ...(usage && {
-      usage: {
-        input_tokens: usage.inputTokens,
-        output_tokens: usage.outputTokens,
-        cache_creation_input_tokens: usage.cacheCreationInputTokens ?? null,
-        cache_read_input_tokens: usage.cacheReadInputTokens ?? null,
-      },
-    }),
+    ...(usage ? { usage } : {}),
     ...(message.responseModel && { model: message.responseModel }),
   };
 }

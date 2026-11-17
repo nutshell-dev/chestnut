@@ -93,16 +93,63 @@ describe('PiAiAdapter — openai-completions 协议', () => {
     const done = chunks.find((c) => c.type === 'done');
     expect(done).toBeDefined();
     expect(done!.stopReason).toBe('end_turn');
-    expect(done!.usage).toMatchObject({ inputTokens: 11, outputTokens: 7 });
+    expect(done!.usage).toEqual({
+      inputTokens: 11,
+      outputTokens: 7,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      totalTokens: 18,
+      details: { reasoningTokens: 0 },
+    });
   });
 
-  it('call() 返回 LLMResponse（text + usage snake_case）', async () => {
+  it('call() 返回与 stream 相同的 ProviderUsage', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('world')))));
     const adapter = createLLMProvider(baseConfig());
     const response = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
     expect(response.content).toEqual([{ type: 'text', text: 'world' }]);
     expect(response.stop_reason).toBe('end_turn');
-    expect(response.usage).toMatchObject({ input_tokens: 11, output_tokens: 7 });
+    expect(response.usage).toEqual({
+      inputTokens: 11,
+      outputTokens: 7,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      totalTokens: 18,
+      details: { reasoningTokens: 0 },
+    });
+  });
+
+  it('call/stream 保留有效输入、缓存、总量和 reasoning 细分', async () => {
+    const frames = [
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'usage' }, finish_reason: null }] },
+      {
+        id: 'c1', object: 'chat.completion.chunk',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 100_500,
+          completion_tokens: 22,
+          total_tokens: 100_522,
+          prompt_tokens_details: { cached_tokens: 80_000 },
+          completion_tokens_details: { reasoning_tokens: 10 },
+        },
+      },
+    ];
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(sseResponse(openaiSse(frames)))
+      .mockResolvedValueOnce(sseResponse(openaiSse(frames))));
+    const adapter = createLLMProvider(baseConfig());
+    const response = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    const chunks = await collectChunks(adapter);
+    const expected = {
+      inputTokens: 100_500,
+      outputTokens: 22,
+      cacheReadInputTokens: 80_000,
+      cacheWriteInputTokens: 0,
+      totalTokens: 100_522,
+      details: { reasoningTokens: 10 },
+    };
+    expect(response.usage).toEqual(expected);
+    expect(chunks.find(chunk => chunk.type === 'done')?.usage).toEqual(expected);
   });
 
   it('tool call：start 带 id/name、delta 拼接语义、finish toolUse → tool_use', async () => {
@@ -763,7 +810,7 @@ describe('PiAiAdapter — anthropic-messages 协议', () => {
 
   it('text + thinking(含 signature) + tool_use + usage 全要素', async () => {
     const sse = anthropicSse([
-      ['message_start', { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 10 } } }],
+      ['message_start', { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 500, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 20_000 } } }],
       ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }],
       ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'ponder' } }],
       ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-abc' } }],
@@ -791,7 +838,13 @@ describe('PiAiAdapter — anthropic-messages 协议', () => {
     expect(JSON.parse(toolInput)).toEqual({ q: 'x' });
     const done = chunks.find((c) => c.type === 'done');
     expect(done?.stopReason).toBe('tool_use');
-    expect(done?.usage).toMatchObject({ inputTokens: 10, outputTokens: 22 });
+    expect(done?.usage).toEqual({
+      inputTokens: 100_500,
+      outputTokens: 22,
+      cacheReadInputTokens: 80_000,
+      cacheWriteInputTokens: 20_000,
+      totalTokens: 100_522,
+    });
 
     // anthropic 端点与 auth 头（pi-ai 会追加 ?beta=true 查询参数）
     const [url, init] = fetchMock.mock.calls[0];

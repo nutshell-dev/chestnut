@@ -199,7 +199,7 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
         { type: 'text', text: verdictText },
       ],
       stop_reason: 'end_turn',
-      usage: { input_tokens: 100, output_tokens: 50 },
+      usage: { inputTokens: 100, outputTokens: 50 },
     };
     const calls: CapturedCall[] = [];
     const auditor = makeAuditor(makeLLM(response, calls));
@@ -281,7 +281,7 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
     const response: LLMResponse = {
       content: [{ type: 'text', text: verdictText }],
       stop_reason: 'end_turn',
-      usage: { input_tokens: 10, output_tokens: 5 },
+      usage: { inputTokens: 10, outputTokens: 5 },
     };
     const auditor = makeAuditor(makeLLM(response));
     await auditor.maybeAudit(defaultReq({
@@ -308,7 +308,7 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
         next_focus_suggestion: 'fix',
       }) }],
       stop_reason: 'end_turn',
-      usage: { input_tokens: 10, output_tokens: 5 },
+      usage: { inputTokens: 10, outputTokens: 5 },
     };
     await makeAuditor(makeLLM(validResponse)).maybeAudit(defaultReq());
     let inbox = await readInboxMessages();
@@ -322,7 +322,7 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
         next_focus_suggestion: 'x',
       }) }],
       stop_reason: 'end_turn',
-      usage: { input_tokens: 10, output_tokens: 5 },
+      usage: { inputTokens: 10, outputTokens: 5 },
     };
     const out = await makeAuditor(makeLLM(mixedResponse)).maybeAudit(defaultReq({ currentStep: 100 }));
     expect(out.audited).toBe(false);

@@ -31,7 +31,7 @@ function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
     yield {
       type: 'done',
       stopReason: r.stop_reason,
-      usage: r.usage ? { inputTokens: r.usage.input_tokens, outputTokens: r.usage.output_tokens } : undefined,
+      usage: r.usage,
     };
   }
   return {

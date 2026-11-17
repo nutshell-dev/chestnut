@@ -6,7 +6,7 @@ import type { ProviderWireMessage, ContentBlock, ToolDefinition } from './types.
  * LLM token estimator (pre-call fallback)
  *
  * **角色**：pre-call fallback、不替 post-call `LLMResponse.usage` 真值
- * - provider 提供 token data 时 (`response.usage.input_tokens / output_tokens`) caller 直接读、estimator 不参与
+ * - provider 提供 token data 时 (`response.usage.inputTokens / outputTokens`) caller 直接读、estimator 不参与
  * - provider 不提供 / pre-call budget 规划 / truncation decision 时 estimator fallback
  *
  * **技术选择**：js-tiktoken (官方 tiktoken Rust 实现的 pure JS port、cl100k_base baseline)

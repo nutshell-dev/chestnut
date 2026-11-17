@@ -13,7 +13,7 @@
  */
 
 import type * as PiAi from '@earendil-works/pi-ai';
-import type { ProviderStreamChunk } from './types.js';
+import type { ProviderStreamChunk, ProviderUsage } from './types.js';
 
 /** 单个 tool call 的跨事件跟踪。 */
 interface ToolCallTrack {
@@ -51,13 +51,28 @@ export function mapStopReason(reason: string | undefined): string {
   }
 }
 
-export function mapUsage(usage: PiAi.Usage | undefined): ProviderStreamChunk['usage'] | undefined {
+function validUsageNumber(value: number | undefined): value is number {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function mapUsage(usage: PiAi.Usage | undefined): ProviderUsage | undefined {
   if (!usage) return undefined;
+  const input = validUsageNumber(usage.input) ? usage.input : undefined;
+  const cacheRead = validUsageNumber(usage.cacheRead) ? usage.cacheRead : undefined;
+  const cacheWrite = validUsageNumber(usage.cacheWrite) ? usage.cacheWrite : undefined;
+  const inputTokens = input !== undefined
+    && cacheRead !== undefined
+    && cacheWrite !== undefined
+    && Number.isSafeInteger(input + cacheRead + cacheWrite)
+    ? input + cacheRead + cacheWrite
+    : undefined;
   return {
-    inputTokens: usage.input,
-    outputTokens: usage.output,
-    ...(usage.cacheWrite > 0 && { cacheCreationInputTokens: usage.cacheWrite }),
-    ...(usage.cacheRead > 0 && { cacheReadInputTokens: usage.cacheRead }),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(validUsageNumber(usage.output) ? { outputTokens: usage.output } : {}),
+    ...(cacheRead !== undefined ? { cacheReadInputTokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWriteInputTokens: cacheWrite } : {}),
+    ...(validUsageNumber(usage.totalTokens) ? { totalTokens: usage.totalTokens } : {}),
+    ...(validUsageNumber(usage.reasoning) ? { details: { reasoningTokens: usage.reasoning } } : {}),
   };
 }
 

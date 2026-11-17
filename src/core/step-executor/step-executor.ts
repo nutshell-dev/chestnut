@@ -124,8 +124,8 @@ async function runLLMCall(
   }
   const llmInfo: LLMCallInfo = {
     model: llm.getProviderInfo?.()?.model ?? 'unknown',
-    inputTokens: response.usage?.input_tokens ?? 0,
-    outputTokens: response.usage?.output_tokens ?? 0,
+    inputTokens: response.usage?.inputTokens ?? 0,
+    outputTokens: response.usage?.outputTokens ?? 0,
     latencyMs: Date.now() - llmStartTime,
   };
   // phase 1857 Step F (SE-D6): [S:strict][提交通知] 唯一 S 级——副作用提交前调用事实交付；

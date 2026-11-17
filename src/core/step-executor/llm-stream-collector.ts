@@ -7,6 +7,7 @@
 import { llmProviderCall } from '../../foundation/llm-provider/index.js';
 const { LLMTimeoutError } = llmProviderCall;
 type LLMResponse = llmProviderCall.LLMResponse;
+type ProviderUsage = llmProviderCall.ProviderUsage;
 import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 const { makeToolUseId } = llmProviderProtocol;
 type ContentBlock = llmProviderProtocol.ContentBlock;
@@ -30,7 +31,7 @@ export interface StreamState {
   currentSignature: string;
   currentToolUse: { id: string; name: string; input: string } | null;
   stopReason: string;
-  usage: { input_tokens: number; output_tokens: number } | undefined;
+  usage: ProviderUsage | undefined;
   /** phase 688: 首 chunk 到达时设置、catch 路径 emit discarded 时作 ts_range 起点 */
   startTs: number;
 }
@@ -279,9 +280,7 @@ export async function collectStreamResponse(
           );
           break;
         case 'done':
-          if (chunk.usage) {
-            state.usage = { input_tokens: chunk.usage.inputTokens, output_tokens: chunk.usage.outputTokens };
-          }
+          state.usage = chunk.usage;
           if (chunk.stopReason && chunk.stopReason !== 'end_turn') state.stopReason = chunk.stopReason;
           break;
         default: {

@@ -157,7 +157,18 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
     const chunks: LLMStreamChunk[] = [
       { type: 'tool_use_start', toolUse: { id: 'a', name: 'read', partialInput: '' } },
       { type: 'tool_use_delta', toolUse: { id: 'a', name: 'read', partialInput: '{"path":"x"}' } },
-      { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'tool_use' },
+      {
+        type: 'done',
+        usage: {
+          inputTokens: 15,
+          outputTokens: 5,
+          cacheReadInputTokens: 3,
+          cacheWriteInputTokens: 2,
+          totalTokens: 20,
+          details: { reasoningTokens: 1 },
+        },
+        stopReason: 'tool_use',
+      },
     ];
     const llm: LLMOrchestrator = {
       async *stream(_opts: LLMCallOptions): AsyncGenerator<LLMStreamChunk> {
@@ -173,8 +184,16 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onPartialAssistantDiscarded,
     };
 
-    await collectStreamResponse(llm, {} as LLMCallOptions, callbacks);
+    const response = await collectStreamResponse(llm, {} as LLMCallOptions, callbacks);
 
+    expect(response.usage).toEqual({
+      inputTokens: 15,
+      outputTokens: 5,
+      cacheReadInputTokens: 3,
+      cacheWriteInputTokens: 2,
+      totalTokens: 20,
+      details: { reasoningTokens: 1 },
+    });
     expect(onPartialAssistantDiscarded).not.toHaveBeenCalled();
   });
 

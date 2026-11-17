@@ -26,7 +26,7 @@ function makeLLMWithStopReason(stopReason: string): LLMOrchestrator {
     call: vi.fn(async () => ({
       content: [{ type: 'text', text: 'hi' }],
       stop_reason: stopReason,
-      usage: { input_tokens: 1, output_tokens: 1 },
+      usage: { inputTokens: 1, outputTokens: 1 },
     } satisfies LLMResponse)),
     stream: vi.fn(() => stream()),
     healthCheck: vi.fn(async () => true),
