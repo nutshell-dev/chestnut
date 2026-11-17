@@ -3,7 +3,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PreparedSubAgentTaskScheduler } from '../async-task-system/index.js';
-import { ContractSystem } from '../contract/index.js';
+import { archiveContainerDir, ContractSystem, readContractTerminalFact } from '../contract/index.js';
 import type { SkillVersions } from '../../foundation/skill-system/index.js';
 import { buildRetroSubagentPayload } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
@@ -14,9 +14,11 @@ import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/index.js';
 import {
   RetrospectiveStore,
+  DISPATCHING_DIR,
   executorIdOf,
   type RetrospectiveWorkItem,
 } from './retrospective-store.js';
+import type { RetrospectiveContractObservation } from './types.js';
 
 interface EvolutionSystemDeps {
   fs: FileSystem;
@@ -250,12 +252,33 @@ export class EvolutionSystem {
     failed: number;
     recovered: number;
     driven: number;
+    retired: number;
   }> {
     let recovered = 0;
     let failed = 0;
+    let retired = 0;
     const dispatching = await this.store.listDispatching();
     for (const item of dispatching) {
       try {
+        const observation = await this._observeContractLifecycle(item, ctx);
+        if (observation.kind === 'completed_archived') {
+          const disposition = await this.store.retireArchivedOrphan(item, observation);
+          if (disposition.kind === 'retired_archived') retired++;
+          continue;
+        }
+        if (observation.kind !== 'active') {
+          failed++;
+          const cause = 'error' in observation ? observation.error : 'contract_not_found';
+          this.deps.audit.write(
+            RETRO_AUDIT_EVENTS.RETRO_ORPHAN_UNRESOLVED,
+            `contractId=${item.contract_id}`,
+            `observation=${observation.kind}`,
+            `dispatchingPath=${DISPATCHING_DIR}/${item.contract_id}.json`,
+            `nextAttemptAtMs=${Date.now()}`,
+            `cause=${cause}`,
+          );
+          continue;
+        }
         const result = await this.submitDispatching(item, ctx);
         if (result.status === 'submitted' || result.status === 'already_submitted') {
           recovered++;
@@ -315,13 +338,71 @@ export class EvolutionSystem {
       `failed=${failed}`,
       `recovered=${recovered}`,
       `driven=${driven}`,
+      `retired=${retired}`,
     );
 
     return {
       failed,
       recovered,
       driven,
+      retired,
     };
+  }
+
+  private async _observeContractLifecycle(
+    item: RetrospectiveWorkItem,
+    ctx: MotionReviewContext,
+  ): Promise<RetrospectiveContractObservation> {
+    const contractId = item.contract_id;
+    const executorId = executorIdOf(item);
+    const clawDir = path.join(ctx.clawsBaseDir, executorId);
+    const clawFs = ctx.clawFsFactory(clawDir);
+
+    let terminal;
+    try {
+      terminal = await readContractTerminalFact(clawFs, contractId);
+    } catch (error) {
+      return classifyContractObservationError(contractId, error);
+    }
+
+    if (terminal.kind === 'terminal') {
+      if (terminal.state !== 'completed') {
+        return {
+          kind: 'corrupt',
+          contractId,
+          error: `contract terminal state is ${terminal.state}, not completed`,
+        };
+      }
+
+      // The archive directory is the lifecycle authority. Progress is optional
+      // supplementary evidence; an unreadable payload must not reopen a contract
+      // whose completed archive fact has already committed.
+      let completedAt: string | null = null;
+      let cause: string | undefined;
+      try {
+        const manager = await ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
+        completedAt = (await manager.getProgress(contractId))?.completed_at ?? null;
+      } catch (error) {
+        cause = formatErr(error);
+      }
+      return {
+        kind: 'completed_archived',
+        contractId,
+        archivePath: `${archiveContainerDir()}/completed/${contractId}`,
+        completedAt,
+        cause,
+      };
+    }
+
+    try {
+      const manager = await ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
+      const progress = await manager.getProgress(contractId);
+      return progress
+        ? { kind: 'active', contractId }
+        : { kind: 'missing', contractId };
+    } catch (error) {
+      return classifyContractObservationError(contractId, error);
+    }
   }
 
   private async _buildPreparedRetroTask(
@@ -388,6 +469,23 @@ export class EvolutionSystem {
   }
 }
 
+function classifyContractObservationError(
+  contractId: ContractId,
+  error: unknown,
+): RetrospectiveContractObservation {
+  const corrupt =
+    error instanceof SyntaxError ||
+    (error instanceof Error && (
+      error.name === 'ContractArchiveReadError' ||
+      error.name === 'ContractLayoutCorruptedError' ||
+      error.name === 'ContractLocationAmbiguityError'
+    ));
+  return {
+    kind: corrupt ? 'corrupt' : 'io_failed',
+    contractId,
+    error: formatErr(error),
+  };
+}
 
 /**
  * phase 1445 Step D（裁定②）：init(ctx) 内化进工厂 —— 构造后工厂内 await init

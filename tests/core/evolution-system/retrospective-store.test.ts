@@ -8,7 +8,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
   type EnsureRetrospectiveInput,
 } from '../../../src/core/evolution-system/index.js';
-import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR, CLAIMS_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
+import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR, CLAIMS_DIR, RETIRED_DIR, ORPHAN_OUTCOMES_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { makeContractId, type ContractId } from '../../../src/core/contract/types.js';
 import { makeFullTaskId, type FullTaskId } from '../../../src/core/async-task-system/types.js';
@@ -1274,5 +1274,120 @@ describe('RetrospectiveStore markSubmitted concurrency (Phase 1912 Step F)', () 
   it('still throws when no row exists in any state', async () => {
     const input = makeInput();
     await expect(store.markSubmitted(input.contractId)).rejects.toThrow(/no dispatching row/);
+  });
+});
+
+
+describe('RetrospectiveStore archived orphan outcomes (Phase 2185)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+  let store: RetrospectiveStore;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-orphan-store-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+    store = new RetrospectiveStore({ fs, audit: audit.audit });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  async function makeDispatchingItem(contractId = makeContractId('onboarding')) {
+    const input = { contractId, targetExecutorId: 'claw-a' };
+    const identity = await store.ensure(input);
+    expect(await store.beginDispatch(contractId)).toBe('acquired');
+    const item = await store.readDispatching(contractId);
+    expect(item).not.toBeNull();
+    return { item: item!, identity };
+  }
+
+  const evidence = {
+    archivePath: 'contract/archive/completed/onboarding',
+    completedAt: '2026-11-17T01:00:00.000Z',
+  };
+
+  it('commits outcome before preserving the row in retired and replays without duplicate audit', async () => {
+    const { item } = await makeDispatchingItem();
+    const originalBytes = await fs.read(`${DISPATCHING_DIR}/onboarding.json`);
+
+    const first = await store.retireArchivedOrphan(item, evidence);
+    expect(first.kind).toBe('retired_archived');
+    expect(await fs.exists(`${DISPATCHING_DIR}/onboarding.json`)).toBe(false);
+    expect(await fs.read(`${RETIRED_DIR}/onboarding.json`)).toBe(originalBytes);
+
+    const outcome = await store.readOrphanOutcome(item.contract_id);
+    expect(outcome).toMatchObject({
+      outcome: 'retired_archived',
+      contract_id: item.contract_id,
+      contract_ref: 'contract/archive/completed/onboarding/contract.yaml',
+      archive_path: evidence.archivePath,
+      completed_at: evidence.completedAt,
+      dispatching_bytes: originalBytes,
+      observation_source: 'contract_terminal_fact',
+    });
+    expect(outcome!.dispatching_sha256).toMatch(/^[a-f0-9]{64}$/);
+
+    const second = await store.retireArchivedOrphan(item, evidence);
+    expect(second.kind).toBe('already_retired');
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_ORPHAN_ARCHIVED)).toHaveLength(1);
+  });
+
+  it('keeps dispatching untouched when outcome publication fails', async () => {
+    const { item } = await makeDispatchingItem();
+    const outcomePath = `${ORPHAN_OUTCOMES_DIR}/onboarding.json`;
+    class OutcomeFailureFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p === outcomePath) throw new Error('injected outcome failure');
+        return super.writeExclusive(p, content);
+      }
+    }
+    const failing = new RetrospectiveStore({ fs: new OutcomeFailureFs({ baseDir }), audit: audit.audit });
+
+    await expect(failing.retireArchivedOrphan(item, evidence)).rejects.toThrow('injected outcome failure');
+    expect(await fs.exists(`${DISPATCHING_DIR}/onboarding.json`)).toBe(true);
+    expect(await fs.exists(`${RETIRED_DIR}/onboarding.json`)).toBe(false);
+    expect(await fs.exists(outcomePath)).toBe(false);
+  });
+
+  it('replays a committed outcome after a move interruption without changing its evidence', async () => {
+    const { item } = await makeDispatchingItem();
+    class MoveFailureFs extends NodeFileSystem {
+      override async move(from: string, to: string): Promise<void> {
+        if (from === `${DISPATCHING_DIR}/onboarding.json` && to === `${RETIRED_DIR}/onboarding.json`) {
+          throw new Error('injected move interruption');
+        }
+        return super.move(from, to);
+      }
+    }
+    const interrupted = new RetrospectiveStore({ fs: new MoveFailureFs({ baseDir }), audit: audit.audit });
+    await expect(interrupted.retireArchivedOrphan(item, evidence)).rejects.toThrow('injected move interruption');
+
+    const outcomePath = `${ORPHAN_OUTCOMES_DIR}/onboarding.json`;
+    const committedBytes = await fs.read(outcomePath);
+    expect(await fs.exists(`${DISPATCHING_DIR}/onboarding.json`)).toBe(true);
+    expect(await fs.exists(`${RETIRED_DIR}/onboarding.json`)).toBe(false);
+
+    const retry = await store.retireArchivedOrphan(item, evidence);
+    expect(retry.kind).toBe('retired_archived');
+    expect(await fs.read(outcomePath)).toBe(committedBytes);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_ORPHAN_ARCHIVED)).toHaveLength(1);
+  });
+
+  it('concurrent retirement commits one outcome, one retired row and one audit', async () => {
+    const { item } = await makeDispatchingItem();
+    const other = new RetrospectiveStore({ fs, audit: audit.audit });
+
+    const results = await Promise.all([
+      store.retireArchivedOrphan(item, evidence),
+      other.retireArchivedOrphan(item, evidence),
+    ]);
+    expect(results.map(r => r.kind).sort()).toEqual(['already_retired', 'retired_archived']);
+    expect(await fs.list(RETIRED_DIR, { includeDirs: false })).toHaveLength(1);
+    expect(await fs.list(ORPHAN_OUTCOMES_DIR, { includeDirs: false })).toHaveLength(1);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_ORPHAN_ARCHIVED)).toHaveLength(1);
   });
 });

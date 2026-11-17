@@ -16,7 +16,7 @@
  * - malformed/future-version/multi-state rows are preserved, audited, and stop.
  */
 
-import { formatErr } from '../../foundation/node-utils/index.js';
+import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -26,11 +26,14 @@ import type { FullTaskId } from '../async-task-system/index.js';
 import { makeFullTaskId, adoptLegacyFullTaskId } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
+import type { ArchivedOrphanEvidence, ArchivedOrphanOutcome, OrphanDisposition } from './types.js';
 
 const RETROSPECTIVES_DIR = `${CLAWSPACE_DIR}/evolution/retrospectives`;
 export const READY_DIR = `${RETROSPECTIVES_DIR}/ready`;
 export const DISPATCHING_DIR = `${RETROSPECTIVES_DIR}/dispatching`;
 export const SUBMITTED_DIR = `${RETROSPECTIVES_DIR}/submitted`;
+export const RETIRED_DIR = `${RETROSPECTIVES_DIR}/retired`;
+export const ORPHAN_OUTCOMES_DIR = `${RETROSPECTIVES_DIR}/orphan-outcomes`;
 /**
  * Phase 1904 Step C: 跨 lifecycle 稳定身份 claim 目录。
  * claim 不随 ready→dispatching→submitted move，是同一 contractId
@@ -812,6 +815,162 @@ export class RetrospectiveStore {
 
     // 不可达：循环内每条路径均 return/throw；仅为满足 TS 结束返回检查。
     throw new Error(`Cannot mark submitted: unexpected retry exhaustion for ${contractId}`);
+  }
+
+  /**
+   * Retire a dispatching row only after its archived-completed outcome is durable.
+   * The move preserves the original row bytes; an existing outcome is adopted only
+   * when it proves the same row and archive fact. This makes boot replay and
+   * concurrent reconciliation converge without deleting the source evidence.
+   */
+  async retireArchivedOrphan(
+    item: RetrospectiveWorkItem,
+    evidence: ArchivedOrphanEvidence,
+  ): Promise<Extract<OrphanDisposition, { kind: 'retired_archived' | 'already_retired' }>> {
+    await this.fs.ensureDir(RETIRED_DIR);
+    await this.fs.ensureDir(ORPHAN_OUTCOMES_DIR);
+
+    const contractId = item.contract_id;
+    const dispatchingPath = this.rowPath(contractId, 'dispatching');
+    const retiredPath = `${RETIRED_DIR}/${contractId}.json`;
+    const outcomePath = `${ORPHAN_OUTCOMES_DIR}/${contractId}.json`;
+    const [hasDispatching, hasRetired] = await Promise.all([
+      this.fs.exists(dispatchingPath),
+      this.fs.exists(retiredPath),
+    ]);
+
+    if (hasDispatching && hasRetired) {
+      throw new Error(`Archived retrospective orphan for ${contractId} exists in both dispatching and retired`);
+    }
+    if (!hasDispatching) {
+      if (!hasRetired) {
+        throw new Error(`Cannot retire archived retrospective orphan: no dispatching row for ${contractId}`);
+      }
+      const committed = await this.readOrphanOutcome(contractId);
+      if (!committed || committed.outcome !== 'retired_archived') {
+        throw new Error(`Retired retrospective orphan for ${contractId} has no committed outcome`);
+      }
+      return { kind: 'already_retired', outcomePath };
+    }
+
+    const dispatchingBytes = await this.fs.read(dispatchingPath);
+    const dispatchingSha256 = sha256Hex(dispatchingBytes);
+    const candidate: ArchivedOrphanOutcome = {
+      schema_version: 1,
+      outcome: 'retired_archived',
+      contract_id: contractId,
+      task_id: item.task_id,
+      target_executor_id: executorIdOf(item),
+      created_at: item.created_at,
+      contract_ref: `${evidence.archivePath}/contract.yaml`,
+      archive_path: evidence.archivePath,
+      completed_at: evidence.completedAt,
+      observed_at: new Date().toISOString(),
+      observation_source: 'contract_terminal_fact',
+      dispatching_path: dispatchingPath,
+      dispatching_sha256: dispatchingSha256,
+      dispatching_bytes: dispatchingBytes,
+      cause: evidence.cause ?? null,
+    };
+
+    let outcome = candidate;
+    try {
+      await this.fs.writeExclusive(outcomePath, JSON.stringify(candidate, null, 2));
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      const existing = await this.readOrphanOutcome(contractId);
+      if (!existing) {
+        throw new Error(`Archived retrospective orphan outcome for ${contractId} is not readable after EEXIST`);
+      }
+      this._assertMatchingOrphanOutcome(candidate, existing);
+      outcome = existing;
+    }
+
+    try {
+      await this.fs.move(dispatchingPath, retiredPath);
+    } catch (err) {
+      if (await this.fs.exists(retiredPath).catch(() => false)) {
+        return { kind: 'already_retired', outcomePath };
+      }
+      throw err;
+    }
+
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_ORPHAN_ARCHIVED,
+      `contractId=${contractId}`,
+      `contractRef=${outcome.contract_ref}`,
+      `archivePath=${outcome.archive_path}`,
+      `outcomePath=${outcomePath}`,
+      `dispatchingSha256=${outcome.dispatching_sha256}`,
+      `previousEvent=${RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED}`,
+    );
+    return { kind: 'retired_archived', outcomePath };
+  }
+
+  async readOrphanOutcome(contractId: ContractId): Promise<ArchivedOrphanOutcome | null> {
+    const path = `${ORPHAN_OUTCOMES_DIR}/${contractId}.json`;
+    let raw: string;
+    try {
+      raw = await this.fs.read(path);
+    } catch (err) {
+      if (isFileNotFound(err)) return null;
+      throw err;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`Archived retrospective orphan outcome for ${contractId} is corrupt: ${formatErr(err)}`);
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      throw new Error(`Archived retrospective orphan outcome for ${contractId} is not an object`);
+    }
+    const value = parsed as Record<string, unknown>;
+    if (
+      value.schema_version !== 1 ||
+      value.outcome !== 'retired_archived' ||
+      value.contract_id !== contractId ||
+      typeof value.task_id !== 'string' ||
+      typeof value.target_executor_id !== 'string' ||
+      typeof value.created_at !== 'string' ||
+      typeof value.contract_ref !== 'string' ||
+      typeof value.archive_path !== 'string' ||
+      !(typeof value.completed_at === 'string' || value.completed_at === null) ||
+      typeof value.observed_at !== 'string' ||
+      value.observation_source !== 'contract_terminal_fact' ||
+      typeof value.dispatching_path !== 'string' ||
+      typeof value.dispatching_sha256 !== 'string' ||
+      typeof value.dispatching_bytes !== 'string' ||
+      !(typeof value.cause === 'string' || value.cause === null)
+    ) {
+      throw new Error(`Archived retrospective orphan outcome for ${contractId} has an invalid schema`);
+    }
+    const outcome = value as unknown as ArchivedOrphanOutcome;
+    if (sha256Hex(outcome.dispatching_bytes) !== outcome.dispatching_sha256) {
+      throw new Error(`Archived retrospective orphan outcome for ${contractId} has a row hash mismatch`);
+    }
+    return outcome;
+  }
+
+  private _assertMatchingOrphanOutcome(
+    expected: ArchivedOrphanOutcome,
+    actual: ArchivedOrphanOutcome,
+  ): void {
+    if (
+      expected.contract_id !== actual.contract_id ||
+      expected.task_id !== actual.task_id ||
+      expected.target_executor_id !== actual.target_executor_id ||
+      expected.created_at !== actual.created_at ||
+      expected.contract_ref !== actual.contract_ref ||
+      expected.archive_path !== actual.archive_path ||
+      expected.completed_at !== actual.completed_at ||
+      expected.dispatching_path !== actual.dispatching_path ||
+      expected.dispatching_sha256 !== actual.dispatching_sha256 ||
+      expected.dispatching_bytes !== actual.dispatching_bytes
+    ) {
+      throw new Error(`Archived retrospective orphan outcome identity mismatch for ${expected.contract_id}`);
+    }
   }
 
   async listReady(): Promise<RetrospectiveWorkItem[]> {

@@ -34,6 +34,9 @@ export const RETRO_AUDIT_EVENTS = {
   EVOLUTION_LEGACY_STATE_READ_FAILED: 'evolution_legacy_state_read_failed',
   // Phase 1206 Step C: single row recovery failure
   RETRO_RECOVERY_FAILED: 'retro_recovery_failed',
+  // Phase 2185: dispatching rows orphaned by an archived-completed contract
+  RETRO_ORPHAN_ARCHIVED: 'retro_orphan_archived',
+  RETRO_ORPHAN_UNRESOLVED: 'retro_orphan_unresolved',
   // Phase 1206 Step B: retrospective store lifecycle audits
   RETRO_REGISTRATION_COMMITTED: 'retro_registration_committed',
   // Phase 1206 Step D: contract completion triggered a retro dispatch attempt
