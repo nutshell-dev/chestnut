@@ -81,11 +81,16 @@ export interface FormattedInboxBatch {
  *
  * 持久化消息已有的 `{ type, from, meta }` 原样穿过 Runtime callback boundary；
  * Assembly 不得从 meta 猜测或补写 from。字段 readonly（M#9 显式表达）。
+ * Phase 2188: `meta` 只投影 Messaging codec 分类出的业务 metadata；`__*`
+ * diagnostics 留在独立 `internal`，不平铺覆盖业务字段，也不序列化回 wire。
  */
 export interface GuidanceEnvelope {
   readonly type: string;
   readonly from: string;
+  /** Business wire metadata projected by the Messaging codec. */
   readonly meta: Readonly<Record<string, string>>;
+  /** Optional internal evidence; never serialized as business metadata. */
+  readonly internal?: Readonly<Record<string, string>>;
 }
 
 /**

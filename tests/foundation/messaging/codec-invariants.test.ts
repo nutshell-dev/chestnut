@@ -187,6 +187,35 @@ describe('codec-inbox roundtrip extraMeta/metadata preservation (phase 1372 sub-
   });
 });
 
+describe('phase 2188: codec business metadata / internal diagnostics split', () => {
+  it('真实 wire decode 保留未知业务扩展，并隔离 __* diagnostics', () => {
+    const wire = encodeInbox(
+      baseMsg({ metadata: { 'summary-hash': 'abc123def456', shared: 'business' } }),
+      { unknown_extension: 'preserved', __decode_note: 'internal' },
+    );
+
+    const decoded = decodeInbox(wire);
+
+    expect(decoded.metadata).toEqual({
+      'summary-hash': 'abc123def456',
+      shared: 'business',
+      unknown_extension: 'preserved',
+    });
+    expect(decoded.extraMeta).toEqual({ __decode_note: 'internal' });
+    expect(decoded.metadata?.__decode_note).toBeUndefined();
+  });
+
+  it('legacy priority 原值留在 internal，业务 metadata 不受污染', () => {
+    const wire = encodeInbox(baseMsg({ metadata: { contract_id: 'c1' } }))
+      .replace(/^priority:.*$/m, 'priority: urgent');
+
+    const decoded = decodeInbox(wire);
+
+    expect(decoded.metadata).toEqual({ contract_id: 'c1' });
+    expect(decoded.extraMeta).toEqual({ __original_priority: 'urgent' });
+  });
+});
+
 describe('codec-inbox round-trip symmetric invariant (audit-2026-05-16 §7 / phase 905)', () => {
   const base: InboxMessage = {
     id: 'm-1',

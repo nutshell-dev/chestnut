@@ -36,9 +36,10 @@ class TestRuntime extends Runtime {
     from: string,
     body: string,
     timestamp?: string,
+    metadata?: Record<string, string>,
     extraMeta?: Record<string, string>,
   ): Promise<string> {
-    return this.formatInboxMessage(type, from, body, timestamp, extraMeta);
+    return this.formatInboxMessage(type, from, body, timestamp, extraMeta, metadata);
   }
 }
 
@@ -174,6 +175,51 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
+
+  it('phase 2188: business metadata 与 internal diagnostics 分通道保真，同名冲突不覆盖', async () => {
+    const audit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const registry = createInboxMessageTypeRegistry();
+    registerInboxMessageTypes(registry, MESSAGING_INBOX_MESSAGE_TYPES);
+    const compose = vi.fn().mockReturnValue(null);
+    const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: compose });
+    const metadata = { shared: 'business', unknown_extension: 'preserved' };
+    const extraMeta = { shared: 'internal', __decode_note: 'preserved' };
+
+    await runtime.testFormatInboxMessage(
+      'user_inbox_message',
+      'source',
+      'body',
+      undefined,
+      metadata,
+      extraMeta,
+    );
+
+    expect(compose).toHaveBeenCalledTimes(1);
+    const envelope = compose.mock.calls[0][0];
+    expect(envelope).toEqual({
+      type: 'user_inbox_message',
+      from: 'source',
+      meta: metadata,
+      internal: extraMeta,
+    });
+    expect(envelope.meta).toBe(metadata);
+    expect(envelope.internal).toBe(extraMeta);
+    expect(envelope.meta.shared).toBe('business');
+    expect(envelope.internal.shared).toBe('internal');
+    expect(envelope.meta.__decode_note).toBeUndefined();
+  });
+
+  it('phase 2188: 无 internal diagnostics 时 envelope 不伪造 internal 字段', async () => {
+    const audit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const registry = createInboxMessageTypeRegistry();
+    registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
+    const compose = vi.fn().mockReturnValue(null);
+    const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: compose });
+
+    await runtime.testFormatInboxMessage('user_chat', 'user', 'body');
+
+    expect(compose).toHaveBeenCalledWith({ type: 'user_chat', from: 'user', meta: {} });
+  });
 
   it('phase 1259 Step B + phase 1265 Step A + phase 1834: claw_outbox_summary 真实 typed binding + 合法 v1 wire → 逐 claw guidance append（各自真实 limit）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};

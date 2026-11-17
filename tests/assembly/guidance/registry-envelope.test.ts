@@ -28,6 +28,7 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
       type: 'claw_crashed',
       from: 'claw-a',
       meta: { crash_class: 'active_unexpected', claw_id: 'clawA' },
+      internal: { __legacy_claw_id: 'legacy-a' },
     };
     const result = registry.compose(input);
 
@@ -37,6 +38,7 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
     expect(spy.mock.calls[0][0]).toBe(input);
     expect(spy.mock.calls[0][0].from).toBe('claw-a');
     expect(spy.mock.calls[0][0].meta).toBe(input.meta);
+    expect(spy.mock.calls[0][0].internal).toBe(input.internal);
   });
 
   it('unknown type → null（未注册回退行为不变）', () => {

@@ -83,9 +83,10 @@ class TestRuntime extends Runtime {
     from: string,
     body: string,
     timestamp?: string,
+    metadata?: Record<string, string>,
     extraMeta?: Record<string, string>,
   ): Promise<string> {
-    return this.formatInboxMessage(type, from, body, timestamp, extraMeta);
+    return this.formatInboxMessage(type, from, body, timestamp, extraMeta, metadata);
   }
 }
 

@@ -20,8 +20,9 @@ export interface GuidanceEntry {
 }
 
 /**
- * phase 1256 Step B: composer 原样消费 Runtime envelope（type/from/meta 三字段全保真）。
- * 现有 real composer 只从 `input.meta` 读取旧 state；唯一不安全擦除封装在 registry register 实现内部。
+ * phase 1256 Step B: composer 原样消费 Runtime envelope（type/from/meta/internal 全保真）。
+ * Phase 2188: 业务 composer 只从 `input.meta` 读取 owner state；确需 diagnostics 的
+ * binding 必须显式读 `input.internal`。唯一不安全擦除封装在 registry register 实现内部。
  */
 export type GuidanceComposer<S = Readonly<Record<string, string>>> = (
   input: GuidanceEnvelope & { readonly meta: S },

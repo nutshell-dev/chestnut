@@ -677,8 +677,15 @@ export class Runtime {
     // phase 27 Step D P5: motion-side append guidance（motion 装配 guidanceCompose 必持 / claw undefined → 跳）
     if (this.guidanceCompose) {
       try {
-        // phase 1256 Step A: 唯一 envelope 构造点 — type/from/meta 一次性交给 Assembly、不丢 from
-        const g = this.guidanceCompose({ type, from, meta: extraMeta ?? {} });
+        // phase 1256 Step A: 唯一 envelope 构造点 — type/from/meta 一次性交给 Assembly、不丢 from。
+        // Phase 2188: codec 已将非保留 wire 字段分类到 metadata；internal diagnostics
+        // 独立传递，避免无规则 spread 覆盖业务字段，也避免 __* 污染公开 metadata。
+        const g = this.guidanceCompose({
+          type,
+          from,
+          meta: metadata ?? {},
+          ...(extraMeta ? { internal: extraMeta } : {}),
+        });
         if (g) formatted += '\n\n' + g.text;
       } catch (e) {
         // 不可预期失败暴露 / audit emit / 不破 message 投递（fallback graceful、仅缺 guidance 追加）
@@ -990,8 +997,8 @@ export class Runtime {
         message.from,
         message.content,
         message.timestamp,
-        message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
-        message.metadata,    // Phase 1955 Step D: delivery state for New/Resume rendering
+        message.extraMeta,   // Phase 2188: internal diagnostics projection for guidance
+        message.metadata,    // business metadata for rendering and guidance
       );
       // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
       // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）
