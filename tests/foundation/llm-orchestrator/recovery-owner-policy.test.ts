@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1934 Step C：LLM owner 收回共享恢复判据（F-11/F-02）。
  *
@@ -138,7 +139,7 @@ function createOwner(
     retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    providerFactory: { create: (c: ProviderConnection) => adapters.get(c.providerId)! },
+    providerFactory: legacyProviderFactory((c: ProviderConnection) => adapters.get(c.providerId)!),
   };
   const owner = createLLMOrchestrator(config);
   return { owner, emitted, config };
@@ -442,7 +443,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
-      providerFactory: { create: (c: ProviderConnection) => adapters.get(c.providerId)! },
+      providerFactory: legacyProviderFactory((c: ProviderConnection) => adapters.get(c.providerId)!),
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();  // 两候选记录故障（代次 N）
@@ -544,7 +545,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-      providerFactory: { create: (c: ProviderConnection) => byModel.get(c.model ?? '')! },
+      providerFactory: legacyProviderFactory((c: ProviderConnection) => byModel.get(c.model ?? '')!),
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();
@@ -568,7 +569,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-      providerFactory: { create: (c: ProviderConnection) => byModel.get(c.model ?? '')! },
+      providerFactory: legacyProviderFactory((c: ProviderConnection) => byModel.get(c.model ?? '')!),
     });
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();

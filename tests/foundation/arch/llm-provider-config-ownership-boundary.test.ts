@@ -19,7 +19,8 @@ describe('LLM provider config ownership boundary', () => {
     expect(providerBarrel).toMatch(/export \* as llmProviderConfigContract from '\.\/capabilities\/config-contract\.js';/);
     expect(providerConfigFacade).toMatch(/export\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
     expect(providerConfigFacade).toMatch(/export\s*type\s*\{\s*LLMProviderConfig\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
-    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderConfig,\s*toProviderConnection\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderInput\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
+    expect(providerConfigFacade).not.toMatch(/toProviderConnection|providerConnectionFromResolvedConfig|\bProviderConfig\b/);
     expect(orchestratorBarrel).not.toMatch(/\b(?:llmProviderConfigSchema|LLMProviderConfig|toProviderConfig|FORMAT_MAP)\b/);
     expect(orchestratorBarrel).not.toMatch(/\bllmOrchestratorConfigSchema\b/);
     expect(configurationBarrel).toMatch(/export\s*\{\s*llmOrchestratorConfigSchema\s*\}\s*from\s*'\.\/config-schema\.js';/);

@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../helpers/llm-provider.js';
 import { vi } from 'vitest';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../helpers/runtime-deps.js';
@@ -66,9 +67,7 @@ export function createMockLLMConfig(): LLMOrchestratorConfig {
     maxAttempts: 1,
     retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
     events: { emit: () => {} },
-    providerFactory: {
-      create: connection => ({ name: connection.providerId, model: connection.model }) as never,
-    },
+    providerFactory: legacyTestProviderFactory(connection => ({ name: connection.providerId, model: connection.model }) as never,),
   };
 }
 

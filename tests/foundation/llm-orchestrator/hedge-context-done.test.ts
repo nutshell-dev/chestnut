@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { describe, expect, it, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { classifyStreamDone } from '../../../src/foundation/llm-orchestrator/utils.js';
@@ -73,7 +74,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待，保持流式竞态确定。
     events: eventSink,
-    providerFactory: { create: findAdapter },
+    providerFactory: legacyProviderFactory(findAdapter),
   });
   const now = Date.now();
   replaceProviderStates(service, [{

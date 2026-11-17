@@ -29,7 +29,7 @@ import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../src/core/gateway/index.js';
 import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../src/watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
-import { testProviderConnection, testProviderFactory } from './llm-provider.js';
+import { testProviderConnection, testProviderFactory, testProviderHandle } from './llm-provider.js';
 import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const TEST_CLAW_ID = 'test-claw';
@@ -59,7 +59,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = createInboxReader(systemFs, auditWriter, '.');
   const supplied = input.llmConfig as (LLMOrchestratorConfig & {
-    createProviderAdapter?: (config: Parameters<typeof testProviderConnection>[0]) => ReturnType<llmProviderCall.ProviderFactory['create']>;
+    createProviderAdapter?: (config: Parameters<typeof testProviderConnection>[0]) => llmProviderCall.LLMProvider;
   }) | undefined;
   const isConnection = supplied?.primary.authentication !== undefined;
   const legacyFactory = supplied?.createProviderAdapter;
@@ -80,7 +80,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
         create: connection => {
           const legacy = resolvedProviderConfig(connection);
           if (!legacy) throw new Error('legacy test connection projection unavailable');
-          return legacyFactory(legacy);
+          return testProviderHandle(connection, legacyFactory(legacy));
         },
       } : testProviderFactory,
     }),

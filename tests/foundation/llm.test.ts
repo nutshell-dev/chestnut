@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../helpers/llm-provider.js';
 /**
  * LLM Orchestrator tests（Phase 1925 Step D 重构）
  *
@@ -12,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+import type { ProviderConnection } from '../helpers/llm-provider.js';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
@@ -307,10 +308,8 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        providerFactory: {
-          create: (connection) =>
-            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,
-        },
+        providerFactory: legacyTestProviderFactory((connection) =>
+            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,),
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -368,10 +367,8 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        providerFactory: {
-          create: (connection) =>
-            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,
-        },
+        providerFactory: legacyTestProviderFactory((connection) =>
+            connection.providerId === fallbackConfig.providerId ? fallbackAdapter : primaryAdapter,),
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -414,7 +411,7 @@ function createAnthropicSseResponse(text: string): Response {
         maxAttempts: 1,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
-        providerFactory: { create: (_connection) => emptyAdapter },
+        providerFactory: legacyTestProviderFactory((_connection) => emptyAdapter),
       });
 
       await expect(async () => {
@@ -451,7 +448,7 @@ describe('createLLMOrchestrator factory', () => {
       maxAttempts: 1,
       retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
-      providerFactory: { create: (_connection) => mockAdapter },
+      providerFactory: legacyTestProviderFactory((_connection) => mockAdapter),
     });
     expect(orchestrator).toBeInstanceOf(LLMOrchestratorImpl);
   });
@@ -479,7 +476,7 @@ describe('createLLMOrchestrator factory', () => {
       maxAttempts: 1,
       retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
-      providerFactory: { create: (_connection) => configAdapter },
+      providerFactory: legacyTestProviderFactory((_connection) => configAdapter),
     });
     await orchestrator.call({ messages: [{ role: 'user', content: 'hi' }] });
     const info = orchestrator.getProviderInfo();

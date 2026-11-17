@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 2045 Step C：非 hedge 每 attempt finally 清理验收。
  *
@@ -51,7 +52,7 @@ function buildOrchestrator(primary: ProviderAdapter) {
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；本 fixture 只测提前退出清理。
     events: sink,
-    providerFactory: { create: (_connection) => primary },
+    providerFactory: legacyProviderFactory((_connection) => primary),
   });
   return orchestrator;
 }

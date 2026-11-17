@@ -16,7 +16,9 @@ import { resolveThinkingDefaults } from './thinking-defaults.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
 import {
   providerConnectionFromResolvedConfig,
+  providerInputFromResolvedConfig,
   type ProviderConnection,
+  type ProviderInput,
 } from './provider-connection.js';
 
 /** 派生身份不参与配置持久化/身份哈希；只在本次 runtime config 对象上保留。 */
@@ -43,7 +45,12 @@ function assertNotBareEnvVar(apiKey: string | undefined, display: string): void 
   }
 }
 
-/** Resolve persisted provider input into the neutral L4/L2 connection boundary. */
+/** Resolve persisted provider configuration into the ordinary L4/L2 input boundary. */
+export function toProviderInput(p: LLMProviderConfig): ProviderInput {
+  return providerInputFromResolvedConfig(toProviderConfig(p));
+}
+
+/** @deprecated @internal Legacy L1 bridge; ordinary callers use toProviderInput. */
 export function toProviderConnection(p: LLMProviderConfig): ProviderConnection {
   return providerConnectionFromResolvedConfig(toProviderConfig(p));
 }

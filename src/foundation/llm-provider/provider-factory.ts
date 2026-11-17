@@ -3,15 +3,22 @@ import { PiAiAdapter, type PiAiAdapterOptions } from './pi-ai-adapter.js';
 import { LLMError } from './errors.js';
 import type { LLMProvider } from './types.js';
 import {
+  describeProviderInput,
+  resolveInternalConnection,
   resolvedProviderConfig,
   toInternalProviderConfig,
   type ProviderConnection,
+  type ProviderHandle,
+  type ProviderInput,
 } from './provider-connection.js';
 
-export interface ProviderConnectionFactoryOptions extends PiAiAdapterOptions {
-  /** Assembly-owned audit dependency; never part of connection identity. */
+export interface ProviderInputFactoryOptions extends PiAiAdapterOptions {
+  /** Assembly-owned audit dependency; never part of input identity. */
   auditLog?: AuditSink;
 }
+
+/** @deprecated @internal Legacy name for the L1 connection bridge. */
+export type ProviderConnectionFactoryOptions = ProviderInputFactoryOptions;
 
 /** Validate legacy configuration without changing its historical error surface. */
 function validateProviderConfig(config: ProviderConfig): void {
@@ -57,7 +64,7 @@ function withFactoryAudit(config: ProviderConfig, auditLog: AuditSink | undefine
  */
 export function createProviderFromConnection(
   connection: ProviderConnection,
-  options?: ProviderConnectionFactoryOptions,
+  options?: ProviderInputFactoryOptions,
 ): LLMProvider {
   const resolved = resolvedProviderConfig(connection);
   if (resolved) {
@@ -90,6 +97,18 @@ export function createProviderFromConnection(
       ? { authentication: connection.authentication }
       : {}),
   });
+}
+
+/** Create an adapter and its opaque, secret-safe descriptor from public input. */
+export function createProviderFromInput(
+  input: ProviderInput,
+  options?: ProviderInputFactoryOptions,
+): ProviderHandle {
+  const connection = resolveInternalConnection(input);
+  return {
+    provider: createProviderFromConnection(connection, options),
+    descriptor: describeProviderInput(input),
+  };
 }
 
 /** @deprecated Legacy L1 bridge. L2 and ordinary callers must use ProviderFactory. */

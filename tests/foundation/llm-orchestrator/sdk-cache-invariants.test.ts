@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * SDK client cache invariants — mechanical merge of the following source files
@@ -268,10 +269,10 @@ describe('Phase 2027 extended provider identity cache', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
-      providerFactory: { create: (config) => {
+      providerFactory: legacyProviderFactory((config) => {
         created.push(config);
         return createExtendedProvider(config);
-      } },
+      }),
     });
     const before = internalsOf(orchestrator).providerRuntime.primary();
     const beforeId = internalsOf(orchestrator).providerRuntime.providerIds()[0];
@@ -281,10 +282,10 @@ describe('Phase 2027 extended provider identity cache', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
-      providerFactory: { create: (config) => {
+      providerFactory: legacyProviderFactory((config) => {
         created.push(config);
         return createExtendedProvider(config);
-      } },
+      }),
     });
 
     expect(internalsOf(orchestrator).providerRuntime.primary()).not.toBe(before);

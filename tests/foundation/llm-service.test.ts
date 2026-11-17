@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../helpers/llm-provider.js';
 /**
  * LLMOrchestrator stream failover 测试
  */
@@ -89,7 +90,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (_connection) => primary },});
+  providerFactory: legacyTestProviderFactory((_connection) => primary),});
     
     // Replace internal provider with mock
 
@@ -123,7 +124,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     // Replace internal providers with mocks
 
@@ -156,7 +157,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
     
     // Replace internal provider with mock (no fallback)
     (service as any).fallback = undefined;
@@ -201,7 +202,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     const received: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -233,7 +234,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -253,7 +254,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [createMockProvider('primary')].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [createMockProvider('primary')].find(provider => provider.name === connection.providerId)!),});
 
     await service.call({ messages: [] });
 
@@ -276,7 +277,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => connection.providerId === 'fb' ? goodFallback : badPrimary },});
+  providerFactory: legacyTestProviderFactory((connection) => connection.providerId === 'fb' ? goodFallback : badPrimary),});
 
     await service.call({ messages: [] });
 
@@ -302,7 +303,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (_connection) => primary },});
+  providerFactory: legacyTestProviderFactory((_connection) => primary),});
     
 
     let caughtError: Error | undefined;
@@ -338,7 +339,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -372,7 +373,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     let caughtError: Error | undefined;
     const chunks: LLMStreamChunk[] = [];
@@ -414,7 +415,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     // First call: primary fails, fallback succeeds
     const chunks1: LLMStreamChunk[] = [];
@@ -444,7 +445,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
-  providerFactory: { create: (connection) => [badPrimary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [badPrimary].find(provider => provider.name === connection.providerId)!),});
 
       await expect(service.call({ messages: [] })).rejects.toThrow();
       expect(service.getProviderInfo()).toEqual({ name: 'p', model: 'mock-model', isFallback: false });
@@ -458,7 +459,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
-  providerFactory: { create: (connection) => [createMockProvider('primary')].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [createMockProvider('primary')].find(provider => provider.name === connection.providerId)!),});
 
       await service.call({ messages: [] });
       expect(service.getProviderInfo()).toEqual({ name: 'primary', model: 'mock-model', isFallback: false });
@@ -477,7 +478,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
-  providerFactory: { create: (connection) => [badPrimary, goodFallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [badPrimary, goodFallback].find(provider => provider.name === connection.providerId)!),});
 
       await service.call({ messages: [] });
       const beforeFail = service.getProviderInfo();
@@ -503,7 +504,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: sink,
       
-  providerFactory: { create: (connection) => [badPrimary, goodFallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [badPrimary, goodFallback].find(provider => provider.name === connection.providerId)!),});
 
       expect(await service.healthCheck()).toBe(true);
       const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
@@ -528,7 +529,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: sink,
       
-  providerFactory: { create: (connection) => [badPrimary, badFallback1, badFallback2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [badPrimary, badFallback1, badFallback2].find(provider => provider.name === connection.providerId)!),});
 
       expect(await service.healthCheck()).toBe(false);
       const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
@@ -571,7 +572,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => connection.providerId === 'fb' ? createMockProvider('fallback') : failingPrimary },});
+  providerFactory: legacyTestProviderFactory((connection) => connection.providerId === 'fb' ? createMockProvider('fallback') : failingPrimary),});
 
     await service.call({ messages: [] });
     pauseAutonomousProbe(service);
@@ -614,7 +615,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (_connection) => probePrimary },});
+  providerFactory: legacyTestProviderFactory((_connection) => probePrimary),});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(primaryAttempts).toBe(1);
@@ -654,7 +655,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (_connection) => failingPrimary },});
+  providerFactory: legacyTestProviderFactory((_connection) => failingPrimary),});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
@@ -699,7 +700,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (_connection) => probePrimary },});
+  providerFactory: legacyTestProviderFactory((_connection) => probePrimary),});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
@@ -737,7 +738,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [badPrimary, badFallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [badPrimary, badFallback].find(provider => provider.name === connection.providerId)!),});
 
     await expect(service.call({ messages: [] }))
       .rejects.toBeInstanceOf(LLMAllProvidersFailedError);
@@ -758,7 +759,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     const ac = new AbortController();
     ac.abort();
@@ -788,7 +789,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     const iter = service.stream({ messages: [] });
     const first = await iter.next();
@@ -814,7 +815,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: ABORT_BACKOFF_BASE_MS,
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
 
     const ac = new AbortController();
 
@@ -841,7 +842,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: ABORT_BACKOFF_BASE_MS,
       events: noopSink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
 
     const ac = new AbortController();
     setTimeout(() => ac.abort(), ABORT_TRIGGER_DELAY_MS);
@@ -865,7 +866,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [failingAdapter].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [failingAdapter].find(provider => provider.name === connection.providerId)!),});
 
     await expect(svc.call({ messages: [] })).rejects.toThrow();
     expect(emitted.some(e => e.type === 'provider_attempt_failed' || e.type === 'provider_exhausted')).toBe(true);
@@ -887,7 +888,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: JITTER_RETRY_BASE_MS,
       events: sink,
     
-  providerFactory: { create: (connection) => [adapter].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [adapter].find(provider => provider.name === connection.providerId)!),});
 
     await svc.call({ messages: [] });
     const retryEvent = emitted.find(e => e.type === 'retry_scheduled');
@@ -911,7 +912,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [primary, fallback].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary, fallback].find(provider => provider.name === connection.providerId)!),});
 
     await svc.call({ messages: [] });
     expect(emitted.some(e => e.type === 'provider_exhausted')).toBe(true);
@@ -930,7 +931,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
 
     const result = await svc.healthCheck();
     expect(result).toBe(false);
@@ -951,7 +952,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [primary].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [primary].find(provider => provider.name === connection.providerId)!),});
 
     const chunks: any[] = [];
     try {
@@ -1003,7 +1004,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [p1, p2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [p1, p2].find(provider => provider.name === connection.providerId)!),});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of svc.stream({
@@ -1034,7 +1035,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [p1, p2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [p1, p2].find(provider => provider.name === connection.providerId)!),});
 
     await expect(async () => {
       for await (const _ of svc.stream({
@@ -1066,7 +1067,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [p1, p2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [p1, p2].find(provider => provider.name === connection.providerId)!),});
 
     const userCtrl = new AbortController();
     setTimeout(() => userCtrl.abort(), ABORT_TRIGGER_QUICK_DELAY_MS);
@@ -1098,7 +1099,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)!),});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -1124,7 +1125,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
-  providerFactory: { create: (connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)!),});
 
     await expect(async () => {
       for await (const _ of service.stream({ messages: [] })) {}
@@ -1148,7 +1149,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
-  providerFactory: { create: (connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)! },});
+  providerFactory: legacyTestProviderFactory((connection) => [mockProvider1, mockProvider2].find(provider => provider.name === connection.providerId)!),});
 
     for await (const _ of service.stream({ messages: [] })) {}
 

@@ -1,3 +1,4 @@
+import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -49,7 +50,7 @@ function ephemeral(adapters: ProviderAdapter[], resetTimeoutMs?: number, events?
     retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: event => { events?.push(event); } },
     ...(resetTimeoutMs !== undefined ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs } } : {}),
-    providerFactory: { create: provider => adapters.find(item => item.name === provider.providerId)! },
+    providerFactory: legacyProviderFactory(provider => adapters.find(item => item.name === provider.providerId)!),
   });
 }
 
@@ -64,7 +65,7 @@ async function durable(adapters: ProviderAdapter[]) {
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: () => {} },
-    providerFactory: { create: provider => nextAdapters.find(item => item.name === provider.providerId)! },
+    providerFactory: legacyProviderFactory(provider => nextAdapters.find(item => item.name === provider.providerId)!),
   });
   return { dir, fs, makeOwner, owner: makeOwner() };
 }
@@ -228,10 +229,10 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
       revision: 1,
       updatedAt: now,
       providers: [primary, fallback].map(item => ({
-        providerId: providerIdentity(config(item.name)),
+        providerId: providerIdentity(descriptorFor(config(item.name))),
         breaker: { state: 'closed', consecutiveFailures: 0, lastFailureClass: null },
       })),
-      lastSuccess: { providerId: providerIdentity(config('fallback')) },
+      lastSuccess: { providerId: providerIdentity(descriptorFor(config('fallback'))) },
     }));
 
     const restarted = f.makeOwner([primary, fallback]);

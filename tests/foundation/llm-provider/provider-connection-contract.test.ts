@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  ProviderConnection,
-  ProviderFactory,
+import {
+  describeProviderInput,
+  type ProviderConnection,
+  type ProviderFactory,
+  type ProviderInput,
 } from '../../../src/foundation/llm-provider/provider-connection.js';
 
 const connection: ProviderConnection = {
@@ -37,12 +39,19 @@ describe('ProviderConnection contract', () => {
     expect(withRecovery).toBeDefined();
   });
 
-  it('uses the connection as the only factory creation input', () => {
+  it('uses public input and returns a handle at the ordinary factory boundary', () => {
+    const input: ProviderInput = {
+      model: 'model',
+      protocol: 'openai',
+      authentication: { kind: 'api_key', value: 'secret' },
+    };
     const provider = { name: 'example', model: 'model', call: async () => { throw new Error('unused'); } };
-    const factory: ProviderFactory = { create: input => {
-      expect(input).toBe(connection);
-      return provider as never;
+    const factory: ProviderFactory = { create: received => {
+      expect(received).toBe(input);
+      return { provider: provider as never, descriptor: describeProviderInput(received) };
     } };
-    expect(factory.create(connection)).toBe(provider);
+    const handle = factory.create(input);
+    expect(handle.provider).toBe(provider);
+    expect(handle.descriptor.model).toBe('model');
   });
 });

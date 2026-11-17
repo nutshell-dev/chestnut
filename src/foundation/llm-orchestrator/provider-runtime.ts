@@ -1,8 +1,10 @@
-/** Provider adapter construction, SDK cache and resource lifetime owner. */
+/** Provider handle construction, SDK cache and resource lifetime owner. */
 import type { llmProviderCall } from '../llm-provider/index.js';
 type LLMProvider = llmProviderCall.LLMProvider;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+type ProviderDescriptor = llmProviderCall.ProviderDescriptor;
 type ProviderFactory = llmProviderCall.ProviderFactory;
+type ProviderHandle = llmProviderCall.ProviderHandle;
+type ProviderInput = llmProviderCall.ProviderInput;
 import type { LLMEventSink, LLMOrchestratorConfig } from './types.js';
 import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
 
@@ -10,6 +12,7 @@ export interface PreparedProviderReload {
   readonly config: LLMOrchestratorConfig;
   readonly primary: LLMProvider;
   readonly fallbacks: readonly LLMProvider[];
+  readonly descriptors: readonly ProviderDescriptor[];
   readonly providerIds: readonly string[];
   readonly legacyProviderIds: readonly string[];
   readonly oldKeys: ReadonlySet<string>;
@@ -18,6 +21,7 @@ export interface PreparedProviderReload {
 export interface ProviderRuntime {
   primary(): LLMProvider;
   fallbacks(): readonly LLMProvider[];
+  descriptors(): readonly ProviderDescriptor[];
   config(): LLMOrchestratorConfig;
   providerIds(): readonly string[];
   legacyProviderIds(): readonly string[];
@@ -30,11 +34,12 @@ export interface ProviderRuntime {
 export class LLMProviderRuntime implements ProviderRuntime {
   private readonly events: LLMEventSink;
   private readonly providerFactory: ProviderFactory;
-  private readonly sdkClientCache = new Map<string, LLMProvider>();
+  private readonly sdkClientCache = new Map<string, ProviderHandle>();
   private pendingClose: LLMProvider[] = [];
   private activeConfig: LLMOrchestratorConfig;
   private activePrimary: LLMProvider;
   private activeFallbacks: LLMProvider[];
+  private activeDescriptors: readonly ProviderDescriptor[];
   private activeProviderIds: readonly string[];
   private activeLegacyProviderIds: readonly string[];
   private activeConfigGeneration = 0;
@@ -44,11 +49,13 @@ export class LLMProviderRuntime implements ProviderRuntime {
     this.events = config.events;
     this.providerFactory = config.providerFactory;
     this.activeConfig = config;
-    this.activePrimary = this.getSdkClient(config.primary);
-    this.activeFallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
-    const providers = [config.primary, ...(config.fallbacks ?? [])];
-    this.activeProviderIds = providers.map(providerIdentity);
-    this.activeLegacyProviderIds = providers.map(legacyProviderIdentity);
+    const primary = this.getSdkClient(config.primary);
+    const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
+    this.activePrimary = primary.provider;
+    this.activeFallbacks = fallbacks.map(handle => handle.provider);
+    this.activeDescriptors = [primary.descriptor, ...fallbacks.map(handle => handle.descriptor)];
+    this.activeProviderIds = this.activeDescriptors.map(providerIdentity);
+    this.activeLegacyProviderIds = this.activeDescriptors.map(legacyProviderIdentity);
   }
 
   primary(): LLMProvider {
@@ -57,6 +64,10 @@ export class LLMProviderRuntime implements ProviderRuntime {
 
   fallbacks(): readonly LLMProvider[] {
     return this.activeFallbacks;
+  }
+
+  descriptors(): readonly ProviderDescriptor[] {
+    return this.activeDescriptors;
   }
 
   config(): LLMOrchestratorConfig {
@@ -76,34 +87,45 @@ export class LLMProviderRuntime implements ProviderRuntime {
   }
 
   /** Actual cache reference for runtime lifecycle tests. */
-  get clientCache(): Map<string, LLMProvider> {
+  get clientCache(): Map<string, ProviderHandle> {
     return this.sdkClientCache;
   }
 
-  private getSdkClient(connection: ProviderConnection): LLMProvider {
-    const key = providerCacheKey(connection);
-    if (!this.sdkClientCache.has(key)) {
-      const provider = this.providerFactory.create(connection);
-      this.sdkClientCache.set(key, provider);
-      this.events?.emit({ type: 'sdk_client_cache_miss', preset: connection.apiFormat || 'unknown', model: connection.model || 'unknown' });
-    } else {
-      this.events?.emit({ type: 'sdk_client_cache_hit', preset: connection.apiFormat || 'unknown', model: connection.model || 'unknown' });
+  private getSdkClient(input: ProviderInput): ProviderHandle {
+    const created = this.providerFactory.create(input);
+    const key = providerCacheKey(created.descriptor);
+    const cached = this.sdkClientCache.get(key);
+    if (cached) {
+      this.events?.emit({
+        type: 'sdk_client_cache_hit',
+        preset: cached.descriptor.protocol || 'unknown',
+        model: cached.descriptor.model || 'unknown',
+      });
+      return cached;
     }
-    return this.sdkClientCache.get(key)!;
+    this.sdkClientCache.set(key, created);
+    this.events?.emit({
+      type: 'sdk_client_cache_miss',
+      preset: created.descriptor.protocol || 'unknown',
+      model: created.descriptor.model || 'unknown',
+    });
+    return created;
   }
 
-  /** Create the next adapter view before the Facade attempts its V3 commit. */
+  /** Create the next handle view before the Facade attempts its V3 commit. */
   prepareReload(config: LLMOrchestratorConfig): PreparedProviderReload {
     const oldKeys = new Set(this.sdkClientCache.keys());
     const primary = this.getSdkClient(config.primary);
     const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
-    const providers = [config.primary, ...(config.fallbacks ?? [])];
+    const handles = [primary, ...fallbacks];
+    const descriptors = handles.map(handle => handle.descriptor);
     return {
       config,
-      primary,
-      fallbacks,
-      providerIds: providers.map(providerIdentity),
-      legacyProviderIds: providers.map(legacyProviderIdentity),
+      primary: primary.provider,
+      fallbacks: fallbacks.map(handle => handle.provider),
+      descriptors,
+      providerIds: descriptors.map(providerIdentity),
+      legacyProviderIds: descriptors.map(legacyProviderIdentity),
       oldKeys,
     };
   }
@@ -113,15 +135,16 @@ export class LLMProviderRuntime implements ProviderRuntime {
     this.activeConfig = prepared.config;
     this.activePrimary = prepared.primary;
     this.activeFallbacks = [...prepared.fallbacks];
+    this.activeDescriptors = [...prepared.descriptors];
     this.activeProviderIds = [...prepared.providerIds];
     this.activeLegacyProviderIds = [...prepared.legacyProviderIds];
     this.activeConfigGeneration += 1;
     const newProviders = new Set([prepared.primary, ...prepared.fallbacks]);
     for (const key of prepared.oldKeys) {
-      const provider = this.sdkClientCache.get(key);
-      if (!provider) continue;
-      if (!newProviders.has(provider)) {
-        this.pendingClose.push(provider);
+      const handle = this.sdkClientCache.get(key);
+      if (!handle) continue;
+      if (!newProviders.has(handle.provider)) {
+        this.pendingClose.push(handle.provider);
         this.sdkClientCache.delete(key);
       }
     }
@@ -130,7 +153,10 @@ export class LLMProviderRuntime implements ProviderRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    const allToClose = [...this.sdkClientCache.values(), ...this.pendingClose];
+    const allToClose = [
+      ...[...this.sdkClientCache.values()].map(handle => handle.provider),
+      ...this.pendingClose,
+    ];
     const results = await Promise.allSettled(allToClose.map(provider => {
       const maybeClose = (provider as { close?: () => Promise<void> | void }).close?.();
       return maybeClose instanceof Promise ? maybeClose : Promise.resolve();

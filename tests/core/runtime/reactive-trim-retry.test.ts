@@ -12,6 +12,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../../helpers/runtime-deps.js';
+import { testProviderConnection } from '../../helpers/llm-provider.js';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
@@ -53,7 +54,7 @@ vi.mock('../../../src/core/event-loop/constants.js', async () => {
 
 function createMockLLMConfig() {
   return {
-    primary: {
+    primary: testProviderConnection({
       name: 'mock',
       apiKey: 'test-key',
       model: 'claude-3-opus-20240229',
@@ -61,7 +62,7 @@ function createMockLLMConfig() {
       temperature: 0.7,
       timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
-    },
+    }),
     maxAttempts: 1,
     retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
     events: { emit: () => {} },

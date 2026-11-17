@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
+import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 type LLMCallOptions = llmProviderCall.LLMCallOptions;
 import { llmProviderProtocol } from '../../../src/foundation/llm-provider/index.js';
 const { makeToolUseId } = llmProviderProtocol;
 import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 const { inputProjectionHash } = llmProviderModelMeasurement;
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import { createDeepseekInputProjection } from '../../../src/foundation/llm-provider/deepseek-input-projection.js';
 import { buildEffectiveCallOptions } from '../../../src/foundation/llm-provider/pi-ai-call-options.js';
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';

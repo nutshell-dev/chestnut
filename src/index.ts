@@ -47,9 +47,16 @@ export { Heartbeat, createHeartbeat } from './core/heartbeat/index.js';
 export type { LLMOrchestrator } from './foundation/llm-orchestrator/index.js';
 export type { LLMOrchestratorConfig, LLMCallOptions } from './foundation/llm-orchestrator/index.js';
 export type {
+  ProviderAuthenticationInput,
+  ProviderDescriptor,
+  ProviderFactory,
+  ProviderHandle,
+  ProviderInput,
+} from './foundation/llm-provider/index.js';
+/** @deprecated Use ProviderInput. This L1 bridge is removed at the next major API revision. */
+export type {
   ProviderAuthentication,
   ProviderConnection,
-  ProviderFactory,
 } from './foundation/llm-provider/index.js';
 
 // Re-export commonly used types

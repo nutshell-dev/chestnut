@@ -2,8 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import { buildPiAiContext } from '../../../src/foundation/llm-provider/pi-ai-wire.js';
 import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 

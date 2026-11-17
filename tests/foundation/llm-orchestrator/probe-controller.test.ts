@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LLMInstanceStateStore } from '../../../src/foundation/llm-orchestrator/instance-state-store.js';
 import { LLMProbeController } from '../../../src/foundation/llm-orchestrator/probe-controller.js';
@@ -26,7 +27,7 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtr
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；probe 调度由 fake timers 控制。
     events: { emit: event => { events.push(event); } },
-    providerFactory: { create: provider => [primary, ...fallbacks].find(adapter => adapter.name === provider.providerId)! },
+    providerFactory: legacyProviderFactory(provider => [primary, ...fallbacks].find(adapter => adapter.name === provider.providerId)!),
   };
   const runtime = new LLMProviderRuntime(config);
   const store = new LLMInstanceStateStore({

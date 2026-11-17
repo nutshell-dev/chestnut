@@ -1,7 +1,7 @@
 /**
  * LLMOrchestrator (L2b) types — retry/failover/hedge orchestration types.
  *
- * Base types (ProviderStreamChunk, ProviderConnection, LLMCallOptions)
+ * Base types (ProviderStreamChunk, ProviderInput, LLMCallOptions)
  * are owned by L1 llm-provider per M#5; L2b imports and extends them.
  *
  * Phase 1722 Step E: 组合流协议 `LLMStreamChunk` 归本模块 —— reset / provider_failed
@@ -10,7 +10,7 @@
 
 import type { llmProviderCall } from '../llm-provider/index.js';
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+type ProviderInput = llmProviderCall.ProviderInput;
 type ProviderFactory = llmProviderCall.ProviderFactory;
 type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
 type LLMResponse = llmProviderCall.LLMResponse;
@@ -53,8 +53,8 @@ export type LLMInstanceLifecycle =
   | { mode: 'durable'; fs: FileSystem; stateDir?: string };
 
 export interface LLMOrchestratorConfig {
-  primary: ProviderConnection;
-  fallbacks?: ProviderConnection[];
+  primary: ProviderInput;
+  fallbacks?: ProviderInput[];
   maxAttempts: number;
   retryDelayMs: number;
   events: LLMEventSink;

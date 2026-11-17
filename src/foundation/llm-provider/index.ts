@@ -25,10 +25,17 @@ export type {
 } from './capabilities/protocol.js';
 export type {
   LLMResponse,
+  ProviderAuthenticationInput,
+  ProviderDescriptor,
+  ProviderFactory,
+  ProviderHandle,
+  ProviderInput,
+} from './capabilities/call.js';
+/** @deprecated L1 internal bridge retained for package compatibility; use ProviderInput. Sunset at the next major API revision. */
+export type {
   ProviderAuthentication,
   ProviderConnection,
-  ProviderFactory,
-} from './capabilities/call.js';
+} from './provider-connection.js';
 export {
   LLMError,
   LLMAuthError,

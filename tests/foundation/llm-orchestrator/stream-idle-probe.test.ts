@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Stream idle probe tests (⚓4 ε ratified by phase 628)
  * Phase 637 Step A
@@ -7,7 +8,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
+const { createProviderFromInput } = llmProviderCall;
+import { providerInputFromResolvedConfig } from '../../../src/foundation/llm-provider/provider-connection.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -86,7 +88,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -136,7 +138,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
+      providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : primary),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -188,7 +190,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -243,7 +245,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -290,7 +292,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
+      providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : primary),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -352,7 +354,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
 
     const promise = (async () => {
@@ -434,7 +436,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
   }
 
   function realPrimaryAdapter(timeoutMs: number): ProviderAdapter {
-    return createLLMProvider({ name: 'primary', apiKey: 'sk-test-key', baseUrl: 'https://api.test.invalid/v1', model: 'test-model', timeoutMs, apiFormat: 'openai', temperature: 0.7 });
+    return createProviderFromInput(providerInputFromResolvedConfig({ name: 'primary', apiKey: 'sk-test-key', baseUrl: 'https://api.test.invalid/v1', model: 'test-model', timeoutMs, apiFormat: 'openai', temperature: 0.7 })).provider;
   }
 
   it('持续 chunk 总时长超过 provider timeoutMs、间隔 < idleMs → 成功，无 idle 事件（缺陷回归）', async () => {
@@ -455,7 +457,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
-      providerFactory: { create: (_connection) => realPrimaryAdapter(3000) },
+      providerFactory: legacyProviderFactory((_connection) => realPrimaryAdapter(3000)),
     });
 
     const chunks: LLMStreamChunk[] = [];
@@ -494,7 +496,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
-      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : realPrimaryAdapter(5_000) },
+      providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : realPrimaryAdapter(5_000)),
     });
 
     const chunks: LLMStreamChunk[] = [];

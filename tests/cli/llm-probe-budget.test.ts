@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 const { LLMModelNotFoundError } = llmProviderCall;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+import { testProviderConnection } from '../helpers/llm-provider.js';
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), close: vi.fn() }));
 
@@ -23,18 +23,16 @@ vi.mock('../../src/foundation/llm-orchestrator/index.js', async (importOriginal)
 import { LLM_PROBE_MAX_TOKENS } from '../../src/foundation/llm-orchestrator/index.js';
 import { checkLLMConnectionFor, classifyLLMErrorForDisplay, probeLLMConnection } from '../../src/cli/llm-connection-check.js';
 
-function providerConnection(): ProviderConnection {
-  return {
-    providerId: 'p',
-    authentication: { kind: 'api_key', value: 'k' },
+function providerConnection() {
+  return testProviderConnection({
+    name: 'p',
+    apiKey: 'k',
     model: 'm',
-    defaults: {
-      temperature: 0.7,
-      timeoutMs: 30_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
-    },
+    temperature: 0.7,
+    timeoutMs: 30_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'openai',
     baseUrl: 'https://api.test.invalid/v1',
-  };
+  });
 }
 
 describe('Phase 1979 probe budget', () => {

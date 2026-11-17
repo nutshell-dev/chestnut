@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { describe, expect, it } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
@@ -52,7 +53,7 @@ describe('provider-bound input budget', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；输入预算用例只调用一次候选。
       events: { emit: (() => {}) as LLMEventSink['emit'] },
-      providerFactory: { create: provider => make(provider.providerId, provider.providerId === 'primary' ? 10 : 50_000) },
+      providerFactory: legacyProviderFactory(provider => make(provider.providerId, provider.providerId === 'primary' ? 10 : 50_000)),
     });
 
     await owner.call({ messages: [{ role: 'user', content: 'hello' }] });
@@ -73,12 +74,12 @@ describe('provider-bound input budget', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；输入预算用例只调用一次候选。
       events: { emit: (() => {}) as LLMEventSink['emit'] },
-      providerFactory: { create: (_connection) => ({
+      providerFactory: legacyProviderFactory((_connection) => ({
         name: 'moonshot',
         model: 'kimi-k2.6',
         prepareInputMeter: async () => ({ ...meter('kimi-k2.6', 1), descriptor: aliasDescriptor }),
         call: async () => response,
-      }) },
+      })),
     });
     const error = new LLMContextExceededError('moonshot', 413, 'too large', {
       descriptor: aliasDescriptor,

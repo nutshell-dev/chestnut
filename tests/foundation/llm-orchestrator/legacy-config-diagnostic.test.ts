@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { llmOrchestratorConfigSchema } from '../../../src/core/llm-configuration/config-schema.js';
@@ -47,7 +48,7 @@ function makeConfig(
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；诊断用例只观察配置与选择事实。
     events: sink,
-    providerFactory: { create: adapter },
+    providerFactory: legacyProviderFactory(adapter),
     ...(circuitBreaker ? { circuitBreaker } : {}),
   };
 }
@@ -70,7 +71,7 @@ describe('legacy circuitBreaker diagnostics', () => {
 
     const parsed = createGlobalConfigSchema().parse({ llm: { primary, circuit_breaker: {} } });
     const resolved = resolveLLMConfig(parsed);
-    makeOwner({ ...resolved, events: sink, lifecycle: { mode: 'ephemeral' }, providerFactory: { create: adapter } });
+    makeOwner({ ...resolved, events: sink, lifecycle: { mode: 'ephemeral' }, providerFactory: legacyProviderFactory(adapter) });
     expect(emitted.filter(event => event.type === 'legacy_config_ignored')).toEqual([{
       type: 'legacy_config_ignored', field: 'circuitBreaker', reason: 'provider_retry_at_policy',
       value: { failureThreshold: 3, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
@@ -111,10 +112,10 @@ describe('legacy circuitBreaker diagnostics', () => {
     const emitted: LLMEvent[] = [];
     const sink = { emit: (event: LLMEvent) => { emitted.push(event); } };
     const config = makeConfig(sink);
-    config.providerFactory = { create: provider => {
+    config.providerFactory = legacyProviderFactory(provider => {
       if (provider.providerId === 'bad') throw new Error('invalid adapter');
       return adapter(provider);
-    } };
+    });
     const owner = makeOwner(config);
     const diagnostic = { failureThreshold: 5, resetTimeoutMs: 120_000 }; // 自定义 reload 透传 fixture，非默认值。 // time-fixture: configuration/payload round-trip input, not an independent wait budget
 

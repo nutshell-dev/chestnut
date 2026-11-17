@@ -17,7 +17,7 @@ import {
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
 import { llmProviderCall } from '../foundation/llm-provider/index.js';
-type ProviderConnection = llmProviderCall.ProviderConnection;
+type ProviderInput = llmProviderCall.ProviderInput;
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
 const { PRESETS, catalogProvidersWithoutPreset } = llmProviderCatalog;
 import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
@@ -169,7 +169,7 @@ export async function probeLLMConnection(
     retryDelayMs: 0,
     events: { emit: () => {} },
     providerFactory: {
-      create: connection => llmProviderCall.createProviderFromConnection(connection, {
+      create: input => llmProviderCall.createProviderFromInput(input, {
         ...(options?.credentials && { credentialStore: options.credentials }),
       }),
     },
@@ -184,7 +184,7 @@ export async function probeLLMConnection(
     return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
   } catch (err) {
     callFailure = { error: err };
-    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: snapshot.config.primary.providerId, identity: snapshot.identity };
+    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: llmProviderCall.describeProviderInput(snapshot.config.primary).providerId, identity: snapshot.identity };
   } finally {
     try {
       await svc.close();
@@ -224,7 +224,7 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
  * Used by `config provider add/set-primary` to verify a candidate before commit.
  */
 export async function checkLLMConnectionFor(
-  provider: ProviderConnection,
+  provider: ProviderInput,
   options?: { credentials?: PiAiCredentialStore },
 ): Promise<
   { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
@@ -236,7 +236,7 @@ export async function checkLLMConnectionFor(
     retryDelayMs: 0,
     events: { emit: () => {} },
     providerFactory: {
-      create: input => llmProviderCall.createProviderFromConnection(input, {
+      create: input => llmProviderCall.createProviderFromInput(input, {
         ...(options?.credentials && { credentialStore: options.credentials }),
       }),
     },
@@ -251,7 +251,7 @@ export async function checkLLMConnectionFor(
     return { ok: true, model: provider.model };
   } catch (err) {
     callFailure = { error: err };
-    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: provider.providerId };
+    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: llmProviderCall.describeProviderInput(provider).providerId };
   } finally {
     try {
       await svc.close();

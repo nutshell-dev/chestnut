@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 978 r120 B fork — hedge B-wins primary error 真错失踪治理
  *
@@ -91,7 +92,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待，保持竞态窗口确定。
     events: noopSink,
-    providerFactory: { create: (cfg) => findAdapter(cfg) },
+    providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
   });
   return service;
 }

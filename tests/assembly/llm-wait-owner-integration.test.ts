@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../helpers/llm-provider.js';
 /**
  * Phase 1934 Step C：LLM owner → Assembly → ATS 集成路径（真实 orchestrator）。
  *
@@ -34,7 +35,7 @@ import type {
 import { LLMAuthError, LLMNetworkError } from '../../src/foundation/llm-provider/errors.js';
 import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+import type { ProviderConnection } from '../helpers/llm-provider.js';
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
@@ -202,10 +203,8 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     retryDelayMs: 0,
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_CIRCUIT_RESET_TIMEOUT_MS },
-    providerFactory: {
-      create: (connection: ProviderConnection) =>
-        adapters.get((sameName ? connection.model : connection.providerId) ?? '')!,
-    },
+    providerFactory: legacyTestProviderFactory((connection: ProviderConnection) =>
+        adapters.get((sameName ? connection.model : connection.providerId) ?? '')!,),
   };
   const owner = createLLMOrchestrator(orchestratorConfig);
 

@@ -1,6 +1,6 @@
 /**
  * Persisted LLM configuration document schema. Runtime orchestrator options are
- * assembled separately from ProviderConnection and ProviderFactory.
+ * assembled separately from ProviderInput and ProviderFactory.
  * Owner: L4 llm-configuration.
  */
 import { z } from 'zod';

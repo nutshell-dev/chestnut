@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1969: L2b 不再做调用前 context budget admission。
  *
@@ -70,7 +71,7 @@ function createOwner(opts: { callError?: Error; streamError?: Error } = {}) {
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
     events: sink,
-    providerFactory: { create: (_connection) => adapter },
+    providerFactory: legacyProviderFactory((_connection) => adapter),
   });
   return { owner, emitted, received, calls: () => calls };
 }
@@ -153,7 +154,7 @@ describe('Phase 1969: no preflight admission', () => {
       fallbacks: [{ ...providerConfig(), providerId: 'fallback' }],
       maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
       events: { emit: event => { emitted.push(event); } },
-      providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
+      providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : primary),
     });
 
     let caught: unknown;
@@ -188,7 +189,7 @@ describe('Phase 1969: no preflight admission', () => {
         fallbacks: [{ ...providerConfig(), providerId: 'fallback' }],
         maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
         events: { emit: () => {} },
-        providerFactory: { create: config => config.providerId === 'fallback' ? fallback : primary },
+        providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : primary),
       });
       if (mode === 'sticky') {
         const now = Date.now();

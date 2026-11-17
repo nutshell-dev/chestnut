@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -51,7 +52,7 @@ async function fixture(adapters: ProviderAdapter[], maxAttempts = 3) {
     maxAttempts,
     retryDelayMs: 0, // 立即重试哨兵；Retry-After 本身由 provider 状态延迟。
     events: { emit: event => { events.push(event); } },
-    providerFactory: { create: provider => nextAdapters.find(item => item.name === provider.providerId)! },
+    providerFactory: legacyProviderFactory(provider => nextAdapters.find(item => item.name === provider.providerId)!),
   });
   const owner = makeOwner();
   const readState = () => JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8'));

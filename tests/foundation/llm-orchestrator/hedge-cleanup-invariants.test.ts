@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Hedge cleanup invariants — mechanical merge of the following source files
  * (no assertion logic changed):
@@ -96,7 +97,7 @@ describe('hedge-post-first-chunk-failure', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }
@@ -258,7 +259,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }
@@ -439,7 +440,7 @@ describe('hedge-bwins-cleanup', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }

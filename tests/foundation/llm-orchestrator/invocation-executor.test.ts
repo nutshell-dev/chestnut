@@ -56,6 +56,7 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], ids?: stri
     runtime: {
       primary: () => primary,
       fallbacks: () => fallbacks,
+      descriptors: () => [config.primary, ...(config.fallbacks ?? [])].map(input => mockProviderFactory.create(input).descriptor),
       config: () => config,
       providerIds: () => providerIds,
       legacyProviderIds: () => providerIds,

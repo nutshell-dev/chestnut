@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1944 Step B：LLM 失败处置事实（LLMFailureDisposition）owner 边界测试。
  *
@@ -55,7 +56,7 @@ function makeOrchestrator() {
     maxAttempts: 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events,
-    providerFactory: { create: (config) => makeAdapter(config.providerId) },
+    providerFactory: legacyProviderFactory((config) => makeAdapter(config.providerId)),
   });
   return { orchestrator, events };
 }

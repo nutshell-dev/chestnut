@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * phase 320 Step A: LLMOrchestratorImpl.reloadConfig — 原地替换 primary/fallbacks/providerStates，对象引用不变。
@@ -357,7 +358,7 @@ describe('Phase 2027 selective runtime reload', () => {
     const config = {
       ...baseConfig(sink),
       fallbacks: [],
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyProviderFactory((_connection) => adapter),
     };
     const orch = new LLMOrchestratorImpl(config);
     const stream = orch.stream({});

@@ -20,19 +20,24 @@ const fixtures = [
 ].map(read);
 
 describe('ProviderFactory owner boundary', () => {
-  it('keeps adapter construction behind the L1 connection factory capability', () => {
+  it('keeps adapter construction behind the L1 input/handle factory capability', () => {
     expect(providerBarrel).toMatch(/export \* as llmProviderCall from '\.\/capabilities\/call\.js';/);
-    expect(providerCallFacade).toMatch(/\bProviderFactory\b/);
-    expect(providerCallFacade).toMatch(/\bcreateProviderFromConnection\b/);
+    expect(providerCallFacade).toMatch(/\bProviderInput\b/);
+    expect(providerCallFacade).toMatch(/\bProviderHandle\b/);
+    expect(providerCallFacade).toMatch(/\bcreateProviderFromInput\b/);
+    expect(providerCallFacade).not.toMatch(/\bcreateProviderFromConnection\b/);
     expect(orchestratorTypes).toMatch(/providerFactory:\s*ProviderFactory/);
-    expect(orchestratorRuntime).toMatch(/this\.providerFactory\.create\(connection\)/);
+    expect(orchestratorRuntime).toMatch(/this\.providerFactory\.create\(input\)/);
+    expect(orchestratorRuntime).toMatch(/created\.descriptor/);
+    expect(orchestratorRuntime).not.toMatch(/\bProviderConnection\b/);
     expect(orchestratorRuntime).not.toMatch(/\bcreateLLMProvider\b/);
   });
 
-  it('uses connection-based DI in orchestration fixtures', () => {
+  it('uses input/handle DI in orchestration fixtures without legacy config construction', () => {
     for (const fixture of fixtures) {
       expect(fixture).not.toMatch(/\bcreateProviderAdapter\b/);
       expect(fixture).not.toMatch(/\bProviderConfig\b/);
+      expect(fixture).not.toMatch(/\bcreateProviderFromConnection\b/);
     }
   });
 });

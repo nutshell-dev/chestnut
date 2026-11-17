@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
+import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 const { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } = llmProviderModelMeasurement;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
 const { CATALOG_REVISION } = llmProviderCatalog;
 import { isDeepseekV41MeterProfile } from '../../../src/foundation/llm-provider/input-meter.js';

@@ -248,20 +248,17 @@ export class LLMProbeController {
     const snapshot = this.ledger.snapshot();
     const probeInvocationId = `probe:${snapshot.instanceId}:${probedAtMs}:${target.breakerIndex}`;
     const failureObservedAt = this.providerState(snapshot, target.identity)?.lastError?.at;
-    const config = this.runtime.config();
-    const targetConfig = target.breakerIndex === 0
-      ? config.primary
-      : config.fallbacks?.[target.breakerIndex - 1];
+    const descriptor = this.runtime.descriptors()[target.breakerIndex];
     const abort = new AbortController();
     this.probeAbort = abort;
-    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(targetConfig?.defaults?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
-    const hardTimeoutMs = targetConfig?.defaults?.timeoutMs ?? dynamicTimeoutMs;
+    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(descriptor?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
+    const hardTimeoutMs = descriptor?.timeoutMs ?? dynamicTimeoutMs;
     const [hardSignal, cleanupSignal] = withCombinedAbortSignal(abort.signal, hardTimeoutMs);
     const probeOptions: LLMCallOptions = {
       messages: [{ role: 'user', content: 'ping' }],
       signal: hardSignal.signal,
       timeoutMs: dynamicTimeoutMs,
-      ...(targetConfig?.defaults?.maxTokens !== undefined ? { maxTokens: targetConfig.defaults.maxTokens } : {}),
+      ...(descriptor?.maxTokens !== undefined ? { maxTokens: descriptor.maxTokens } : {}),
     };
     try {
       await target.adapter.call(probeOptions);

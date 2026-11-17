@@ -99,9 +99,13 @@ export const ROOT_TYPE_EXPORTS = [
   'ToolDefinition',
   'JSONSchema7',
   'LLMResponse',
+  'ProviderAuthenticationInput',
+  'ProviderDescriptor',
+  'ProviderFactory',
+  'ProviderHandle',
+  'ProviderInput',
   'ProviderAuthentication',
   'ProviderConnection',
-  'ProviderFactory',
 ] as const;
 export const ROOT_COMPAT_EXPORTS = [...ROOT_ERROR_EXPORTS, ...ROOT_TYPE_EXPORTS] as const;
 
@@ -190,6 +194,74 @@ function usesMakeToolUseId(source: ts.SourceFile, localName: string): boolean {
   return used;
 }
 
+const FORBIDDEN_FACADE_MEMBERS: Partial<Record<FacadeName, readonly string[]>> = {
+  llmProviderCall: [
+    'ProviderAuthentication',
+    'ProviderConnection',
+    'ProviderConfig',
+    'ProviderCallConfig',
+    'ProviderFactoryOptions',
+    'ProviderConnectionFactoryOptions',
+    'PiAiAdapterOptions',
+    'LLMProviderFactory',
+    'createLLMProvider',
+    'createProviderFromConnection',
+  ],
+  llmProviderConfigContract: [
+    'ProviderConnection',
+    'ProviderConfig',
+    'ResolvedProviderConfigContract',
+    'resolveProviderConfig',
+    'toProviderConfig',
+    'toProviderConnection',
+    'providerConnectionFromResolvedConfig',
+  ],
+};
+
+function forbiddenFacadeMembers(
+  source: ts.SourceFile,
+  localName: string,
+  forbidden: readonly string[],
+): string[] {
+  const found = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === localName
+      && forbidden.includes(node.name.text)
+    ) found.add(node.name.text);
+    if (
+      ts.isElementAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === localName
+      && ts.isStringLiteral(node.argumentExpression)
+      && forbidden.includes(node.argumentExpression.text)
+    ) found.add(node.argumentExpression.text);
+    if (
+      ts.isQualifiedName(node)
+      && ts.isIdentifier(node.left)
+      && node.left.text === localName
+      && forbidden.includes(node.right.text)
+    ) found.add(node.right.text);
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isObjectBindingPattern(node.name)
+      && node.initializer
+      && ts.isIdentifier(node.initializer)
+      && node.initializer.text === localName
+    ) {
+      for (const element of node.name.elements) {
+        const property = element.propertyName ?? element.name;
+        if (ts.isIdentifier(property) && forbidden.includes(property.text)) found.add(property.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return [...found].sort();
+}
+
 /** Parse only named imports/re-exports that resolve to the provider owner. */
 export function auditProviderSource(file: string, text: string): AuditResult {
   const result: AuditResult = { violations: [], references: [] };
@@ -253,6 +325,12 @@ export function auditProviderSource(file: string, text: string): AuditResult {
         result.violations.push(
           `${file}: llmProviderProtocol value import does not use makeToolUseId`,
         );
+      }
+      const forbidden = FORBIDDEN_FACADE_MEMBERS[name];
+      if (forbidden) {
+        for (const member of forbiddenFacadeMembers(source, reference.localName, forbidden)) {
+          result.violations.push(`${file}: forbidden legacy provider surface ${name}.${member}`);
+        }
       }
     }
   }

@@ -10,7 +10,7 @@
 import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
-const { toProviderConnection } = llmProviderConfigContract;
+const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
@@ -166,7 +166,7 @@ export function makeSetupCandidateProbe(
       candidateConfig.api_key = resolved;
     }
     candidateConfig.timeout_ms = Math.min(candidateConfig.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS, SETUP_PROBE_TIMEOUT_MS);
-    return checkLLMConnectionFor(toProviderConnection(candidateConfig), {
+    return checkLLMConnectionFor(toProviderInput(candidateConfig), {
       ...(deps.credentials !== undefined && { credentials: deps.credentials }),
     });
   };

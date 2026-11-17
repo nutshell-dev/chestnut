@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   createLLMProvider,
   createProviderFromConnection,
+  createProviderFromInput,
 } from '../../../src/foundation/llm-provider/provider-factory.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
-import { providerConnectionFromResolvedConfig } from '../../../src/foundation/llm-provider/provider-connection.js';
+import {
+  providerConnectionFromResolvedConfig,
+  providerInputFromResolvedConfig,
+} from '../../../src/foundation/llm-provider/provider-connection.js';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
@@ -21,29 +25,45 @@ describe('createLLMProvider config boundary', () => {
       .toThrow('ProviderConfig.apiKey is required');
   });
 
-describe('createProviderFromConnection', () => {
-  it('creates the same L1 adapter from a neutral api-key connection', () => {
-    const provider = createProviderFromConnection({
-      providerId: 'neutral',
-      model: 'test-model',
-      baseUrl: 'https://api.test.invalid/v1',
-      apiFormat: 'openai',
-      authentication: { kind: 'api_key', value: 'secret' },
-      defaults: { temperature: 0.2, timeoutMs: TEST_LLM_TIMEOUT_MS, maxTokens: 99 },
+  describe('createProviderFromConnection', () => {
+    it('creates the same L1 adapter from a neutral api-key connection', () => {
+      const provider = createProviderFromConnection({
+        providerId: 'neutral',
+        model: 'test-model',
+        baseUrl: 'https://api.test.invalid/v1',
+        apiFormat: 'openai',
+        authentication: { kind: 'api_key', value: 'secret' },
+        defaults: { temperature: 0.2, timeoutMs: TEST_LLM_TIMEOUT_MS, maxTokens: 99 },
+      });
+      expect(provider).toMatchObject({ name: 'neutral', model: 'test-model' });
     });
-    expect(provider).toMatchObject({ name: 'neutral', model: 'test-model' });
+
+    it('retains the private L1 catalog projection across the neutral boundary', () => {
+      const config = toProviderConfig(llmProviderConfigSchema.parse({
+        preset: 'anthropic',
+        api_key: 'secret',
+      }));
+      const connection = providerConnectionFromResolvedConfig(config);
+      const provider = createProviderFromConnection(connection);
+      expect(provider).toMatchObject({ name: config.name, model: config.model });
+      expect(connection).not.toHaveProperty('catalogProvider');
+      expect(connection).not.toHaveProperty('catalogResolution');
+    });
   });
 
-  it('retains the private L1 catalog projection across the neutral boundary', () => {
-    const config = toProviderConfig(llmProviderConfigSchema.parse({
-      preset: 'anthropic',
-      api_key: 'secret',
-    }));
-    const connection = providerConnectionFromResolvedConfig(config);
-    const provider = createProviderFromConnection(connection);
-    expect(provider).toMatchObject({ name: config.name, model: config.model });
-    expect(connection).not.toHaveProperty('catalogProvider');
-    expect(connection).not.toHaveProperty('catalogResolution');
+  describe('createProviderFromInput', () => {
+    it('creates the equivalent adapter and an opaque descriptor from public input', () => {
+      const config = toProviderConfig(llmProviderConfigSchema.parse({
+        preset: 'anthropic',
+        api_key: 'secret',
+      }));
+      const input = providerInputFromResolvedConfig(config);
+      const legacy = createProviderFromConnection(providerConnectionFromResolvedConfig(config));
+      const handle = createProviderFromInput(input);
+
+      expect(handle.provider).toMatchObject({ name: legacy.name, model: legacy.model });
+      expect(handle.descriptor).toMatchObject({ providerId: config.name, model: config.model });
+      expect(handle.descriptor.identity).toMatch(/^[0-9a-f]{12}$/);
+    });
   });
-});
 });

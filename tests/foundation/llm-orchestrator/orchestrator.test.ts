@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * LLMOrchestrator stream/call/hedge regression tests — Phase 895 + Phase 896
  *
@@ -109,7 +110,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
     events: noopSink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-    providerFactory: { create: (cfg) => findAdapter(cfg) },
+    providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
   });
   return service;
 }
@@ -177,7 +178,7 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
 
     expect(service.getProviderIdentities()).toHaveLength(3);
@@ -409,7 +410,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 2,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      providerFactory: { create: (_connection) => primary as any },
+      providerFactory: legacyProviderFactory((_connection) => primary as any),
     });
 
     const promise = (async () => {
@@ -465,7 +466,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
-      providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
+      providerFactory: legacyProviderFactory((cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any),
     });
 
     const failuresBefore = providerState(service, 0)?.consecutiveFailures ?? 0;
@@ -500,7 +501,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
-      providerFactory: { create: (_connection) => primary as any },
+      providerFactory: legacyProviderFactory((_connection) => primary as any),
     });
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
@@ -533,7 +534,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
-      providerFactory: { create: (_connection) => primary as any },
+      providerFactory: legacyProviderFactory((_connection) => primary as any),
     });
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
@@ -567,7 +568,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
+      providerFactory: legacyProviderFactory((cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any),
     });
 
     const chunks: LLMStreamChunk[] = [];

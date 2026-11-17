@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * phase 517 B7 regression：LLMOrchestratorImpl.close() 应清 sdkClientCache、
@@ -35,7 +36,7 @@ describe('LLMOrchestratorImpl.close', () => {
 
     // 触发 cache 写入：模 cache.set
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
-    cache.set('test-key', { close: () => undefined });
+    cache.set('test-key', { provider: { close: () => undefined }, descriptor: internalsOf(orch).providerRuntime.descriptors()[0] });
     expect(cache.size).toBeGreaterThanOrEqual(1);
 
     await orch.close();
@@ -56,7 +57,7 @@ describe('LLMOrchestratorImpl.close', () => {
 
     let closeCalled = false;
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
-    cache.set('test-key', { close: () => { closeCalled = true; } });
+    cache.set('test-key', { provider: { close: () => { closeCalled = true; } }, descriptor: internalsOf(orch).providerRuntime.descriptors()[0] });
 
     await orch.close();
     expect(closeCalled).toBe(true);
@@ -75,7 +76,7 @@ describe('LLMOrchestratorImpl.close', () => {
       });
 
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
-    cache.set('test-key', { /* no close */ });
+    cache.set('test-key', { provider: { /* no close */ }, descriptor: internalsOf(orch).providerRuntime.descriptors()[0] });
 
     await expect(orch.close()).resolves.not.toThrow();
     expect(cache.size).toBe(0);
@@ -112,7 +113,7 @@ describe('LLMOrchestratorImpl.close', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyProviderFactory((_connection) => adapter),
     });
     const options = { messages: [{ role: 'user' as const, content: 'hi' }] };
     const nextConfig = {
@@ -120,7 +121,7 @@ describe('LLMOrchestratorImpl.close', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyProviderFactory((_connection) => adapter),
     };
 
     await orch.close();
@@ -152,8 +153,8 @@ describe('LLMOrchestratorImpl.close', () => {
 
     const goodClose = vi.fn().mockResolvedValue(undefined);
     const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
-    cache.set('bad', { close: async () => { throw new Error('bad close'); } });
-    cache.set('good', { close: goodClose });
+    cache.set('bad', { provider: { close: async () => { throw new Error('bad close'); } }, descriptor: internalsOf(orch).providerRuntime.descriptors()[0] });
+    cache.set('good', { provider: { close: goodClose }, descriptor: internalsOf(orch).providerRuntime.descriptors()[0] });
 
     await expect(orch.close()).resolves.toBeUndefined();
     expect(goodClose).toHaveBeenCalledTimes(1);

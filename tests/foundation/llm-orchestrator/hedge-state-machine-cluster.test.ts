@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Hedge state machine cluster (phase 991)
  * 4 sub-fix reverse tests: B.2 drain abort guard + B.3 double-fail providerStates + B.4 skippedCount + B.6 reset event
@@ -99,7 +100,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待，保持状态机竞态确定。
     events: noopSink,
-    providerFactory: { create: (cfg) => findAdapter(cfg) },
+    providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
   });
   return service;
 }

@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1826 Z1–Z4 回归，Phase 2055 迁移到 owner 公共 call/stream 与内部 invocation controller。
  * 不再构造 session，也不调用旧 callWithinRecovery/streamWithinRecovery。
@@ -86,7 +87,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
       maxAttempts: opts.maxAttempts ?? 3,
       retryDelayMs: 0, // 禁用调用内重试等待；恢复窗口由 fake clock 推进。
       events,
-      providerFactory: { create: config => config.providerId === 'fallback' ? fallbackAdapter : failAdapter },
+      providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallbackAdapter : failAdapter),
       ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS } } : {}),
     });
     owners.push(owner);

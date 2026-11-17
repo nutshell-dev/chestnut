@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1933 Step F：进程内探针唤醒调度（scheduleProbe / subscribeReady / close 取消）。
  *
@@ -97,7 +98,7 @@ function createOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
     retryDelayMs: 0, // 禁用调用内重试等待；probe 调度由 fake timers 控制。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    providerFactory: { create: config => adapters.find(adapter => adapter.name === config.providerId) ?? primary },
+    providerFactory: legacyProviderFactory(config => adapters.find(adapter => adapter.name === config.providerId) ?? primary),
   });
   return { owner, emitted };
 }

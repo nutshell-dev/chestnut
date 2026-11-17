@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
+import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 const { emitInputMeasurement, inputProjectionHash } = llmProviderModelMeasurement;
 type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;

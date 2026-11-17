@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../../helpers/llm-provider.js';
 /**
  * Phase 1844 组合行为：真实 LLM owner（createLLMOrchestrator，call 内置恢复 admission）
  * + 真实 EventLoop.run + 真实 Messaging inbox + 假 provider（仅模拟网络边界、计数
@@ -32,7 +33,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+import type { ProviderConnection } from '../../helpers/llm-provider.js';
 import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 import { testProviderConnection } from '../../helpers/llm-provider.js';
 
@@ -133,7 +134,7 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    providerFactory: { create: (_connection) => adapter },
+    providerFactory: legacyTestProviderFactory((_connection) => adapter),
   });
   let owner = makeOwner();
   cleanupOwners.push(owner);

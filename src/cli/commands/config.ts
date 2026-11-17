@@ -18,7 +18,7 @@ import {
   classifyApiKeyConfigValue,
 } from '../../core/llm-configuration/index.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { toProviderConnection } = llmProviderConfigContract;
+const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 import { llmProviderCatalog } from '../../foundation/llm-provider/index.js';
 const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, catalogProvidersWithoutPreset, deriveCatalogAuthProfile } = llmProviderCatalog;
@@ -489,7 +489,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         }
         providerProbeConfig.api_key = resolvedKey;
       }
-      const probe = await checkLLMConnectionFor(toProviderConnection(providerProbeConfig), {
+      const probe = await checkLLMConnectionFor(toProviderInput(providerProbeConfig), {
         credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
       });
       if (!probe.ok) {

@@ -1,3 +1,4 @@
+import { handleForProvider, legacyProviderFactory } from './provider-test-fixtures.js';
 import { describe, expect, it, vi } from 'vitest';
 import { LLMProviderRuntime } from '../../../src/foundation/llm-orchestrator/provider-runtime.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
@@ -17,7 +18,7 @@ function config(
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 runtime 生命周期。
     events,
-    providerFactory: { create: providerFactory },
+    providerFactory: legacyProviderFactory(providerFactory),
   };
 }
 
@@ -50,7 +51,7 @@ describe('ProviderRuntime cache and reload lifecycle', () => {
     const runtime = new LLMProviderRuntime(config(primaryConfig, eventSink.sink, factory, [{ ...primaryConfig }]));
     const original = runtime.primary();
     expect(runtime.fallbacks()[0]).toBe(original);
-    expect(created).toHaveLength(1);
+    expect(created).toHaveLength(2);
 
     const generation = runtime.configGeneration();
     const identities = runtime.providerIds();
@@ -68,7 +69,7 @@ describe('ProviderRuntime cache and reload lifecycle', () => {
     expect(runtime.providerIds()).toEqual(prepared.providerIds);
     expect(runtime.legacyProviderIds()).toEqual(prepared.legacyProviderIds);
     expect(runtime.config().primary.providerId).toBe('next');
-    expect([...runtime.clientCache.values()]).toEqual([next]);
+    expect([...runtime.clientCache.values()].map(handle => handle.provider)).toEqual([next]);
 
     const restored = runtime.prepareReload(config(primaryConfig, eventSink.sink, factory));
     expect(restored.primary).not.toBe(original);
@@ -103,7 +104,8 @@ describe('ProviderRuntime cache and reload lifecycle', () => {
       providerConfig.providerId === 'primary'
         ? adapter(providerConfig, async () => { throw new Error('close failed'); })
         : adapter(providerConfig, goodClose)));
-    runtime.clientCache.set('good', adapter({ providerId: 'good', model: 'm', apiFormat: 'openai', authentication: { kind: 'api_key' as const, value: 'good', identity: 'good' } }, goodClose));
+    const goodInput = { providerId: 'good', model: 'm', apiFormat: 'openai', authentication: { kind: 'api_key' as const, value: 'good', identity: 'good' } };
+    runtime.clientCache.set('good', handleForProvider(goodInput, adapter(goodInput, goodClose)));
 
     await expect(runtime.close()).resolves.toBeUndefined();
 

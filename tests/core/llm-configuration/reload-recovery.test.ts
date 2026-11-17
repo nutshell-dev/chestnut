@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../../helpers/llm-provider.js';
 /** Phase2125 Step E：saved revision 驱动、可跨 Runtime 实例重建的应用恢复。 */
 import { describe, expect, it, vi } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
@@ -28,7 +29,7 @@ function config(model: string): LLMOrchestratorConfig {
     maxAttempts: 1,
     retryDelayMs: 0, // maxAttempts=1；零延迟同时确保恢复测试不真实等待。
     events: { emit: () => {} },
-    providerFactory: { create: () => { throw new Error('not used'); } },
+    providerFactory: legacyTestProviderFactory(() => { throw new Error('not used'); }),
   };
 }
 

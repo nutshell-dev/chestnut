@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
-const { createLLMProvider } = llmProviderCall;
-import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
 
 /** Offline meter fixture only needs a short, positive provider timeout. */

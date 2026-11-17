@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1933 Step B：进程内 LLMOrchestrator 共享状态与独立探针。
  *
@@ -89,7 +90,7 @@ function createOwner(adapter: ProviderAdapter) {
     retryDelayMs: 0, // 禁用重试等待；probe 恢复窗口由 fake clock 推进。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-    providerFactory: { create: (_connection) => adapter },
+    providerFactory: legacyProviderFactory((_connection) => adapter),
   });
   return { owner, emitted };
 }

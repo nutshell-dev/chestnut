@@ -21,6 +21,7 @@ import { snapshotLLMConfig } from '../../src/core/llm-configuration/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { START_GATE_EXIT_CODE } from '../../src/cli/start-llm-gate.js';
 import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
+import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
@@ -219,7 +220,8 @@ describe('first-run wizard — 展示与提交', () => {
     expect(outcome.kind).toBe('verified');
     // 候选 probe 使用 resolved preset thinking（adaptive/max + dropThinkingBlocks）
     const probed = conn.checkLLMConnectionFor.mock.calls[0]?.[0];
-    expect(probed.defaults).toMatchObject({
+    expect(probed).not.toHaveProperty('defaults');
+    expect(resolvedProviderConfig(probed)).toMatchObject({
       thinkingMode: 'adaptive',
       thinkingEffort: 'max',
       dropThinkingBlocks: true,

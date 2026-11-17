@@ -19,7 +19,7 @@ const { LLMAuthError, LLMModelNotFoundError, LLMRateLimitError, LLMQuotaError, L
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 const { DEFAULT_LLM_TIMEOUT_MS } = llmProviderConfigContract;
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 import { LLMQuotaError as RootLLMQuotaError } from '../../../src/index.js';

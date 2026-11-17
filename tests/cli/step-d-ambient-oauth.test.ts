@@ -10,6 +10,7 @@
  * - init 向导：ambient preset 跳过 key 步骤；OAuth preset 引导登录（缝 mock）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -199,10 +200,8 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
     // probe 配置：无 apiKey、ambient profile、catalog provider
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const probeConfig = connMock.checkLLMConnectionFor.mock.calls[0][0];
-    expect(probeConfig.authentication).toMatchObject({
-      kind: 'capability',
-      profile: 'ambient',
-    });
+    expect(probeConfig.authentication).toMatchObject({ kind: 'capability' });
+    expect(llmProviderCall.describeProviderInput(probeConfig).authProfile).toBe('ambient');
     expect(probeConfig).not.toHaveProperty('piAiProvider');
     expect(probeConfig.model).toBe('anthropic.claude-sonnet-4-6');
 

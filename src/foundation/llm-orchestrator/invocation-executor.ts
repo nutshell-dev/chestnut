@@ -718,13 +718,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   }
 
   /** provider 配置的基础 timeout（动态 timeout 的起点）。 */
-  private baseTimeoutFor(adapter: LLMProvider, isFallback: boolean): number {
-    const config = isFallback
-      ? (this.config.fallbacks ?? []).find(
-        candidate => candidate.providerId === adapter.name && candidate.model === adapter.model,
-      )
-      : this.config.primary;
-    return config?.defaults?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+  private baseTimeoutFor(adapter: LLMProvider, _isFallback: boolean): number {
+    const index = [this.primary, ...this.fallbacks].findIndex(candidate => candidate === adapter);
+    return this.runtime.descriptors()[index]?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
   }
 
   private async _callCore(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): Promise<LLMResponse> {

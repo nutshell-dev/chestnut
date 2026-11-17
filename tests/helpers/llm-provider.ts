@@ -1,18 +1,50 @@
-import { llmProviderCall, llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+import { providerInputFromResolvedConfig } from '../../src/foundation/llm-provider/provider-connection.js';
+import type { ProviderConfig } from '../../src/foundation/llm-provider/types.js';
+import {
+  handleForProvider,
+  legacyProviderFactory,
+  type ProviderConnection,
+  type ProviderInput,
+} from '../foundation/llm-orchestrator/provider-test-fixtures.js';
 
-type ProviderConfig = llmProviderConfigContract.ProviderConfig;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+export type { ProviderConnection, ProviderInput };
 type ProviderFactory = llmProviderCall.ProviderFactory;
+type LLMProvider = llmProviderCall.LLMProvider;
 
-const { providerConnectionFromResolvedConfig } = llmProviderConfigContract;
-const { createProviderFromConnection } = llmProviderCall;
-
-/** Convert the legacy test fixture shape at the shared boundary only. */
+/** Convert the legacy test config shape at the shared test boundary only. */
 export function testProviderConnection(config: ProviderConfig): ProviderConnection {
-  return providerConnectionFromResolvedConfig(config);
+  const input = providerInputFromResolvedConfig(config);
+  return Object.assign(input, {
+    providerId: config.name,
+    apiFormat: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'unknown',
+    defaults: {
+      temperature: config.temperature,
+      timeoutMs: config.timeoutMs,
+      ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
+      ...(config.extraHeaders !== undefined ? { extraHeaders: config.extraHeaders } : {}),
+      ...(config.thinking !== undefined ? { thinking: config.thinking } : {}),
+      ...(config.thinkingBudgetTokens !== undefined ? { thinkingBudgetTokens: config.thinkingBudgetTokens } : {}),
+      ...(config.thinkingMode !== undefined ? { thinkingMode: config.thinkingMode } : {}),
+      ...(config.thinkingEffort !== undefined ? { thinkingEffort: config.thinkingEffort } : {}),
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+      ...(config.dropThinkingBlocks !== undefined ? { dropThinkingBlocks: config.dropThinkingBlocks } : {}),
+    },
+  }) as ProviderConnection;
 }
 
 /** Real L1 factory for tests that exercise the provider transport through fetch. */
 export const testProviderFactory: ProviderFactory = {
-  create: (connection) => createProviderFromConnection(connection),
+  create: input => llmProviderCall.createProviderFromInput(input),
 };
+
+/** Historical fake factories return adapters; adapt them only at the test DI seam. */
+export function legacyTestProviderFactory(
+  create: (input: ProviderConnection) => LLMProvider,
+): ProviderFactory {
+  return legacyProviderFactory(create);
+}
+
+export function testProviderHandle(input: ProviderInput, provider: LLMProvider) {
+  return handleForProvider(input, provider);
+}

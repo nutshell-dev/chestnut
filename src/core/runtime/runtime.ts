@@ -12,6 +12,7 @@ import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMO
 import { LLMRecoveryWaitRequiredError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
+import { llmProviderCall } from '../../foundation/llm-provider/index.js';
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
@@ -131,13 +132,16 @@ function canonicalJson(value: unknown): string {
  * 等），继续用于生产判定会让投影外字段变化静默不生效。
  */
 function computeConfigRevision(config: LLMOrchestratorConfig): string {
-  const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => [
-    c.providerId,
-    c.apiFormat,
-    c.model,
-    c.baseUrl ?? '',
-    c.authentication.identity?.slice(0, 8) ?? '',
-  ].join('|'));
+  const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => {
+    const descriptor = llmProviderCall.describeProviderInput(c);
+    return [
+      descriptor.providerId,
+      descriptor.protocol,
+      descriptor.model,
+      c.baseUrl ?? '',
+      c.authentication.identity?.slice(0, 8) ?? '',
+    ].join('|');
+  });
   return sha256Hex(identities.join(';')).slice(0, 16);
 }
 
@@ -1234,7 +1238,7 @@ export class Runtime {
 
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      `provider=${newConfig.primary.providerId || 'unknown'}`,
+      `provider=${llmProviderCall.describeProviderInput(newConfig.primary).providerId || 'unknown'}`,
       `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
       `triggered_by=${triggeredBy}`,
       `revision=${revision}`,
@@ -2067,6 +2071,7 @@ export class Runtime {
   async computeTurnRequestFingerprint(): Promise<string> {
     const providerInfo = this.llm.getProviderInfo?.();
     const primary = this.options.llmConfig.primary;
+    const primaryDescriptor = llmProviderCall.describeProviderInput(primary);
     const pending = await this.peekPendingTurnFacts();
     const budget = await this.prepareTrimBudget({ kind: 'preview' });
     const meter = budget.kind === 'available' ? budget.meter : undefined;
@@ -2079,12 +2084,12 @@ export class Runtime {
       pending: { addressed: pending.addressed },
       configurationRevision: this.appliedConfigRevision ?? null,
       provider: {
-        name: providerInfo?.name ?? primary.providerId,
+        name: providerInfo?.name ?? primaryDescriptor.providerId,
         model: providerInfo?.model ?? primary.model,
         contextWindow: meter?.descriptor.contextWindow ?? null,
         contextWindowSource: meter?.descriptor.windowResolution?.source ?? null,
         contextWindowRevision: meter?.descriptor.windowResolution?.revision ?? null,
-        explicitMaxTokens: primary.defaults?.maxTokens ?? 0,
+        explicitMaxTokens: primaryDescriptor.maxTokens ?? 0,
       },
       trimPolicy: {
         recentWindowMs: this.contextTrimPolicy.recentWindowMs,
@@ -2241,7 +2246,8 @@ export class Runtime {
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
-        explicitMaxTokens: meter.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.defaults?.maxTokens,
+        explicitMaxTokens: meter.descriptor.explicitMaxTokens
+          ?? llmProviderCall.describeProviderInput(this.options.llmConfig.primary).maxTokens,
       }, {
         targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),

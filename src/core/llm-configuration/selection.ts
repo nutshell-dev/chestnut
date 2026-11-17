@@ -7,7 +7,7 @@ import type { z } from 'zod';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { toProviderConnection } = llmProviderConfigContract;
+const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
@@ -40,7 +40,7 @@ export type LLMConnectionSelection = Omit<
   'events' | 'providerFactory' | 'lifecycle'
 >;
 
-/** 将 global 与可选 claw 的 LLM 视图转换为无运行时依赖的连接快照。 */
+/** 将 global 与可选 claw 的 LLM 视图转换为无运行时依赖的输入快照。 */
 export function resolveLLMConfig(
   globalConfig: LLMGlobalConfigView,
   clawConfig?: LLMClawConfigView,
@@ -48,8 +48,8 @@ export function resolveLLMConfig(
   const llm = globalConfig.llm;
   const cb = llm.circuit_breaker;
   return {
-    primary: toProviderConnection(clawConfig?.llm?.primary ?? llm.primary),
-    fallbacks: (llm.fallbacks ?? []).map(toProviderConnection),
+    primary: toProviderInput(clawConfig?.llm?.primary ?? llm.primary),
+    fallbacks: (llm.fallbacks ?? []).map(toProviderInput),
     maxAttempts: llm.retry_attempts,
     retryDelayMs: llm.retry_delay_ms,
     circuitBreaker: cb ? {

@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * phase 686 Step B: getProviderInfo() 改返「正在流的 provider」
  *
@@ -35,8 +36,8 @@ function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 streaming 身份。
     events: sink,
-    providerFactory: { create: config => [primary, ...fallbacks].find(adapter =>
-      adapter.name === config.providerId && adapter.model === config.model)! },
+    providerFactory: legacyProviderFactory(config => [primary, ...fallbacks].find(adapter =>
+      adapter.name === config.providerId && adapter.model === config.model)!),
   });
   return orchestrator;
 }

@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Orchestrator misc invariants — mechanical merge of the following source files
  * (no assertion logic changed):
@@ -214,7 +215,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       await expect(
@@ -255,7 +256,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: sink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -294,7 +295,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       /** Zero-gap chunks must finish before this 100ms idle deadline. */
@@ -351,7 +352,7 @@ describe('all-providers-context-exceeded-emit', () => {
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }
@@ -521,7 +522,7 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -560,7 +561,7 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -670,7 +671,7 @@ describe('race-loser-cleanup', () => {
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }
@@ -888,7 +889,7 @@ describe('hedge-cache-token-emit', () => {
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return service;
   }
@@ -1067,7 +1068,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1107,7 +1108,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       const result = await orchestrator.call({});
@@ -1134,7 +1135,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 2,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (_connection) => primary as any },
+        providerFactory: legacyProviderFactory((_connection) => primary as any),
       });
 
       await orchestrator.call({});
@@ -1194,7 +1195,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
+        providerFactory: legacyProviderFactory((cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any),
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1224,7 +1225,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
+        providerFactory: legacyProviderFactory((cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any),
       });
 
       const result = await orchestrator.call({});
@@ -1261,7 +1262,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
-        providerFactory: { create: (cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any },
+        providerFactory: legacyProviderFactory((cfg) => (cfg.providerId === fallback.name ? fallback : primary) as any),
       });
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1338,7 +1339,7 @@ describe('streaming-fallback-switched-emit', () => {
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: sink,
-      providerFactory: { create: (cfg) => findAdapter(cfg) },
+      providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
     });
     return { orchestrator, emitted };
   }
@@ -1529,7 +1530,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       maxAttempts,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      providerFactory: { create: config => (config.providerId === fallback?.name ? fallback : provider) as any },
+      providerFactory: legacyProviderFactory(config => (config.providerId === fallback?.name ? fallback : provider) as any),
     });
     return orchestrator;
   }

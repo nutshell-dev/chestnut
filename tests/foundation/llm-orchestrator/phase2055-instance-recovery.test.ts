@@ -1,3 +1,4 @@
+import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -48,7 +49,7 @@ async function fixture(primary: ProviderAdapter, fallbacks: ProviderAdapter[] = 
     maxAttempts: 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
-    providerFactory: { create: provider => adapters.get(provider.providerId ?? '')! },
+    providerFactory: legacyProviderFactory(provider => adapters.get(provider.providerId ?? '')!),
   });
   const statePath = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
   const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8'));
@@ -76,7 +77,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: event => { events.push(event); } },
-      providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
+      providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     });
     const migrated = makeOwner();
     const saved = f.readState();
@@ -110,7 +111,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
       schedule: { kind: 'at', revision: 4, resumeAt },
       budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       providers: [{
-        providerId: providerIdentity(config('primary')), errorClass: 'transient',
+        providerId: providerIdentity(descriptorFor(config('primary'))), errorClass: 'transient',
         at: '2026-11-04T11:00:00.000Z', consecutiveFailures: 2, detail: 'offline',
       }],
       acceptedInterventions: [], acceptedConfigRevisions: [], activeAdmission: null,
@@ -125,7 +126,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
-      events: { emit: () => {} }, providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
+      events: { emit: () => {} }, providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     });
     const migrated = f.readState();
     expect(migrated.recovery).toMatchObject({
@@ -166,7 +167,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     expect(() => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
       primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
-      events: { emit: () => {} }, providerFactory: { create: (_connection) => adapter('primary', async () => OK) },
+      events: { emit: () => {} }, providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     })).toThrow(/scope_mismatch/);
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
   });

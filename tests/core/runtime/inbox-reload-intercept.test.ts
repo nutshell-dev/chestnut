@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory, testProviderConnection } from '../../helpers/llm-provider.js';
 /**
  * phase 320 Step B: Runtime._drainOwnInbox 拦截 reload_llm_config 消息。
  *
@@ -123,17 +124,17 @@ function mkAudit() {
 }
 
 const stubCfg: LLMOrchestratorConfig = {
-  primary: {
-    providerId: 'reloaded-primary',
-    authentication: { kind: 'api_key', value: 'k' },
+  primary: testProviderConnection({
+    name: 'reloaded-primary',
+    apiKey: 'k',
     model: 'm',
     apiFormat: 'anthropic',
-  },
+  }),
   fallbacks: [],
   maxAttempts: 1,
   retryDelayMs: 0,
   events: { emit: () => {} },
-  providerFactory: { create: () => { throw new Error('not used'); } },
+  providerFactory: legacyTestProviderFactory(() => { throw new Error('not used'); }),
 };
 
 describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {

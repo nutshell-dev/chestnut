@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -56,7 +57,7 @@ async function fixture() {
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     events,
     lifecycle,
-    providerFactory: { create: provider => adapters.find(item => item.name === provider.providerId)! },
+    providerFactory: legacyProviderFactory(provider => adapters.find(item => item.name === provider.providerId)!),
   });
   return { dir, fs, emitted, statePath, makeOwner };
 }
@@ -144,7 +145,7 @@ describe('LLM instance health persistence', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
 
     failWrites = true;
@@ -162,7 +163,7 @@ describe('LLM instance health persistence', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      providerFactory: { create: (_connection) => failure },
+      providerFactory: legacyProviderFactory((_connection) => failure),
     });
     await expect(failingOwner.call(CALL)).rejects.toThrow();
     expect(failingOwner.snapshot().providers[0].consecutiveFailures).toBe(0);
@@ -182,7 +183,7 @@ describe('LLM instance health persistence', () => {
       primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
     await expect(owner.call(CALL)).resolves.toBe(OK);
     expect(lastSuccessProviderOf(owner)).not.toBeNull();
@@ -208,7 +209,7 @@ describe('LLM instance health persistence', () => {
     expect(() => owner.reloadConfig({
       primary: config('next'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: () => {} },
-      providerFactory: { create: (_connection) => next },
+      providerFactory: legacyProviderFactory((_connection) => next),
     })).toThrow('reloadConfig');
     expect(owner.getProviderInfo().name).toBe('primary');
     expect(internalsOf(owner).providerRuntime.configGeneration()).toBe(generation);
@@ -256,7 +257,7 @@ describe('LLM instance health persistence', () => {
       primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: () => {} },
-      providerFactory: { create: (_connection) => primary },
+      providerFactory: legacyProviderFactory((_connection) => primary),
     });
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
     expect(disk.providers).toHaveLength(1);

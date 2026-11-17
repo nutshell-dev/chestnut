@@ -1,6 +1,5 @@
-/** Single-provider calls and typed failures; no catalog or credential access. */
-import type { PiAiAdapterOptions } from '../pi-ai-adapter.js';
-import type { LLMProvider, ProviderConfig } from '../types.js';
+/** Single-provider calls, input handles and typed failures; no catalog or credential access. */
+import type { LLMProvider } from '../types.js';
 import type {
   LLMError,
   LLMRateLimitError,
@@ -25,18 +24,14 @@ export type {
   AuditSink,
 } from '../types.js';
 export type {
-  ProviderAuthentication,
-  ProviderConnection,
+  ProviderAuthenticationInput,
+  ProviderDescriptor,
   ProviderFactory,
+  ProviderHandle,
+  ProviderInput,
 } from '../provider-connection.js';
 export { DEFAULT_LLM_TIMEOUT_MS } from '../defaults.js';
-export type ProviderCallConfig = ProviderConfig;
-export type ProviderFactoryOptions = PiAiAdapterOptions;
 export type LLMProviderCallCapability = Pick<LLMProvider, 'call' | 'stream'>;
-export type LLMProviderFactory = (
-  config: ProviderCallConfig,
-  options?: ProviderFactoryOptions,
-) => LLMProvider;
 export type LLMProviderFailureClass =
   | LLMError
   | LLMRateLimitError
@@ -51,11 +46,8 @@ export type LLMProviderFailureClass =
   | LLMStreamAbortedError
   | LLMInvalidRequestError;
 
-export {
-  createProviderFromConnection,
-  createLLMProvider,
-  type ProviderConnectionFactoryOptions,
-} from '../provider-factory.js';
+export { createProviderFromInput } from '../provider-factory.js';
+export { describeProviderInput } from '../provider-connection.js';
 export { LLMInvalidRequestError } from '../request-unicode.js';
 export {
   LLMError,

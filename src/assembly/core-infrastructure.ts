@@ -273,7 +273,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // 在 orchestrator 生命周期内不漂移（取代 loadGlobalConfig 的全局注册副作用）。
       const credentialStore = createLegacyAuthenticationStore({ fsFactory });
       const providerFactory: llmProviderCall.ProviderFactory = {
-        create: connection => llmProviderCall.createProviderFromConnection(connection, {
+        create: input => llmProviderCall.createProviderFromInput(input, {
           credentialStore,
           auditLog,
         }),

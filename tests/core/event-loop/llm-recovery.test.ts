@@ -1,3 +1,4 @@
+import { legacyTestProviderFactory } from '../../helpers/llm-provider.js';
 /**
  * Phase 1826 组合行为：真实 EventLoop + 真实 messaging inbox 消费 + 真实 owner
  * + 记录真实 provider 请求次数的假 provider；恢复 admission 内置于 owner.call。
@@ -36,7 +37,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
-type ProviderConnection = llmProviderCall.ProviderConnection;
+import type { ProviderConnection } from '../../helpers/llm-provider.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -169,9 +170,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    providerFactory: {
-      create: (connection) => connection.providerId === 'fallback' ? fallbackAdapter : adapter,
-    },
+    providerFactory: legacyTestProviderFactory((connection) => connection.providerId === 'fallback' ? fallbackAdapter : adapter,),
   });
   cleanupOwners.push(owner);
   const turns: Harness['turns'] = [];
@@ -381,7 +380,7 @@ async function makeRuntimeHarness(opts?: {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    providerFactory: { create: (_connection) => adapter },
+    providerFactory: legacyTestProviderFactory((_connection) => adapter),
   });
   cleanupOwners.push(orchestrator);
   // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
@@ -402,7 +401,7 @@ async function makeRuntimeHarness(opts?: {
       providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
       orchestrator.reloadConfig({
         ...(cfg as never),
-        providerFactory: { create: (_connection) => adapter },
+        providerFactory: legacyTestProviderFactory((_connection) => adapter),
       });
     },
     // Phase 1944 Step B: disposition 事实转发 owner（ComboRuntime 内部 this.llm 即本对象）。
@@ -418,7 +417,7 @@ async function makeRuntimeHarness(opts?: {
       maxAttempts: 1,
       retryDelayMs: 1,
       events: sink,
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyTestProviderFactory((_connection) => adapter),
     }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     configReloader: () => reloadConfigOf() as never,
     ...(opts?.configIdentityOf !== undefined

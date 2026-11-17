@@ -1,3 +1,4 @@
+import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 2058：恢复策略与持久化统一到 LLMRecoveryControllerImpl / llm-instance-state.json V3。
  * 公共业务入口只有 owner.call/stream；controller 深导入仅用于内部策略与崩溃屏障白盒测试。
@@ -116,7 +117,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
-    providerFactory: { create: provider => adapters.get(provider.providerId ?? '') ?? primary },
+    providerFactory: legacyProviderFactory(provider => adapters.get(provider.providerId ?? '') ?? primary),
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
   const makeOwner = (primaryConfig = config.primary) => {
@@ -698,7 +699,7 @@ describe('legacy read-only migration into instance state V3', () => {
       ...providerConfig('primary'),
       authentication: { kind: 'api_key' as const, value: 'key-primary', identity: 'key-primary', profile: 'oauth' as const },
     };
-    const legacyId = legacyProviderIdentity(currentConfig);
+    const legacyId = legacyProviderIdentity(descriptorFor(currentConfig));
     // 30_000/120_000ms 是旧状态透传 fixture；保留数值以避免改变迁移输入。
     const legacy = createInitialRecoveryState('foreground', {
       retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget

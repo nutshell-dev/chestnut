@@ -1,3 +1,4 @@
+import { legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1968 Step C：provider 调用路径审计（LLM-CALL-SUCCESS-PROVENANCE-NOT-AUDITABLE）。
  *
@@ -286,7 +287,7 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
-    providerFactory: { create: findAdapter },
+    providerFactory: legacyProviderFactory(findAdapter),
   });
   return {
     service,
@@ -756,7 +757,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       maxAttempts: 1,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyProviderFactory((_connection) => adapter),
     });
 
     await expect(orchestrator.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
@@ -801,7 +802,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       maxAttempts: 1,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
-      providerFactory: { create: (_connection) => adapter },
+      providerFactory: legacyProviderFactory((_connection) => adapter),
     });
     for await (const _chunk of orchestrator.stream(CALL)) { /* drain */ }
 

@@ -4,22 +4,21 @@ import {
   providerCacheKey,
   providerIdentity,
 } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
-import type { ProviderConnection } from './provider-test-fixtures.js';
+import { connection, type ProviderConnection } from './provider-test-fixtures.js';
+import { describeProviderConnection } from '../../../src/foundation/llm-provider/provider-connection.js';
 
 /** Behavior-fingerprint fixtures; distinct values are intentional, not defaults. */
 const PROVIDER_TIMEOUT_FIXTURE_MS = 1_000;
 const CHANGED_PROVIDER_TIMEOUT_FIXTURE_MS = 2_000;
 
-function config(patch: Partial<ProviderConnection> = {}): ProviderConnection {
-  return {
-    providerId: 'primary',
-    apiFormat: 'anthropic',
+function config(patch: Partial<ProviderConnection> = {}) {
+  return describeProviderConnection(connection('primary', {
     model: 'model-a',
     baseUrl: 'https://example.test/v1',
     authentication: { kind: 'api_key' as const, value: 'secret-key', identity: 'key-revision-a' },
     defaults: { temperature: 0, timeoutMs: PROVIDER_TIMEOUT_FIXTURE_MS },
     ...patch,
-  };
+  }));
 }
 
 describe('Phase 2027 provider identity', () => {
