@@ -41,6 +41,8 @@ describe('chat-viewport file routing (phase 1279)', () => {
     audit.write('viewport_scrollback_clear_suppressed', 'reason=active_stream');
     audit.write('viewport_draft_persisted', 'bytes=12');
     audit.write('viewport_draft_cleared', 'reason=submitted');
+    audit.write('viewport_draft_revision_deduplicated', 'revision=1');
+    audit.write('viewport_draft_flush', 'reason=dispose');
     // phase 1874 Step D: 诊断面两事件亦路由 viewport.tsv
     audit.write('viewport_host_input', 'chunks=1');
     audit.write('viewport_screen_reset', 'clears=1');

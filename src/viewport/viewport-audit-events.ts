@@ -35,6 +35,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DRAFT_QUARANTINED: 'viewport_draft_quarantined',
   DRAFT_CLEAR_FAILED: 'viewport_draft_clear_failed',
   DRAFT_CLEARED: 'viewport_draft_cleared',
+  DRAFT_REVISION_DEDUPLICATED: 'viewport_draft_revision_deduplicated',
+  DRAFT_FLUSH: 'viewport_draft_flush',
   // phase 1874 Step D: 宿主交互诊断面（输入类计数 / 全屏清除计数；不含内容、仅分类计数）
   HOST_INPUT: 'viewport_host_input',
   SCREEN_RESET: 'viewport_screen_reset',
@@ -66,6 +68,8 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
   viewport_scrollback_clear_suppressed: 'viewport',
   viewport_draft_persisted: 'viewport',
   viewport_draft_cleared: 'viewport',
+  viewport_draft_revision_deduplicated: 'viewport',
+  viewport_draft_flush: 'viewport',
   viewport_host_input: 'viewport',
   viewport_screen_reset: 'viewport',
   viewport_render_request_batch: 'viewport',

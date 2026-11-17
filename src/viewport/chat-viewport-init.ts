@@ -23,10 +23,12 @@ interface UncaughtHandlerDeps {
   tui: { stop(): void };
   crashLogPath: string;
   audit: AuditLog;
+  flushDraft?: () => unknown;
 }
 
 export function createUncaughtHandler(deps: UncaughtHandlerDeps) {
   return function uncaughtHandler(err: unknown): void {
+    try { deps.flushDraft?.(); } catch { /* preserve the original uncaught error path */ }
     // sync audit emit via motion-level audit shim（process 即将 exit、必 sync）
     // fail-soft：shim 构造或 write 失败回退 stderr-only、不抛
     try {

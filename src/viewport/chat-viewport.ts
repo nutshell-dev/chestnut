@@ -44,7 +44,7 @@ import { createTaskStatusBar } from './chat-viewport-task-status-bar.js';
 import { createClawManager } from './chat-viewport-claw-manager.js';
 import { createViewportCommands, type ViewportCommand, type ThinkingMode } from './chat-viewport-commands.js';
 import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-input.js';
-import { loadViewportDraft, persistViewportDraft } from './chat-viewport-draft.js';
+import { createDraftPersistenceScheduler, loadViewportDraft } from './chat-viewport-draft.js';
 
 import { createTurnTracker } from './chat-viewport-turn-tracker.js';
 import { recoverMotionTurnState } from './chat-viewport-turn-recovery.js';
@@ -273,7 +273,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       true,
     );
   }
-  editor.onChange = (text: string) => persistViewportDraft(fs, options.audit, text);
+  const draftScheduler = createDraftPersistenceScheduler(fs, options.audit);
+  let draftRevision = 0;
+  editor.onChange = (text: string) => {
+    draftScheduler.submit({ revision: ++draftRevision, text, changedAtMs: Date.now() });
+  };
 
   // Single turn tracker instance shared across the viewport
   const turnTracker = createTurnTracker({ mainUI, INTERRUPT_CLEANUP_TIMEOUT_MS });
@@ -452,6 +456,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // 输入提交处理
   editor.onSubmit = async (text: string) => {
+    draftScheduler.flush('submit');
     const trimmed = text.trim();
     if (!isUiActionEnabled(uiSemantics.actions['chat.send'], { 'composer.nonempty': trimmed.length > 0 })) {
       editor.setText('');
@@ -461,6 +466,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
     if (trimmed === 'exit' || trimmed === 'quit') {
       editor.setText('');
+      draftScheduler.flush('exit');
       resolveExit();
       return;
     }
@@ -535,7 +541,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   tui.addInputListener(createTuiInputHandler({
     fs, audit: options.audit, agentDir, turnTracker, mainUI, editor,
     requestRender: () => tui.requestRender(),
-    resolveExit: () => resolveExit(),
+    resolveExit: () => {
+      draftScheduler.flush('exit');
+      resolveExit();
+    },
     setShutdownReason: (r) => { shutdownReason = r; },
   }));
 
@@ -553,7 +562,15 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // 防御层：任何未捕获异常先还原终端，防止 terminal emulator 因 raw mode 未还原而闪退
   const crashLogPath = path.join(agentDir, CHAT_CRASH_LOG_FILE);
-  const uncaughtHandler = createUncaughtHandler({ agentDir, fs, fsFactory: options.fsFactory, tui, crashLogPath, audit: options.audit });
+  const uncaughtHandler = createUncaughtHandler({
+    agentDir,
+    fs,
+    fsFactory: options.fsFactory,
+    tui,
+    crashLogPath,
+    audit: options.audit,
+    flushDraft: () => draftScheduler.flush('error'),
+  });
   process.on('uncaughtException', uncaughtHandler);
   process.on('unhandledRejection', uncaughtHandler);
 
@@ -598,15 +615,22 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // clawsDir rescan + refreshAllClawStatus 由上方 clawScanInterval 2s polling 驱动（phase 742）
 
   // 兜底：SIGINT 退出（终端未进 raw mode 时 Ctrl+C 转为 SIGINT）
-  const sigintHandler = () => resolveExit();
+  const sigintHandler = () => {
+    draftScheduler.flush('exit');
+    resolveExit();
+  };
   process.on('SIGINT', sigintHandler);
   // SIGTERM 退出（chestnut stop 发送 / 让 stop 命令能 kill viewport process）
-  const sigtermHandler = () => resolveExit();
+  const sigtermHandler = () => {
+    draftScheduler.flush('exit');
+    resolveExit();
+  };
   process.on('SIGTERM', sigtermHandler);
 
   try {
     await exitPromise;
   } finally {
+    draftScheduler.flush('dispose');
     // 清理（即使 exitPromise reject 也跑全 cleanup / 防 fd leak）
     turnTracker.destroy();
     process.stdout.off('resize', onResize);
