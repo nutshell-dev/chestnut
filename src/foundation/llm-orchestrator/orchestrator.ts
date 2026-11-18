@@ -72,6 +72,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       runtime: this.providerRuntime,
       ledger: this.recoveryController,
       events,
+      mode: config.lifecycle.mode,
     });
     this.emitLegacyConfigIgnored(config);
   }

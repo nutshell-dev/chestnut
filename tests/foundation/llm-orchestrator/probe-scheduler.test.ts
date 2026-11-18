@@ -18,11 +18,14 @@ import { legacyProviderFactory } from './provider-test-fixtures.js';
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import type {
   LLMEvent,
   LLMEventSink,
+  LLMInstanceLifecycle,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
@@ -86,12 +89,15 @@ function createControllableAdapter(name: string, initial: Behavior) {
   };
 }
 
-function createOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
+function createOwner(
+  adapterOrAdapters: ProviderAdapter | ProviderAdapter[],
+  lifecycle: LLMInstanceLifecycle = { mode: 'ephemeral' },
+) {
   const adapters = Array.isArray(adapterOrAdapters) ? adapterOrAdapters : [adapterOrAdapters];
   const primary = adapters[0]!;
   const { sink, emitted } = createMockSink();
   const owner = createLLMOrchestrator({
-    lifecycle: { mode: 'ephemeral' },
+    lifecycle,
     primary: providerConfig(primary.name),
     fallbacks: adapters.slice(1).map(adapter => providerConfig(adapter.name)),
     maxAttempts: 1,
@@ -117,6 +123,34 @@ afterEach(() => {
 });
 
 describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
+  it('ephemeral 构造后推进 TTL 不产生自主 probe', async () => {
+    const mock = createControllableAdapter('primary', 'ok');
+    const { owner } = createOwner(mock.adapter);
+
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
+    expect(mock.calls()).toBe(0);
+    await owner.close();
+  });
+
+  it('durable 构造后保留初始自主 probe', async () => {
+    const mock = createControllableAdapter('primary', 'ok');
+    const dir = await createTrackedTempDir('probe-scheduler-durable-');
+    try {
+      const { owner } = createOwner(mock.adapter, {
+        mode: 'durable',
+        fs: new NodeFileSystem({ baseDir: dir }),
+      });
+
+      await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS - 1);
+      expect(mock.calls()).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mock.calls()).toBe(1);
+      await owner.close();
+    } finally {
+      await cleanupTempDir(dir);
+    }
+  });
+
   it('时间下界：到点前不触发，到点恰触发一次 probe', async () => {
     const mock = createControllableAdapter('primary', 'ok');
     const { owner } = createOwner(mock.adapter);

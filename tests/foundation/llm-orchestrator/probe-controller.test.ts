@@ -4,8 +4,9 @@ import { LLMInstanceStateStore } from '../../../src/foundation/llm-orchestrator/
 import { LLMProbeController } from '../../../src/foundation/llm-orchestrator/probe-controller.js';
 import { LLMProviderRuntime } from '../../../src/foundation/llm-orchestrator/provider-runtime.js';
 import { LLMProviderAdmission } from '../../../src/foundation/llm-orchestrator/provider-admission.js';
+import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import { LLMRecoveryControllerImpl } from '../../../src/foundation/llm-orchestrator/recovery-ledger.js';
-import type { LLMCallOptions, LLMEvent, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { LLMCallOptions, LLMEvent, LLMInstanceLifecycle, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
@@ -19,7 +20,12 @@ function providerConfig(name: string, extra: Partial<ProviderConnection> = {}): 
   return { providerId: name, model: `model-${name}`, authentication: { kind: 'api_key' as const, value: `key-${name}`, identity: `key-${name}` }, apiFormat: 'anthropic', ...extra };
 }
 
-function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtra: Partial<ProviderConnection> = {}) {
+function fixture(
+  primary: LLMProvider,
+  fallbacks: LLMProvider[] = [],
+  configExtra: Partial<ProviderConnection> = {},
+  mode: LLMInstanceLifecycle['mode'] = 'durable',
+) {
   const events: LLMEvent[] = [];
   const config: LLMOrchestratorConfig = {
     primary: providerConfig(primary.name, configExtra),
@@ -44,7 +50,7 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtr
     admission: new LLMProviderAdmission(),
     emit: event => { events.push(event); },
   });
-  const controller = new LLMProbeController({ runtime, ledger, events: { emit: event => { events.push(event); } } });
+  const controller = new LLMProbeController({ runtime, ledger, events: { emit: event => { events.push(event); } }, mode });
   controllers.push(controller);
   return { config, controller, events, ledger, runtime, store };
 }
@@ -60,6 +66,20 @@ afterEach(async () => {
 });
 
 describe('ProbeController request and success semantics', () => {
+  it('does not create an initial or reload autonomous schedule for ephemeral lifecycle', async () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [], {}, 'ephemeral');
+
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
+    expect(primary.call).not.toHaveBeenCalled();
+
+    f.controller.reload();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
+    expect(primary.call).not.toHaveBeenCalled();
+  });
+
   it('pings one candidate with target limits and clears health without refreshing selection', async () => {
     let observed: LLMCallOptions | undefined;
     const primary: LLMProvider = {

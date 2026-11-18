@@ -17,6 +17,7 @@ import type { SharedRecoveryDecision } from './recovery.js';
 import type {
   LLMCallOptions,
   LLMEventSink,
+  LLMInstanceLifecycle,
   LLMProbeResult,
   ProbeTargetReason,
 } from './types.js';
@@ -31,6 +32,7 @@ export interface ProbeControllerDeps {
   runtime: ProviderRuntime;
   ledger: ProbeRecoveryLedger;
   events: LLMEventSink;
+  mode: LLMInstanceLifecycle['mode'];
 }
 
 interface ProbeTarget {
@@ -47,6 +49,7 @@ export class LLMProbeController {
   private readonly runtime: ProviderRuntime;
   private readonly ledger: ProbeRecoveryLedger;
   private readonly events: LLMEventSink;
+  private readonly mode: LLMInstanceLifecycle['mode'];
   private readonly unsubscribeCommits: () => void;
   private inflightProbe: Promise<LLMProbeResult> | null = null;
   private probeAbort: AbortController | null = null;
@@ -61,12 +64,15 @@ export class LLMProbeController {
     this.runtime = deps.runtime;
     this.ledger = deps.ledger;
     this.events = deps.events;
+    this.mode = deps.mode;
     this.unsubscribeCommits = this.ledger.subscribeCommits(context => {
       if (context === 'noteFailure' && !this.closed) {
         this.scheduleProbe(this.nextAutonomousProbeAt());
       }
     });
-    this.scheduleProbe(this.nextAutonomousProbeAt());
+    if (this.mode === 'durable') {
+      this.scheduleProbe(this.nextAutonomousProbeAt());
+    }
   }
 
   probe(): Promise<LLMProbeResult> {
@@ -148,7 +154,9 @@ export class LLMProbeController {
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = undefined;
     }
-    this.scheduleProbe(this.nextAutonomousProbeAt());
+    if (this.mode === 'durable') {
+      this.scheduleProbe(this.nextAutonomousProbeAt());
+    }
   }
 
   close(): Promise<void> {
