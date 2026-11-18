@@ -3,13 +3,16 @@ import { createSnapshotMaintenanceCronJob } from '../../../src/assembly/motion-a
 import type { Snapshot } from '../../../src/foundation/snapshot/index.js';
 import { cronConfigSchema } from '../../../src/foundation/cron/index.js';
 
+/** Distinct fixture value used only to verify timeout forwarding. */
+const SNAPSHOT_MAINTENANCE_TIMEOUT_MS = 123_000;
+
 const config = {
   cron: {
     jobs: {
       snapshot_maintenance: {
         enabled: true,
         schedule: 'daily:04:30',
-        timeout_ms: 123_000,
+        timeout_ms: SNAPSHOT_MAINTENANCE_TIMEOUT_MS,
         git_warn_bytes: 456,
         loose_object_warn_count: 78,
         disk_available_warn_bytes: 901,
@@ -40,13 +43,13 @@ describe('Snapshot maintenance Assembly wiring (phase 2196)', () => {
       name: 'snapshot-maintenance',
       enabled: true,
       schedule: { type: 'daily', time: '04:30' },
-      timeoutMs: 123_000,
+      timeoutMs: SNAPSHOT_MAINTENANCE_TIMEOUT_MS,
     });
     const controller = new AbortController();
     await job.handler(controller.signal);
 
     expect(maintain).toHaveBeenCalledWith({
-      timeoutMs: 123_000,
+      timeoutMs: SNAPSHOT_MAINTENANCE_TIMEOUT_MS,
       signal: controller.signal,
       thresholds: {
         gitWarnBytes: 456,

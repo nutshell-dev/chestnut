@@ -9,6 +9,9 @@ import { exec } from '../../../src/foundation/process-exec/index.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
+/** Short deterministic overlap window; only proves operations never run concurrently. */
+const GC_COMPLETION_DELAY_MS = 25;
+
 function head(dir: string): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
 }
@@ -133,7 +136,7 @@ describe('Snapshot maintenance (phase 2196)', () => {
       active++;
       maxActive = Math.max(maxActive, active);
       try {
-        if (args[0] === 'gc') await new Promise(resolve => setTimeout(resolve, 25));
+        if (args[0] === 'gc') await new Promise(resolve => setTimeout(resolve, GC_COMPLETION_DELAY_MS));
         return await exec(command, args, options);
       } finally {
         active--;
