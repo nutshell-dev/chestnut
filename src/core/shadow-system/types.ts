@@ -23,8 +23,11 @@ export interface SpawnShadowSubagentOptions {
   originClawId?: string;
   /** motion 当前 turn 快照 system prompt（shadow KV cache 命中） */
   systemPrompt: string;
-  /** motion 完整工具列表（shadow 继承全工具集） */
+  /** Parent canonical provider tools; execution bindings may differ. */
   toolsForLLM: ToolDefinition[];
+  /** Derived from the parent snapshot when omitted by legacy direct callers. */
+  manifestRevision?: string;
+  promptRevision?: string;
   /** 默认值见 {@link SHADOW_DEFAULT_TIMEOUT_MS} */
   timeoutMs?: number;
   maxSteps?: number;
@@ -47,6 +50,7 @@ export type ShadowRunFailure =
   | { readonly kind: 'no_main_context'; readonly missing: readonly string[] }
   | { readonly kind: 'prefix_synthesis'; readonly error: string }
   | { readonly kind: 'registry_unavailable'; readonly detail: string }
+  | { readonly kind: 'manifest_mismatch'; readonly detail: string }
   | { readonly kind: 'llm_unavailable'; readonly detail: string };
 
 /**
@@ -71,6 +75,8 @@ export interface ShadowExecutorPayload {
   readonly messages: Message[];
   /** shadow 继承的工具全集。 */
   readonly toolsForLLM: ToolDefinition[];
+  readonly manifestRevision: string;
+  readonly promptRevision: string;
   /** 身份事实（单源：{@link ShadowIdentity}）。 */
   readonly identity: ShadowIdentity;
   /** phase 1865 (SH-D4)：detached 契约事实——不继承 caller abort signal（caller abort 不级联）。 */

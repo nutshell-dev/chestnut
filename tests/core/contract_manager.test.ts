@@ -380,14 +380,14 @@ describe('ContractSystem', () => {
       (call: any[]) => call[0].type === 'contract_completed'
     );
     expect(completedEvents).toHaveLength(1);
-    expect(completedEvents[0][0]).toEqual({
+    expect(completedEvents[0][0]).toEqual(expect.objectContaining({
       type: 'contract_completed',
       contractId,
       title: 'AllCompleted Test',
       goal: 'Test',
       subtasks: [{ id: 't1', completedAt: expect.any(String), forceAccepted: false }],
       completedAt: expect.any(String),
-    });
+    }));
   });
 
   it('should not set allCompleted when subtasks remain', async () => {
@@ -542,7 +542,7 @@ describe('ContractSystem', () => {
       return contractId;
     }
 
-    it('ContextInjector, status aggregator and submit tool all observe the same foreground', async () => {
+    it('status aggregator and submit tool observe foreground without prompt injection', async () => {
       const older = await createWithStartedAt(manager, 'older', '2026-07-12T10:00:00.000Z', 'Older Contract');
       const newer = await createWithStartedAt(manager, 'newer', '2026-07-12T11:00:00.000Z', 'Newer Contract');
 
@@ -551,11 +551,12 @@ describe('ContractSystem', () => {
       expect(active?.id).toBe(older);
       expect(active?.title).toBe('Older Contract');
 
-      // ContextInjector injects only the foreground contract.
-      const injector = createContextInjector({ fs: nodeFs, loadActiveContract: () => manager.loadActive() });
+      // Foreground remains queryable, but is never read into a system prompt.
+      const loadActiveContract = vi.fn(() => manager.loadActive());
+      const injector = createContextInjector({ fs: nodeFs, loadActiveContract } as any);
       const parts = await injector.buildParts();
-      expect(parts.contract).toContain('Older Contract');
-      expect(parts.contract).not.toContain('Newer Contract');
+      expect(parts).not.toHaveProperty('contract');
+      expect(loadActiveContract).not.toHaveBeenCalled();
 
       // Status aggregator shows the same foreground.
       const view = await computeContractView(manager);
@@ -584,10 +585,11 @@ describe('ContractSystem', () => {
       expect(next?.id).toBe('newer');
       expect(next?.title).toBe('Newer Contract');
 
-      const injector = createContextInjector({ fs: nodeFs, loadActiveContract: () => manager.loadActive() });
+      const loadActiveContract = vi.fn(() => manager.loadActive());
+      const injector = createContextInjector({ fs: nodeFs, loadActiveContract } as any);
       const parts = await injector.buildParts();
-      expect(parts.contract).toContain('Newer Contract');
-      expect(parts.contract).not.toContain('Older Contract');
+      expect(parts).not.toHaveProperty('contract');
+      expect(loadActiveContract).not.toHaveBeenCalled();
     });
 
     it('foreground switches to next contract after the current one completes', async () => {

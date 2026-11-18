@@ -230,7 +230,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         (call: any[]) => call[0].type === 'verification_failed'
       );
       expect(notifyCall).toBeDefined();
-      expect(notifyCall![0]).toEqual({
+      expect(notifyCall![0]).toEqual(expect.objectContaining({
         type: 'verification_failed',
         contractId,
         subtaskId: 't1',
@@ -238,7 +238,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         feedback: 'rejected by LLM',
         retryCount: 1,
         maxAttempts: 3,
-      });
+      }));
     });
 
     it('max_attempts 后 subtask force_accepted（status=completed）', async () => {
@@ -300,12 +300,12 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const forceAcceptedEvents = onNotifySpy.mock.calls
         .map((call: any[]) => call[0])
         .filter((e: any) => e?.type === 'subtask_completed' && e.forceAccepted === true);
-      expect(forceAcceptedEvents).toEqual([{
+      expect(forceAcceptedEvents).toEqual([expect.objectContaining({
         type: 'subtask_completed',
         contractId,
         subtaskId: 't1',
         forceAccepted: true,
-      }]);
+      })]);
     });
 
     it('retry_count 仅真实否决递增；执行异常不增预算、不触发 force_accept（Phase 1934 Step E 语义修正）', async () => {

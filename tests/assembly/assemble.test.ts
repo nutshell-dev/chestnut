@@ -885,6 +885,10 @@ describe('assemble', () => {
       type: 'contract_cancelled',
       contractId: 'c1',
       reason: 'user cancelled',
+      stateRevision: 1,
+      occurredAt: '2026-11-18T00:00:00.000Z',
+      idempotencyKey: 'contract:c1:contract_cancelled',
+      messageId: 'contract:c1:contract_cancelled',
     });
     expect(mockStreamWriter.write).toHaveBeenCalledWith(
       expect.objectContaining({

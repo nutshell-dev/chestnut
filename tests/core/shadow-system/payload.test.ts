@@ -57,7 +57,10 @@ describe('buildShadowPayload (phase 1865 SH-D1)', () => {
     });
 
     expect(payload.systemPrompt).toBe('sp');
-    expect(payload.toolsForLLM).toBe(toolsForLLM);
+    expect(payload.toolsForLLM).toEqual(toolsForLLM);
+    expect(payload.toolsForLLM).not.toBe(toolsForLLM);
+    expect(payload.manifestRevision).toMatch(/^[0-9a-f]{64}$/);
+    expect(payload.promptRevision).toMatch(/^[0-9a-f]{64}$/);
     expect(payload.budget).toEqual({ timeoutMs: 1234, maxSteps: 7, idleTimeoutMs: 99 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     expect(payload.postProcessor).toBe('summon-contract-extract');
   });

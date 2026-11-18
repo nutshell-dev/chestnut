@@ -90,9 +90,10 @@ export const MIGRATED: MigratedSource[] = [
     fragments: ['[user-input attachment: ${size} chars]', 'Use the read tool to fetch full or partial content'],
   },
   {
-    // phase 1909 Step C: runtime injector 契约/记忆段字面迁模板单源（段落顺序与完成态分支仍在 owner）
+    // phase 1909 Step C: runtime injector 记忆段字面迁模板单源。
+    // Phase 2193 C1: Active Contract/checkbox 已退出 system prompt，不再属于本迁移条目。
     id: 'M16', file: 'core/runtime/injector.ts',
-    fragments: ['## Active Contract', '**Subtasks:**', '## Memory', '${checkbox} `${subtask.id}`: ${subtask.description}'],
+    fragments: ['## Memory'],
   },
   {
     // phase 1909 Step C: 技能段字面迁模板单源（加载状态与缺省回退分支仍在 owner）

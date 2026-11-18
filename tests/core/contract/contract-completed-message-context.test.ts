@@ -154,7 +154,13 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
         selfClawRoot,
         auditWriter: audit,
       });
-      emit(event);
+      emit({
+        ...event,
+        stateRevision: event.stateRevision ?? 1,
+        occurredAt: event.occurredAt ?? '2026-11-18T00:00:00.000Z',
+        idempotencyKey: event.idempotencyKey ?? `contract:${event.contractId}:contract_completed`,
+        messageId: event.messageId ?? `contract:${event.contractId}:contract_completed`,
+      });
       return { inboxPendingDir, streamWrite };
     }
 
@@ -177,8 +183,9 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
 
       const { audit, events } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: true });
-      const [msg] = await readInboxDir(inboxPendingDir);
-      expect(msg.type).toBe('contract_events');
+      const messages = await readInboxDir(inboxPendingDir);
+      const msg = messages.find(message => message.type === 'contract_events')!;
+      expect(msg).toBeDefined();
       const content = await providerVisibleContent(runtime, msg);
 
       expect(content).toContain('契约流程已完成｜整理周报（c-self）');
@@ -208,7 +215,8 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
 
       const { audit } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: false });
-      const [msg] = await readInboxDir(inboxPendingDir);
+      const messages = await readInboxDir(inboxPendingDir);
+      const msg = messages.find(message => message.type === 'contract_events')!;
       const content = await providerVisibleContent(runtime, msg);
 
       // 空标题只显 ID；缺省目标省略；放行中性注记；缺省不反推质量通过

@@ -110,6 +110,17 @@ describe('executor payload adapter (phase 1863 AT-D7)', () => {
       prompt: '',
       systemPrompt: 'shadow-sp',
       messages: payload.messages,
+      toolsForLLM: payload.toolsForLLM,
+      manifestRevision: payload.manifestRevision,
+      promptRevision: payload.promptRevision,
+      execution: {
+        callerKind: 'shadow',
+        allowDone: true,
+        allowShadow: false,
+        allowSummon: false,
+        allowNotifyClaw: false,
+        manifestRevision: payload.manifestRevision,
+      },
       applyRestrictedOverrides: true,
       resultTool: 'done',
     });

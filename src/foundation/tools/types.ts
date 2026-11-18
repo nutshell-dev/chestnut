@@ -11,6 +11,7 @@ import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 
 import type { PermissionChecker } from '../tool-protocol/index.js';
 
@@ -79,6 +80,8 @@ export interface ClawIdentity {
 /** 权限维度（D2）：profile / permissionChecker */
 export interface ToolPermissions {
   profile: ToolProfile;
+  /** Dynamic caller capabilities; absent fields retain legacy profile behavior. */
+  execution?: ToolExecutionContext;
   /** Assembly-injected per-claw permission checker (replaces module-level factory pattern, phase 1006) */
   permissionChecker?: PermissionChecker;
 }
@@ -114,6 +117,8 @@ export interface ExecutionInfra {
    * inherit the main-agent async wrapper exec.
    */
   baseRegistry?: ToolRegistry;
+  /** Default dynamic capabilities for every context created by this executor. */
+  execution?: ExecContext['execution'];
 }
 
 /** 执行控制维度（D4）：signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
@@ -244,7 +249,37 @@ export interface Tool extends ToolDescriptor {
    * - { allowFromShadow: false } — summon 工具禁止在 shadow 内调用
    */
   readonly restrictedOverrides?: Record<string, unknown>;
+  /** Owner-declared dynamic authorization, evaluated before validation and handlers. */
+  readonly executionGate?: (ctx: ExecContext) => ToolGateResult;
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
+}
+
+/** Caller-scoped capabilities; never part of provider-facing descriptors. */
+export interface ToolExecutionContext {
+  readonly callerKind: string;
+  readonly allowDone?: boolean;
+  readonly allowShadow?: boolean;
+  readonly allowSummon?: boolean;
+  readonly allowNotifyClaw?: boolean;
+  readonly manifestRevision?: string;
+}
+
+export type ToolGateCode =
+  | 'done_unavailable_in_context'
+  | 'shadow_recursion_rejected'
+  | 'summon_unavailable_in_context'
+  | 'notify_claw_motion_only'
+  | 'tool_profile_denied';
+
+export type ToolGateResult =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly code: ToolGateCode; readonly reason: string };
+
+/** Immutable provider-facing manifest; handler bindings deliberately excluded. */
+export interface CanonicalToolManifest {
+  readonly revision: string;
+  readonly definitions: readonly ToolDescriptor[];
+  readonly llmTools: readonly ToolDefinition[];
 }
 
 /**
@@ -253,16 +288,17 @@ export interface Tool extends ToolDescriptor {
  */
 export interface ToolRegistry {
   register(tool: Tool): void;
+  /** Explicit pre-freeze descriptor migration; preserves canonical insertion order. */
+  replace(tool: Tool): void;
   unregister(name: string): void;
+  freeze(): CanonicalToolManifest;
+  getManifest(): CanonicalToolManifest;
   get(name: string): Tool | undefined;
   has(name: string): boolean;
   getAll(): Tool[];
+  /** Compatibility query for execution bindings; never a provider-facing filter. */
   getForProfile(profile: ToolProfile): Tool[];
-  formatForLLM(tools: Tool[]): Array<{
-    name: string;
-    description: string;
-    input_schema: JSONSchema7;
-  }>;
+  formatForLLM(tools: readonly Tool[] | CanonicalToolManifest): ToolDefinition[];
 }
 
 /**
@@ -271,12 +307,8 @@ export interface ToolRegistry {
  * 转发消费不经本 capability（归 tools 模块治理，见 phase1860 Step C §5）。
  */
 export interface ToolRegistryRuntimeCapability {
-  getForProfile(profile: ToolProfile): Tool[];
-  formatForLLM(tools: Tool[]): Array<{
-    name: string;
-    description: string;
-    input_schema: JSONSchema7;
-  }>;
+  getAll(): Tool[];
+  formatForLLM(tools: readonly Tool[] | CanonicalToolManifest): ToolDefinition[];
 }
 
 /**
@@ -323,4 +355,6 @@ export interface ToolExecutorOptions {
    * Passed through to constructed ExecContext instances for subagent spawn paths.
    */
   baseRegistry?: ToolRegistry;
+  /** Default dynamic capabilities for every context created by this executor. */
+  execution?: ExecContext['execution'];
 }

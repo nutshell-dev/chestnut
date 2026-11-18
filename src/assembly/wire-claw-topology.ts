@@ -51,8 +51,12 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
     broadcast: deps.isMotion ? { grantedTo: MOTION_CLAW_ID } : undefined,
     crossTargetAccess: deps.crossTargetAccess,
   };
-  deps.toolRegistry.register(createCrossClawReadTool(wrapDeps));
-  deps.toolRegistry.register(createCrossClawLsTool(wrapDeps));
-  deps.toolRegistry.register(createCrossClawSearchTool(wrapDeps));
+  const replace = (tool: Parameters<ToolRegistry['replace']>[0]): void => {
+    if (typeof deps.toolRegistry.replace === 'function') deps.toolRegistry.replace(tool);
+    else deps.toolRegistry.register(tool); // legacy assembly test doubles
+  };
+  replace(createCrossClawReadTool(wrapDeps));
+  replace(createCrossClawLsTool(wrapDeps));
+  replace(createCrossClawSearchTool(wrapDeps));
   return topology;
 }

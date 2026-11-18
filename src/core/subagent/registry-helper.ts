@@ -18,11 +18,12 @@ import { createDoneTool, DONE_TOOL_NAME, type ResultCaptureChannel } from './too
 
 export function createPerTaskRegistry(
   srcRegistry: ToolRegistry,
-  profile: string,
+  _profile: string,
 ): ToolRegistry {
   const r = createToolRegistry();
-  // `profile as any`: profile is runtime-typed string (caller boundary) — type guard at registry layer (phase 1382 audit-trail B-3 ratify)
-  for (const tool of srcRegistry.getForProfile(profile as any)) {
+  // Provider visibility is no longer profile-derived; copy every descriptor and
+  // retain profile only as the executor's dynamic authorization input.
+  for (const tool of srcRegistry.getAll()) {
     if (tool.name === DONE_TOOL_NAME) continue;
     r.register(tool);
   }
@@ -45,7 +46,10 @@ export function bindRunCapture(
   const substitute = (tool: Tool): Tool => (tool.name === DONE_TOOL_NAME ? bound : tool);
   return {
     register: (tool: Tool): void => base.register(tool),
+    replace: (tool: Tool): void => base.replace(tool),
     unregister: (name: string): void => base.unregister(name),
+    freeze: () => base.freeze(),
+    getManifest: () => base.getManifest(),
     get: (name: string): Tool | undefined =>
       name === DONE_TOOL_NAME && base.has(DONE_TOOL_NAME) ? bound : base.get(name),
     has: (name: string): boolean => base.has(name),

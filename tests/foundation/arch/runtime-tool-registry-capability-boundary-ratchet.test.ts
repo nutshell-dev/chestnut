@@ -16,7 +16,7 @@ describe('phase 1860 (RT-D1b): Runtime toolRegistry capability boundary', () => 
 
     expect(body).toBeDefined();
     expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(2);
-    for (const member of ['getForProfile(', 'formatForLLM(']) {
+    for (const member of ['getAll(', 'formatForLLM(']) {
       expect(body).toContain(member);
     }
     expect(registry).toContain('implements ToolRegistry, ToolRegistryRuntimeCapability');
@@ -42,7 +42,7 @@ describe('phase 1860 (RT-D1b): Runtime toolRegistry capability boundary', () => 
 
     expect(consumed.size).toBeGreaterThan(0);
     for (const method of consumed) {
-      expect(['getForProfile', 'formatForLLM']).toContain(method);
+      expect(['getAll', 'formatForLLM']).toContain(method);
     }
   });
 

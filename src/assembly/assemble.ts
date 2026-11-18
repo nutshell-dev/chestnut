@@ -169,6 +169,20 @@ export async function assemble(
       if (bridgeDispose) rollback.register('contract_bridge', () => bridgeDispose());
     }
 
+    // Freeze only after every parent/shadow/subagent descriptor (including motion
+    // addons) is registered. Dynamic authorization is exclusively executor-owned.
+    try {
+      if (typeof coreInfra.toolRegistry.freeze === 'function') coreInfra.toolRegistry.freeze();
+    } catch (error) {
+      auditWriter.write(
+        ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
+        'module=tool_manifest',
+        'phase=freeze',
+        `reason=${formatErr(error)}`,
+      );
+      throw error;
+    }
+
     // --- 5. detectUncleanExit (daemon.ts L152) ---
     detectUncleanExit(clawDir, auditWriter, systemFs);
 

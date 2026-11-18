@@ -5,7 +5,11 @@
  */
 
 // Registry
-export { createToolRegistry } from './registry.js';
+export {
+  createToolRegistry,
+  createCanonicalToolManifest,
+  createCanonicalToolManifestFromDefinitions,
+} from './registry.js';
 export { enforceToolResultBounds } from './output-cap.js';
 export { DEFAULT_TOOL_OUTPUT_BOUNDS } from './constants.js';
 
@@ -32,6 +36,10 @@ export type {
   FileState,
   ToolRegistry,
   ToolRegistryRuntimeCapability,
+  CanonicalToolManifest,
+  ToolExecutionContext,
+  ToolGateResult,
+  ToolGateCode,
   IToolExecutor,
   // phase 1459 α-1: 5 子接口 export for α-5 narrow helper 用例
   ClawIdentity,

@@ -48,10 +48,14 @@ export interface ToolResult {
 import type { Message } from '../dialog-store/index.js';
 
 export interface CallerSnapshot {
-  /** Caller's current system prompt (Prompt module output). */
+  /** Frozen parent-turn system prompt. */
   systemPrompt: string;
-  /** Caller's full tool list (LLM-facing definitions, profile-filtered). */
+  /** Canonical provider-facing definitions; never profile-filtered. */
   tools: ToolDefinition[];
-  /** Caller's current turn dialog messages. */
+  /** Frozen parent-turn dialog prefix. */
   messages: Message[];
+  /** Content identity of the canonical tool manifest. */
+  manifestRevision: string;
+  /** SHA-256 content identity of the static system prompt. */
+  promptRevision: string;
 }

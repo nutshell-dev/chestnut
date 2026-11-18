@@ -48,7 +48,7 @@ describe('Tools', () => {
       expect(retrieved?.name).toBe('test-tool');
     });
 
-    it('should overwrite tool with same name', () => {
+    it('should reject a conflicting descriptor with the same name', () => {
       const tool1: Tool = {
         name: 'same',
         description: 'First',
@@ -68,10 +68,8 @@ describe('Tools', () => {
       };
 
       registry.register(tool1);
-      registry.register(tool2);
-
-      const retrieved = registry.get('same');
-      expect(retrieved?.description).toBe('Second');
+      expect(() => registry.register(tool2)).toThrow('Tool descriptor conflict');
+      expect(registry.get('same')?.description).toBe('First');
     });
 
     it('should check tool existence with has()', () => {

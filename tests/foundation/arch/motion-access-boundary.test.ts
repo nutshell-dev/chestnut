@@ -25,6 +25,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const INTERNAL_SYSTEM_ACCESS_OWNERS = new Set([
+  'src/assembly/business-systems.ts',
   'src/assembly/motion-addons.ts',
   'src/assembly/runtime-assembly.ts',
   'src/core/claw-topology/motion-access.ts',

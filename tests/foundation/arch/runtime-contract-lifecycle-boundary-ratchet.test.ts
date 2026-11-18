@@ -38,9 +38,10 @@ describe('phase 1360: Runtime contract lifecycle boundary', () => {
     }
   });
 
-  it('ContextInjector consumes only caller-projected active contract data', () => {
+  it('ContextInjector does not consume active contract data', () => {
     const source = read('src/core/runtime/injector.ts');
-    expect(source).toContain('loadActiveContract?: () => Promise<ContextContractView | null>');
+    expect(source).not.toContain('loadActiveContract');
+    expect(source).not.toContain('ContextContractView');
     expect(source).not.toContain('ContractRuntimeLifecycle');
     expect(source).not.toMatch(/import type \{ (?:Contract|ContractSystem) \}/);
   });

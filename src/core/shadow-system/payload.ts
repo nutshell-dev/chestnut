@@ -7,7 +7,8 @@
  * 消费侧（ATS 侧 opaque executorPayload 形态迁移）归 phase 1863 E。
  */
 
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
+import { createCanonicalToolManifestFromDefinitions } from '../../foundation/tools/index.js';
 import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 const { makeToolUseId } = llmProviderProtocol;
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
@@ -50,7 +51,10 @@ export function buildShadowPayload(opts: SpawnShadowSubagentOptions): ShadowExec
   return {
     systemPrompt: opts.systemPrompt,
     messages,
-    toolsForLLM: opts.toolsForLLM,
+    toolsForLLM: structuredClone(opts.toolsForLLM),
+    manifestRevision: opts.manifestRevision
+      ?? createCanonicalToolManifestFromDefinitions(opts.toolsForLLM).revision,
+    promptRevision: opts.promptRevision ?? sha256Hex(opts.systemPrompt),
     identity,
     detached: SHADOW_DETACHED,
     budget: {
@@ -84,6 +88,17 @@ export function interpretShadowExecutorPayload(payload: unknown): ExecutorPayloa
     prompt: '',
     systemPrompt: payload.systemPrompt,
     messages: payload.messages,
+    toolsForLLM: structuredClone(payload.toolsForLLM),
+    manifestRevision: payload.manifestRevision,
+    promptRevision: payload.promptRevision,
+    execution: {
+      callerKind: 'shadow',
+      allowDone: true,
+      allowShadow: false,
+      allowSummon: false,
+      allowNotifyClaw: false,
+      manifestRevision: payload.manifestRevision,
+    },
     applyRestrictedOverrides: true,
     resultTool: DONE_TOOL_NAME,
   };

@@ -15,6 +15,7 @@ import type { ContractNotification } from '../../src/core/contract/index.js';
 import { makeContractId, makeSubtaskId } from '../../src/core/contract/types.js';
 import type { StreamWriter } from '../../src/foundation/stream/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { decodeInbox } from '../../src/foundation/messaging/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 
 const CLAW_ID = 'test-claw';
@@ -32,12 +33,20 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     inboxPendingDir = path.join(selfClawRoot, 'inbox', 'pending');
     fs.mkdirSync(inboxPendingDir, { recursive: true });
     streamWrite = vi.fn();
-    emit = createContractNotificationAdapter({
+    const adapter = createContractNotificationAdapter({
       streamWriter: { write: streamWrite } as unknown as StreamWriter,
       clawId: CLAW_ID,
       systemFs: new NodeFileSystem({ baseDir: tempDir }),
       selfClawRoot,
       auditWriter: makeMockAudit(),
+    });
+    // Production metadata is assigned by ContractSystem's durable wrapper.
+    emit = event => adapter({
+      ...event,
+      stateRevision: event.stateRevision ?? 7,
+      occurredAt: event.occurredAt ?? '2026-11-18T00:00:00.000Z',
+      idempotencyKey: event.idempotencyKey ?? `test:${event.type}`,
+      messageId: event.messageId ?? `test:${event.type}:message`,
     });
   });
 
@@ -49,10 +58,25 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     return fs.readdirSync(inboxPendingDir);
   }
 
-  function readOnlyInboxFile(): string {
-    const files = inboxFiles();
+  function readOnlyInboxFile(type = 'contract_events'): string {
+    const files = inboxFiles().filter(name =>
+      fs.readFileSync(path.join(inboxPendingDir, name), 'utf8').includes(`type: ${type}\n`),
+    );
     expect(files).toHaveLength(1);
     return fs.readFileSync(path.join(inboxPendingDir, files[0]), 'utf8');
+  }
+
+  function legacyInboxFiles(): string[] {
+    return inboxFiles().filter(name =>
+      !fs.readFileSync(path.join(inboxPendingDir, name), 'utf8').includes('type: contract_context_event\n'),
+    );
+  }
+
+  function contextInboxMessages() {
+    return inboxFiles()
+      .map(name => fs.readFileSync(path.join(inboxPendingDir, name), 'utf8'))
+      .map(decodeInbox)
+      .filter(message => message.type === 'contract_context_event');
   }
 
   it('contract_created → stream camel payload / 无 inbox', () => {
@@ -75,7 +99,54 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       title: 'T',
       subtaskCount: 2,
     });
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
+    const [context] = contextInboxMessages();
+    expect(context).toMatchObject({
+      id: 'contract:c1:created',
+      type: 'contract_context_event',
+      from: 'system',
+      priority: 'normal',
+      content:
+        '[contract_created] contract=c1\n'
+        + 'title: T\n'
+        + 'subtask_count: 2\n'
+        + 'created_at: 2026-10-19T00:00:00.000Z',
+      metadata: {
+        event_type: 'contract_created',
+        contract_id: 'c1',
+        state_revision: '7',
+        occurred_at: '2026-11-18T00:00:00.000Z',
+        idempotency_key: 'contract:c1:contract_created',
+        event_source: 'contract_system',
+      },
+    });
+  });
+
+  it('相同稳定 messageId 在 pending/done 重试都只保留一条 contract_context_event', () => {
+    const event: ContractNotification = {
+      type: 'contract_created',
+      contractId: makeContractId('c1'),
+      title: 'T',
+      subtaskCount: 1,
+      messageId: 'contract:c1:created',
+      idempotencyKey: 'contract:c1:contract_created',
+      createdAt: '2026-10-19T00:00:00.000Z',
+    };
+    emit(event);
+    emit(event);
+    expect(contextInboxMessages()).toHaveLength(1);
+
+    const contextFile = inboxFiles().find(name =>
+      fs.readFileSync(path.join(inboxPendingDir, name), 'utf8').includes('type: contract_context_event\n'),
+    )!;
+    const doneDir = path.join(selfClawRoot, 'inbox', 'done');
+    fs.mkdirSync(doneDir, { recursive: true });
+    fs.renameSync(path.join(inboxPendingDir, contextFile), path.join(doneDir, contextFile));
+    emit(event);
+
+    expect(contextInboxMessages()).toHaveLength(0);
+    expect(fs.readdirSync(doneDir)).toEqual([contextFile]);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('contract_completed → stream mixed payload 不变 + contract_events self-inbox（phase 1832 新正文语义）', () => {
@@ -173,7 +244,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: 'c1',
       reason: 'user cancelled',
     });
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('contract_cancelled（空原因）→ stream 保持原值且不写 inbox', () => {
@@ -189,7 +260,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: 'c2',
       reason: '',
     }));
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('subtask_completed（普通路径）→ stream camel payload / 无 inbox', () => {
@@ -207,7 +278,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: 'c1',
       subtaskId: 't1',
     });
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('subtask_completed（force-accept 路径）→ stream snake payload / 无 inbox', () => {
@@ -227,7 +298,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       subtask_id: 't1',
       force_accepted: true,
     });
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('verification_failed → stream 全 snake payload / 无 inbox', () => {
@@ -253,7 +324,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       retry_count: 1,
       max_attempts: 3,
     });
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 
   it('contract_failed（Phase 1396 Step D）→ stream camel payload（reason/evidenceRef/producer）/ 无 inbox', () => {
@@ -276,6 +347,6 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       producer: 'event-loop',
     });
     // failed 只呈现最终事实；不写 self-inbox、不给 motion 重启/取消处方。
-    expect(inboxFiles()).toHaveLength(0);
+    expect(legacyInboxFiles()).toHaveLength(0);
   });
 });

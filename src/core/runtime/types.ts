@@ -225,6 +225,11 @@ export interface RuntimeConfigApplicationStore {
   record(input: RuntimeConfigApplicationFact & { clawId: string; error?: unknown }): Promise<unknown>;
 }
 
+export interface StaticPromptSnapshot {
+  readonly revision: string;
+  readonly content: string;
+}
+
 export interface RuntimeOptions {
   clawId: string;
   clawDir: string;

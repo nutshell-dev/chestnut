@@ -14,7 +14,7 @@ import { makeTraceId, type TraceId } from '../../foundation/audit/index.js';
 import { formatErr, randomHex } from '../../foundation/node-utils/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
+import { ToolExecutor, type ToolExecutionContext, type ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
@@ -36,6 +36,8 @@ export interface RunSubagentOptions {
 
   // 权限注入（caller 计算后传入）
   toolProfile?: ToolProfile;
+  /** Caller-scoped gate facts; descriptors and provider tools stay canonical. */
+  execution?: ToolExecutionContext;
 
   // 基础设施依赖（caller 注入）
   clawDir: string;
@@ -164,6 +166,13 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     fsFactory: opts.fsFactory,
     llm: opts.llm,
     auditWriter,
+    execution: opts.execution ?? {
+      callerKind: 'task',
+      allowDone: true,
+      allowShadow: false,
+      allowSummon: false,
+      allowNotifyClaw: false,
+    },
   });
 
   const agent = new SubAgent({

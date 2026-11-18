@@ -6,7 +6,11 @@
 
 import * as path from 'path';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { ExecContext } from '../../foundation/tools/index.js';
+import {
+  createCanonicalToolManifestFromDefinitions,
+  type ExecContext,
+} from '../../foundation/tools/index.js';
+import { sha256Hex } from '../../foundation/node-utils/index.js';
 import { applyRestrictedOverrides } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
@@ -34,6 +38,7 @@ const FAILURE_ERROR_CODE: Record<ShadowRunFailure['kind'], string> = {
   no_main_context: 'no_main_context',
   prefix_synthesis: 'prefix_synthesis_failed',
   registry_unavailable: 'registry_unavailable',
+  manifest_mismatch: 'shadow_manifest_revision_mismatch',
   llm_unavailable: 'llm_unavailable',
 };
 
@@ -42,6 +47,7 @@ const FAILURE_AUDIT_PHASE: Record<ShadowRunFailure['kind'], string> = {
   no_main_context: 'main_context',
   prefix_synthesis: 'prefix_restore',
   registry_unavailable: 'registry',
+  manifest_mismatch: 'manifest',
   llm_unavailable: 'llm',
 };
 
@@ -73,6 +79,8 @@ interface RunShadowOptions {
     systemPrompt?: string;
     tools?: llmProviderProtocol.ToolDefinition[];
     messages?: Message[];
+    manifestRevision?: string;
+    promptRevision?: string;
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
@@ -132,6 +140,10 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   }
 
   const restoredSystemPrompt: string = ts!.systemPrompt!;
+  const restoredTools = structuredClone(ts!.tools!);
+  const manifestRevision = ts!.manifestRevision
+    ?? createCanonicalToolManifestFromDefinitions(restoredTools).revision;
+  const promptRevision = ts!.promptRevision ?? sha256Hex(restoredSystemPrompt);
 
   let synthesizedMessages: Message[];
 
@@ -184,6 +196,25 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     return failShadow(opts.ctx, shadowId, { kind: 'llm_unavailable', detail }, `[chestnut shadow] llm unavailable: ${detail}`, detail);
   }
 
+  let liveManifestRevision: string | undefined;
+  if (typeof baseRegistry.getManifest === 'function') {
+    try {
+      liveManifestRevision = baseRegistry.getManifest()?.revision;
+    } catch {
+      // silent: a direct legacy test registry may be unfrozen; production Assembly is frozen.
+    }
+  }
+  if (liveManifestRevision && liveManifestRevision !== manifestRevision) {
+    const detail = `parent=${manifestRevision} live=${liveManifestRevision}`;
+    return failShadow(
+      opts.ctx,
+      shadowId,
+      { kind: 'manifest_mismatch', detail },
+      `[chestnut shadow] manifest revision mismatch: ${detail}`,
+      detail,
+    );
+  }
+
   try {
 
     const shadowRegistry = createPerTaskRegistry(baseRegistry, 'full');
@@ -204,7 +235,16 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       registry: shadowRegistry,
       prompt: '',   // shadow 不用 prompt 字段（指令在 synthesized messages 末）
       systemPrompt: restoredSystemPrompt,
+      toolsForLLM: restoredTools,
       messages: synthesizedMessages,
+      execution: {
+        callerKind: 'shadow',
+        allowDone: true,
+        allowShadow: false,
+        allowSummon: false,
+        allowNotifyClaw: false,
+        manifestRevision,
+      },
       resultDir,
       syncDir: opts.ctx.syncDir,
       maxSteps: opts.maxSteps,
@@ -222,7 +262,12 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     return {
       success: true,
       content: finalResult,
-      metadata: { shadowId, source: capturedResult ? 'done' : 'text' },
+      metadata: {
+        shadowId,
+        source: capturedResult ? 'done' : 'text',
+        manifestRevision,
+        promptRevision,
+      },
     };
   } catch (err) {
     const errMsg = formatErr(err);

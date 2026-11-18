@@ -714,11 +714,11 @@ describe('no verification path', () => {
 
     // Assert onNotify was called with subtask_completed（phase 1260: 精确 typed event）
     const subtaskCompletedCalls = notifyCalls.filter((c) => c.type === 'subtask_completed');
-    expect(subtaskCompletedCalls).toEqual([{
+    expect(subtaskCompletedCalls).toEqual([expect.objectContaining({
       type: 'subtask_completed',
       contractId,
       subtaskId: 'task-1',
-    }]);
+    })]);
   });
 });
 

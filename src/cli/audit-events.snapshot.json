@@ -351,6 +351,7 @@
       "contract_missing_started_at",
       "contract_move_archive_failed",
       "contract_multi_dir",
+      "contract_notification_outbox_malformed",
       "contract_notify_failed",
       "contract_observer_bootstrap_done",
       "contract_observer_event_failed",
@@ -923,6 +924,7 @@
       "tool_invalid_input",
       "tool_not_found",
       "tool_output_cap",
+      "tool_gate_denied",
       "tools_invariant_violation",
       "tool_exec_race_loser",
       "stop_requested"

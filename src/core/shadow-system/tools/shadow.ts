@@ -27,6 +27,8 @@ interface TurnSnapshot {
   systemPrompt?: string;
   tools?: ToolDefinition[];
   messages?: Message[];
+  manifestRevision?: string;
+  promptRevision?: string;
 }
 
 /** 工具构造 deps（Assembly 注入面）。 */
@@ -55,8 +57,15 @@ interface ShadowCallArgs {
 
 /** 快照面：turn 快照 + 剥离未配对 tool_use 尾条（两执行路径共用一个调用点）。 */
 async function extractSnapshot(deps: ShadowToolDeps): Promise<TurnSnapshot & { mainMessages: Message[] | undefined }> {
-  const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
-  return { systemPrompt, tools, messages, mainMessages: stripIncompleteToolUse(messages) };
+  const { systemPrompt, tools, messages, manifestRevision, promptRevision } = await deps.getTurnSnapshot();
+  return {
+    systemPrompt,
+    tools,
+    messages,
+    manifestRevision,
+    promptRevision,
+    mainMessages: stripIncompleteToolUse(messages),
+  };
 }
 
 /** 提交（异步路径）：快照 → payload → spawnShadowSubagent → queued 回执。 */
@@ -71,6 +80,8 @@ async function submitShadow(deps: ShadowToolDeps, args: ShadowCallArgs, ctx: Exe
     originClawId: ctx.clawId,
     systemPrompt: snapshot.systemPrompt ?? '',
     toolsForLLM: snapshot.tools ?? [],
+    manifestRevision: snapshot.manifestRevision,
+    promptRevision: snapshot.promptRevision,
     timeoutMs: args.timeoutMs,
     maxSteps: args.maxSteps,
   });
@@ -93,7 +104,13 @@ async function runShadowSync(deps: ShadowToolDeps, args: ShadowCallArgs, ctx: Ex
     maxSteps: args.maxSteps,
     ctx,
     mainMessages: snapshot.mainMessages,
-    turnSnapshot: { systemPrompt: snapshot.systemPrompt, tools: snapshot.tools, messages: snapshot.messages },
+    turnSnapshot: {
+      systemPrompt: snapshot.systemPrompt,
+      tools: snapshot.tools,
+      messages: snapshot.messages,
+      manifestRevision: snapshot.manifestRevision,
+      promptRevision: snapshot.promptRevision,
+    },
     runSubagent: deps.runSubagent,
   });
 }
@@ -132,6 +149,13 @@ export function createShadowTool(deps: ShadowToolDeps): Tool {
     readonly: false,
     idempotent: false,
     defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,
+    executionGate: (ctx) => ctx.execution?.allowShadow === false
+      ? {
+          allowed: false,
+          code: 'shadow_recursion_rejected',
+          reason: 'shadow is not callable from within a shadow (no recursion).',
+        }
+      : { allowed: true },
 
     async execute(this: Tool & { allowRecursion?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       // 防递归（D6 A ratify）：DI 注入替代 ctx.callerLabel；审计写入经 lifecycle owner。

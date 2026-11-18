@@ -2,7 +2,7 @@
  * @module L4.ContractSystem
  * phase 1243: ContractSystem 自家 inbox 消息 rendering declarations。
  *
- * 7 type 业主语义全归 ContractSystem：
+ * ContractSystem-owned inbox rendering declarations：
  *   - 'contract_events'           contract-observer 事件聚合
  *   - 'verification_result'       subtask 验证通过（含 force-accept）
  *   - 'verification_rejection'    subtask 验证拒绝
@@ -11,6 +11,7 @@
  *   - 'contract_resume'           已存在 contract 续作
  *   - 'contract_audit_feedback'   contract-auditor drift 反馈
  *   - 'contract_cancelled'        contract 取消
+ *   - 'contract_context_event'    durable typed state transition (Phase 2193 C2)
  *
  * Phase 1955 Step D：contract_created 使用 custom formatter——按持久化投递事实
  * （delivery_attempts）决定 New / Resume 呈现；模板本身不读磁盘。
@@ -43,4 +44,5 @@ export const CONTRACT_INBOX_MESSAGE_TYPES = [
   { owner: 'contract-system', type: 'contract_resume', rendering: { kind: 'standard', presentation: 'system' } },
   { owner: 'contract-system', type: 'contract_audit_feedback', rendering: { kind: 'standard', presentation: 'system' } },
   { owner: 'contract-system', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_context_event', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

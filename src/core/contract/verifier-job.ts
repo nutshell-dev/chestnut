@@ -99,7 +99,10 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     // phase 704: 注入 readonly profile 工具子集（read+ls+search+status+memory_search）
     // 与 CONTRACT_VERIFIER_SYSTEM_PROMPT 指令「Use the available tools (read, ls, search) to inspect」align
     // M#7 耦合界面稳定 / M#5 单向依赖（L4 借用 L2 toolRegistry / 不自建）
-    for (const tool of config.toolRegistry.getForProfile('readonly')) {
+    const sourceTools = (typeof config.toolRegistry.getAll === 'function'
+      ? config.toolRegistry.getAll()
+      : undefined) ?? config.toolRegistry.getForProfile('readonly');
+    for (const tool of sourceTools) {
       registry.register(tool);
     }
 
@@ -278,7 +281,14 @@ function isValidVerifierResult(
 async function defaultRunVerifier(req: VerifierRunRequest): Promise<VerifierRunRawResult> {
   return defaultRunSubagent({
     agentId: req.agentId,
-    toolProfile: 'subagent',
+    toolProfile: 'readonly',
+    execution: {
+      callerKind: 'contract_verifier',
+      allowDone: true,
+      allowShadow: false,
+      allowSummon: false,
+      allowNotifyClaw: false,
+    },
     clawDir: req.clawDir,
     fs: req.fs,
     fsFactory: req.fsFactory,

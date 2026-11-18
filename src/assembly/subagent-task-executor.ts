@@ -17,7 +17,7 @@ import {
 } from '../foundation/llm-orchestrator/index.js';
 import { llmProviderAbort } from '../foundation/llm-provider/index.js';
 const { isAbortError } = llmProviderAbort;
-import type { ToolRegistry } from '../foundation/tools/index.js';
+import { createCanonicalToolManifest, type ToolRegistry } from '../foundation/tools/index.js';
 import type { PermissionChecker } from '../foundation/tool-protocol/index.js';
 import {
   runSubagent as defaultRunSubagent,
@@ -104,7 +104,33 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
           return r;
         })();
 
-        const toolsForLLM = deps.registry.formatForLLM(effectiveRegistry.getAll());
+        if (interpretation?.applyRestrictedOverrides && !interpretation.manifestRevision) {
+          throw new Error('shadow_manifest_revision_missing');
+        }
+        let liveManifestRevision: string | undefined;
+        if (interpretation?.manifestRevision && typeof deps.registry.getManifest === 'function') {
+          try {
+            liveManifestRevision = deps.registry.getManifest()?.revision;
+          } catch {
+            // silent: legacy tests and pre-freeze startup have no live manifest yet.
+          }
+        }
+        if (interpretation?.manifestRevision && liveManifestRevision && liveManifestRevision !== interpretation.manifestRevision) {
+          throw new Error(
+            `shadow_manifest_revision_mismatch: parent=${interpretation.manifestRevision} live=${liveManifestRevision}`,
+          );
+        }
+        const toolsForLLM = interpretation?.toolsForLLM ?? (() => {
+          if (typeof deps.registry.getManifest === 'function') {
+            try {
+              const manifest = deps.registry.getManifest();
+              if (manifest) return deps.registry.formatForLLM(manifest);
+            } catch {
+              // silent: use an ephemeral pre-freeze view for legacy unit fixtures.
+            }
+          }
+          return deps.registry.formatForLLM(createCanonicalToolManifest(deps.registry.getAll()));
+        })();
 
         const finalSystemPrompt = buildSubagentSystemPrompt({
           taskId: task.id,
@@ -134,6 +160,7 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
           timeoutMs: task.timeoutMs,
           toolTimeoutMs: deps.toolTimeoutMs,
           permissionChecker: deps.permissionChecker,
+          execution: interpretation?.execution,
           messages: interpretation?.messages,
           resultTool: interpretation?.resultTool,
         });

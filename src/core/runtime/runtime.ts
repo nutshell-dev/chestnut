@@ -59,7 +59,12 @@ import { makeStepNumber } from '../agent-executor/index.js';
 import { makeTraceId, type AuditLog, type TraceId } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { InboxDeliveryBatch, InboxDeliverySession, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
-import { ExecContextImpl } from '../../foundation/tools/index.js';
+import {
+  createCanonicalToolManifest,
+  createCanonicalToolManifestFromDefinitions,
+  ExecContextImpl,
+  type CanonicalToolManifest,
+} from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
@@ -183,6 +188,8 @@ export class Runtime {
    * phase 1860 (RT-D6)：MemoryOnlyState 登记——per-turn 重设、不跨 turn 存活、不进恢复。
    */
   private currentTraceId?: TraceId;
+  private currentTurnSnapshot?: CallerSnapshot;
+  private canonicalManifest?: CanonicalToolManifest;
 
   /** Phase 1218 Step A: single active dialog mutation operation join handle */
   private activeDialogOperation: Promise<unknown> | null = null;
@@ -195,7 +202,13 @@ export class Runtime {
   /** phase 146: delegate caller-snapshot to ExecContext (canonical source, direct read true owner) */
   async getCallerSnapshot(): Promise<CallerSnapshot> {
     if (!this.execContext?.getCallerSnapshot) {
-      return { systemPrompt: '', tools: [], messages: [] };
+      return {
+        systemPrompt: '',
+        tools: [],
+        messages: [],
+        manifestRevision: 'unavailable',
+        promptRevision: sha256Hex(''),
+      };
     }
     return this.execContext.getCallerSnapshot();
   }
@@ -388,7 +401,6 @@ export class Runtime {
     this.contextInjector = createContextInjector({
       fs: this.systemFs,
       skillRegistry: deps.skillRegistry,
-      loadActiveContract: () => this.contractManager.loadActive(),
       audit: this.auditWriter,
     });
     this.execContext = new ExecContextImpl({
@@ -405,20 +417,16 @@ export class Runtime {
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
       getCallerSnapshot: async () => {
-        const { systemPrompt } = await this._resolveSystemPromptForRun();
-        const tools = this.toolRegistry.formatForLLM(
-          this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-        );
-        const loadResult = await this.sessionManager.load();
-        if (loadResult.source === 'io_error') {
-          throw new Error(`Session load failed: ${loadResult.error}`);
-        }
-        const { session } = loadResult;
-        return {
-          systemPrompt,
-          tools,
-          messages: session.messages,
-        };
+        const snapshot = this.currentTurnSnapshot;
+        if (!snapshot) throw new Error('turn_snapshot_missing');
+        return structuredClone(snapshot);
+      },
+      execution: {
+        callerKind: 'main',
+        allowDone: false,
+        allowShadow: true,
+        allowSummon: true,
+        allowNotifyClaw: this.options.systemPromptBuilder !== undefined,
       },
       registry: this.toolRegistryForwarding,   // phase 1860 (RT-D1)：转发面（工具执行消费宽面）
       baseRegistry: deps.baseToolRegistry,
@@ -499,9 +507,7 @@ export class Runtime {
     );
     if (toolCount > 0) {
       try {
-        const repairTools = this.toolRegistry.formatForLLM(
-          this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-        );
+        const repairTools = this.getToolsForLLM();
         const saved = await this.sessionManager.save({
           systemPrompt: session.systemPrompt,
           messages: repaired,
@@ -1838,6 +1844,15 @@ export class Runtime {
         });
         // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
         applyBlockIdAssignments(messages, saved.assignedBlockIds);
+        this.currentTurnSnapshot = structuredClone({
+          systemPrompt,
+          tools: toolsForLLM,
+          messages,
+          manifestRevision: this._toolRegistryImpl
+            ? this.getCanonicalToolManifest().revision
+            : createCanonicalToolManifestFromDefinitions(toolsForLLM).revision,
+          promptRevision: sha256Hex(systemPrompt),
+        });
 
         await this._runReact(messages, systemPrompt, toolsForLLM, callbacks, recoveryFacts);
 
@@ -1890,6 +1905,7 @@ export class Runtime {
       try {
         await this._commitTurnSnapshot(outcome);
       } finally {
+        this.currentTurnSnapshot = undefined;
         cleanup();
       }
     }
@@ -1969,17 +1985,36 @@ export class Runtime {
     return { systemPrompt: r.full, identityContent: r.identityContent };
   }
 
-  /** Resolve the system prompt for an upcoming turn. */
-  async getSystemPrompt(): Promise<string> {
+  /** Resolve a content-addressed static prompt for an upcoming turn. */
+  async getSystemPromptSnapshot(): Promise<import('./types.js').StaticPromptSnapshot> {
     const { systemPrompt } = await this._resolveSystemPromptForRun();
-    return systemPrompt;
+    return { content: systemPrompt, revision: sha256Hex(systemPrompt) };
   }
 
-  /** Format tools for the current tool profile. */
+  /** Resolve the system prompt for an upcoming turn. */
+  async getSystemPrompt(): Promise<string> {
+    return (await this.getSystemPromptSnapshot()).content;
+  }
+
+  private getCanonicalToolManifest(): CanonicalToolManifest {
+    if (this.canonicalManifest) return this.canonicalManifest;
+    if (typeof this._toolRegistryImpl.getManifest === 'function') {
+      try {
+        const manifest = this._toolRegistryImpl.getManifest();
+        if (manifest && typeof manifest.revision === 'string') {
+          this.canonicalManifest = manifest;
+          return manifest;
+        }
+      } catch {
+        // silent: early session repair precedes Assembly freeze; use an uncached view.
+      }
+    }
+    return createCanonicalToolManifest(this.toolRegistry.getAll());
+  }
+
+  /** Serialize the one canonical manifest, independent of caller profile. */
   getToolsForLLM(): ToolDefinition[] {
-    return this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-    );
+    return this.toolRegistry.formatForLLM(this.getCanonicalToolManifest());
   }
 
   /** Load current session messages for turn construction. */
@@ -2312,9 +2347,7 @@ export class Runtime {
    * atomicity（phase 600/646 invariants 不破、audit 命名空间不变）。
    */
   private async _performRegimeSwitch(newSystemPrompt: string): Promise<void> {
-    const regimeTools = this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full'),
-    );
+    const regimeTools = this.getToolsForLLM();
     const result = await performRegimeSwitch({
       strategy: this.options.regimeSwitchStrategy ?? 'all',
       newSystemPrompt,

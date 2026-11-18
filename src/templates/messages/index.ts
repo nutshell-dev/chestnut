@@ -55,6 +55,8 @@ export {
   contractCompletedNotificationBody,
   contractCompletedSubtaskLine,
   contractCancelledNotificationBody,
+  contractContextEventBody,
+  type ContractContextMessageInput,
   type ContractCompletedMessageInput,
   type ContractCancelledMessageEvent,
 } from './contract-notification.js';
@@ -129,14 +131,7 @@ export {
 } from './onboarding-contract.js';
 export { CONFIG_RELOAD_NOTICE } from './config-reload.js';
 export { userAttachmentBody, type UserAttachmentInput } from './user-attachment.js';
-export {
-  ACTIVE_CONTRACT_SECTION_HEADING,
-  MEMORY_SECTION_HEADING,
-  CONTRACT_TITLE_LABEL,
-  CONTRACT_GOAL_LABEL,
-  CONTRACT_SUBTASKS_LABEL,
-  contractSubtaskLine,
-} from './runtime-prompt-sections.js';
+export { MEMORY_SECTION_HEADING } from './runtime-prompt-sections.js';
 export {
   AVAILABLE_SKILLS_HEADING,
   NO_SKILLS_LOADED,

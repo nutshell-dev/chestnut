@@ -77,6 +77,16 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     },
     readonly: false,
     idempotent: false,
+    executionGate: (ctx) => {
+      const allowed = ctx.execution?.allowNotifyClaw ?? deps.authorized === true;
+      return allowed
+        ? { allowed: true }
+        : {
+            allowed: false,
+            code: 'notify_claw_motion_only',
+            reason: 'notify_claw is motion-only',
+          };
+    },
 
     async execute(this: Tool & { authorized?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       // Phase 807: authorization via DI flag (replaces ctx.callerLabel + isCallerAuthorized predicate).

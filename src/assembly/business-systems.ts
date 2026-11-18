@@ -3,7 +3,7 @@ import { formatErr } from '../foundation/node-utils/index.js';
 import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import { DISPATCH_SKILLS_SUBDIR } from '../core/evolution-system/index.js';
 import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
+import { getRelativeClawDir, makeClawId } from '../foundation/claw-identity/index.js';
 
 import { createClawPermissionChecker } from '../core/permissions/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
@@ -29,9 +29,10 @@ import {
 import type { SummonContractQuery } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
-import { makeContractId } from '../core/contract/index.js';
+import { hasActiveContract, makeContractId } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
+import { memorySearchTool } from '../core/memory/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/index.js';
@@ -43,7 +44,13 @@ import {
 } from '../foundation/skill-system/index.js';
 import { CLAWS_DIR } from '../foundation/claw-identity/index.js';
 import { createSendTool } from '../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { formatClawStatusHint } from '../cli-protocol/index.js';
+import {
+  createInternalSystemMotionAccess,
+  createNotifyClawTool,
+  MOTION_CLAW_ID,
+  resolveClawDaemonDir,
+} from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
 import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundation/dialog-store/index.js';
@@ -116,7 +123,7 @@ export interface BusinessSysOutput {
 export async function createBusinessSystems(input: BusinessSysInput): Promise<BusinessSysOutput> {
   const { core } = input;
   const {
-    fsFactory, systemFs, clawFs, clawDir, clawId, isMotion,
+    fsFactory, systemFs, clawFs, parentFs, processManager, clawDir, clawId, isMotion,
     auditWriter, llm, contractManager, toolRegistry, skillRegistry,
     toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps, messagingLimits,
     streamWriter,
@@ -318,12 +325,30 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
   );
   toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { skillVersions } : {}));
+  toolRegistry.register(memorySearchTool);
   toolRegistry.register(createSendTool(outboxWriter, MOTION_CLAW_ID));
 
   // phase 757: spawn/summon 工具改由 DI 注入 taskSystem，不再从 ExecContext 读取。
   // 注册放在 AsyncTaskSystem 构造完成后，确保 taskSystem 可用。
   toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId, subagentMaxSteps: maxSteps }));
   toolRegistry.register(new SummonTool({ scheduler: taskSystem, correlation: { originClawId: clawId }, skillVersions }));
+  if (!isMotion) {
+    const clawNotifier = createClawNotifier({
+      fs: parentFs,
+      audit: auditWriter,
+      resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+    });
+    toolRegistry.register(createNotifyClawTool({
+      notifyClaw: (targetClawId, intent) => clawNotifier.notifyIntentAsync(targetClawId, intent),
+      defaultSource: MOTION_CLAW_ID,
+      authorized: false,
+      sink: auditWriter,
+      clawLiveness: (target) => processManager.liveness(resolveClawDaemonDir(makeClawId(target), createInternalSystemMotionAccess('read'))),
+      formatClawStatusHint,
+      clawExists: (target) => parentFs.existsSync(getRelativeClawDir(target)),
+      hasActiveContract: (target) => hasActiveContract(fsFactory(path.join(chestnutRoot, getRelativeClawDir(target))), '.'),
+    }));
+  }
 
   let toolExecutor: IToolExecutor;
   try {

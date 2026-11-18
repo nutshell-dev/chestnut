@@ -59,6 +59,10 @@ import type {
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
+import {
+  createContractNotificationDelivery,
+  type ContractNotificationDelivery,
+} from './notification-delivery.js';
 import { readContractTerminalFact, type ContractTerminalFact } from './terminal-fact.js';
 import {
   createCancellationDeliveryStore,
@@ -197,6 +201,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   private notifyClaw: NotifyClawFn;
   private readonly deliverCancellation: CancellationDelivery;
   private readonly cancellationDeliveryStore: CancellationDeliveryStore;
+  private readonly notificationDelivery?: ContractNotificationDelivery;
   private toolRegistry: ToolRegistry;
   private toolTimeoutMs?: number;
   private fsFactory: (baseDir: string) => FileSystem;
@@ -318,8 +323,12 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     this.runVerifier = deps.runVerifier;
     this.progressMutationQueue = new ProgressMutationQueue(this.audit);
     // phase 1872 Step F: 通知 sink / auditor 构造参数一次固定（setter 退役——消除
-    // 「构造后改同一实例」的运行期可变装配面）。
-    this.onNotify = deps.onNotify;
+    // 「构造后改同一实例」的运行期可变装配面）。Phase 2193 C2 在 owner 边界持久化
+    // 标准化事件；无 sink 时不创建 outbox，也不改变既有无通知路径。
+    this.notificationDelivery = deps.onNotify
+      ? createContractNotificationDelivery({ fs: this.fs, audit: this.audit, sink: deps.onNotify })
+      : undefined;
+    this.onNotify = this.notificationDelivery?.emit;
     this.auditor = deps.auditor;
   }
 
@@ -1149,6 +1158,9 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     }
 
     await this._recoverCancellationDeliveries();
+    // Last: earlier boot reconciliation may append new events; replay older
+    // pending facts only after business-state recovery has settled.
+    this.notificationDelivery?.recover();
   }
 
   // Verification

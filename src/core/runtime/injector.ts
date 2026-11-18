@@ -21,15 +21,7 @@ import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-// phase 1909 Step C（M16）：契约/记忆段字面归 templates/messages 单源
-import {
-  ACTIVE_CONTRACT_SECTION_HEADING,
-  MEMORY_SECTION_HEADING,
-  CONTRACT_TITLE_LABEL,
-  CONTRACT_GOAL_LABEL,
-  CONTRACT_SUBTASKS_LABEL,
-  contractSubtaskLine,
-} from '../../templates/messages/index.js';
+import { MEMORY_SECTION_HEADING } from '../../templates/messages/index.js';
 
 /**
  * Context injector configuration
@@ -39,37 +31,8 @@ interface ContextInjectorOptions {
   fs: FileSystem;
   /** Skill registry for skill metadata injection */
   skillRegistry?: SkillContextSource;
-  /** Caller-owned data provider; ContextManager does not depend on ContractSystem. */
-  loadActiveContract?: () => Promise<ContextContractView | null>;
   /** Optional audit writer / phase 646 ⚓ context load failure audit (FNF silent / else audit) */
   audit?: AuditLog;
-}
-
-export interface ContextContractView {
-  title: string;
-  goal: string;
-  subtasks: Array<{ id: string; description: string; status: string }>;
-}
-
-/**
- * Format contract for prompt injection
- * Returns markdown with title, goal, and subtask progress
- */
-function formatContractForPrompt(contract: ContextContractView): string {
-  const lines = [
-    ACTIVE_CONTRACT_SECTION_HEADING,
-    `${CONTRACT_TITLE_LABEL} ${contract.title}`,
-    `${CONTRACT_GOAL_LABEL} ${contract.goal}`,
-    '',
-    CONTRACT_SUBTASKS_LABEL,
-  ];
-
-  for (const subtask of contract.subtasks) {
-    // 完成态判断（status === 'completed'）留在本 owner；行字面经模板单源
-    lines.push(contractSubtaskLine(subtask.status === 'completed', subtask.id, subtask.description));
-  }
-
-  return lines.join('\n');
 }
 
 interface CacheEntry {
@@ -83,7 +46,6 @@ interface CacheEntry {
 export class ContextInjector {
   private fs: FileSystem;
   private skillRegistry?: SkillContextSource;
-  private loadActiveContract?: () => Promise<ContextContractView | null>;
   private audit?: AuditLog;
   private cachedAgentsMd: CacheEntry | null = null;
   private cachedMemoryMd: CacheEntry | null = null;
@@ -91,7 +53,6 @@ export class ContextInjector {
   constructor(options: ContextInjectorOptions) {
     this.fs = options.fs;
     this.skillRegistry = options.skillRegistry;
-    this.loadActiveContract = options.loadActiveContract;
     this.audit = options.audit;
   }
 
@@ -125,12 +86,10 @@ export class ContextInjector {
     agents: string;
     memory: string;
     skills: string;
-    contract: string;
   }> {
     let agents = '';
     let memory = '';
     let skills = '';
-    let contract = '';
 
     // Try to read AGENTS.md (with mtime cache)
     const agentsResult = await this.readWithCache(CLAW_SPEC_FILE, this.cachedAgentsMd);
@@ -169,22 +128,7 @@ export class ContextInjector {
       }
     }
 
-    // Inject active contract if available
-    if (this.loadActiveContract) {
-      try {
-        const contractData = await this.loadActiveContract();
-        if (contractData) {
-          contract = formatContractForPrompt(contractData);
-        }
-      } catch (err) {
-        // FNF silent OK / else audit (phase 646 D2 align)
-        if (!(err instanceof FileNotFoundError)) {
-          this.audit?.write(RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED, 'file=contract', `reason=${formatErr(err)}`);
-        }
-      }
-    }
-
-    return { agents, memory, skills, contract };
+    return { agents, memory, skills };
   }
 
   /**
@@ -198,7 +142,6 @@ export class ContextInjector {
     if (parts.agents) sections.push(parts.agents);
     if (parts.memory) sections.push(parts.memory);
     if (parts.skills) sections.push(parts.skills);
-    if (parts.contract) sections.push(parts.contract);
 
     return sections.join('\n\n');
   }
@@ -215,7 +158,6 @@ export class ContextInjector {
     if (parts.agents) sections.push(parts.agents);
     if (parts.memory) sections.push(parts.memory);
     if (parts.skills) sections.push(parts.skills);
-    if (parts.contract) sections.push(parts.contract);
     const full = sections.join('\n\n');
 
     // identity = 身份层（agents + skills）/ memory + contract = 动态层不入

@@ -7,7 +7,8 @@
  * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
  * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），stream system_notify +
  * completed self-inbox 发出；取消业务 inbox 由 ContractSystem 的独立投递能力负责
- * （Phase 2091），本观察 adapter 仅保留取消 stream 映射。
+ * （Phase 2091）。Phase 2193 C2 另将每类事件写入 contract_context_event inbox，
+ * 不改变上述 legacy 通道归属。
  *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
  * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
@@ -20,10 +21,15 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { notifyInbox } from '../foundation/messaging/index.js';
+import {
+  createInboxWriter,
+  MESSAGING_WRITER_LIMITS_DEFAULT,
+  notifyInbox,
+} from '../foundation/messaging/index.js';
 import {
   contractCompletedNotificationBody,
   contractCompletedSubtaskLine,
+  contractContextEventBody,
 } from '../templates/messages/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
@@ -59,7 +65,7 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
     // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）。
     // phase 1862 Step I (CT-D10)：通道归属是 owner 声明事实（NOTIFICATION_CHANNEL），
     // adapter 只消费分类做动作，不自行枚举内部 transition 阶段分流。
-    // subtask_completed / verification_failed 为 viewport_only（仅 stream，决策无用）。
+    // subtask_completed / verification_failed 的 legacy 通道仅 stream；新 context 通道独立。
     if (NOTIFICATION_CHANNEL[event.type] === 'terminal_inbox') {
       if (event.type === 'contract_completed') {
         // phase 1261 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
@@ -93,7 +99,85 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
       }
     }
 
+    const context = contextMetadata(event);
+    // Unlike notifyInbox, the durable owner wrapper needs write failures. Use
+    // the throwing Messaging writer directly; stable identity includes done.
+    createInboxWriter(
+      deps.systemFs,
+      deps.selfClawRoot,
+      deps.auditWriter,
+      MESSAGING_WRITER_LIMITS_DEFAULT,
+    ).writeSync({
+      type: 'contract_context_event',
+      source: 'system',
+      priority: 'normal',
+      messageId: context.messageId,
+      includeDoneWithinMs: Infinity,
+      body: contractContextEventBody({
+        eventType: event.type,
+        contractId: event.contractId,
+        detailLines: toContextEventDetails(event),
+      }),
+      metadata: {
+        event_type: event.type,
+        contract_id: event.contractId,
+        state_revision: String(context.stateRevision),
+        occurred_at: context.occurredAt,
+        idempotency_key: context.idempotencyKey,
+        event_source: 'contract_system',
+      },
+    });
   };
+}
+
+function contextMetadata(event: ContractNotification): {
+  stateRevision: number;
+  occurredAt: string;
+  idempotencyKey: string;
+  messageId: string;
+} {
+  const { stateRevision, occurredAt, idempotencyKey, messageId } = event;
+  if (!Number.isSafeInteger(stateRevision) || (stateRevision ?? 0) < 1 ||
+      !occurredAt || !idempotencyKey || !messageId) {
+    throw new Error(`contract notification missing durable context metadata: ${event.type}`);
+  }
+  return { stateRevision: stateRevision!, occurredAt, idempotencyKey, messageId };
+}
+
+/** Typed facts only; this is a one-way presentation mapping, never a codec. */
+function toContextEventDetails(event: ContractNotification): string[] {
+  switch (event.type) {
+    case 'contract_created':
+      return [`title: ${event.title}`, `subtask_count: ${event.subtaskCount}`, `created_at: ${event.createdAt}`];
+    case 'contract_completed':
+      return [
+        `title: ${event.title}`,
+        `goal: ${event.goal}`,
+        `completed_at: ${event.completedAt}`,
+        `subtasks: ${JSON.stringify(event.subtasks)}`,
+      ];
+    case 'contract_cancelled':
+      return [`reason: ${event.reason}`];
+    case 'contract_failed':
+      return [`reason: ${event.reason}`, `evidence_ref: ${event.evidenceRef}`, `producer: ${event.producer}`];
+    case 'subtask_completed':
+      return [
+        `subtask_id: ${event.subtaskId}`,
+        ...(event.forceAccepted === true ? ['force_accepted: true'] : []),
+      ];
+    case 'verification_failed':
+      return [
+        `subtask_id: ${event.subtaskId}`,
+        `cause: ${event.cause}`,
+        `feedback: ${event.feedback}`,
+        `retry_count: ${event.retryCount}`,
+        `max_attempts: ${event.maxAttempts}`,
+      ];
+    default: {
+      const exhaustive: never = event;
+      throw new Error(`unknown contract notification variant: ${JSON.stringify(exhaustive)}`);
+    }
+  }
 }
 
 /**

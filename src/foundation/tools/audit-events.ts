@@ -17,6 +17,7 @@ export const TOOL_AUDIT_EVENTS = {
   TOOL_INVALID_INPUT: 'tool_invalid_input',            // phase 70 NEW
   TOOL_EXEC_RACE_LOSER: 'tool_exec_race_loser',
   TOOL_OUTPUT_CAP: 'tool_output_cap',
+  TOOL_GATE_DENIED: 'tool_gate_denied',
   STOP_REQUESTED: 'stop_requested',
 } as const;
 
@@ -33,5 +34,6 @@ export const TOOLS_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   tool_invalid_input: 'audit',
   tool_exec_race_loser: 'audit',
   tool_output_cap: 'audit',
+  tool_gate_denied: 'audit',
   stop_requested: 'audit',
 } as const;

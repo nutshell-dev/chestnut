@@ -39,7 +39,7 @@ import {
 } from '../core/claw-topology/index.js';
 import type { AssembleConfig } from './types.js';
 import { createExecWithHandle, EXEC_TOOL_NAME, EXEC_ASYNC_MIGRATION } from '../foundation/command-tool/index.js';
-import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
+import { createToolExecutor } from '../foundation/tools/index.js';
 import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 // Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink 组装（事实源 + Step D narrow sink）
@@ -106,30 +106,40 @@ export async function createRuntimeAssembly(
     inboxReader,
   };
 
-  // Phase 773: build a main-agent registry where exec is replaced by the async wrapper.
-  // The shared base registry (business.baseToolRegistry) keeps the plain sync exec Tool
-  // for subagent spawn paths.
-  const mainRegistry = createToolRegistry();
-  for (const tool of business.baseToolRegistry.getAll()) {
-    if (tool.name !== EXEC_TOOL_NAME) {
-      mainRegistry.register(tool);
-    }
-  }
+  // One canonical descriptor registry, with a parent-only exec handler binding.
+  // Subagents keep the base sync handler; neither path formats a separate manifest.
+  const baseRegistry = business.baseToolRegistry;
+  const handlerOverrides = new Map<string, import('../foundation/tools/index.js').Tool>();
+  const bind = (tool: import('../foundation/tools/index.js').Tool) => handlerOverrides.get(tool.name) ?? tool;
+  const mainRegistry: import('../foundation/tools/index.js').ToolRegistry = {
+    register: (tool) => baseRegistry.register(tool),
+    replace: (tool) => baseRegistry.replace(tool),
+    unregister: (name) => baseRegistry.unregister(name),
+    freeze: () => baseRegistry.freeze(),
+    getManifest: () => baseRegistry.getManifest(),
+    get: (name) => {
+      const tool = baseRegistry.get(name);
+      return tool ? bind(tool) : undefined;
+    },
+    has: (name) => baseRegistry.has(name),
+    getAll: () => baseRegistry.getAll().map(bind),
+    getForProfile: (profile) => baseRegistry.getForProfile(profile).map(bind),
+    formatForLLM: (tools) => baseRegistry.formatForLLM(tools),
+  };
 
-  let mainToolExecutor: ReturnType<typeof createToolExecutor>;
   if (typeof taskSystem.createAsyncExecWrapper === 'function') {
     const execWithHandle = createExecWithHandle(isMotion ? createAntiSelfKillGuard() : undefined);
     const asyncExecTool = taskSystem.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
       softTimeoutMs: ASYNC_EXEC_SOFT_TIMEOUT_MS,
-      // phase 1863 (AT-D9/H1)：命令侧执行形态声明（owner: command-tool；缺省可迁移=零漂移）
       migrationPolicy: EXEC_ASYNC_MIGRATION,
     });
-    mainRegistry.register(asyncExecTool);
-    mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);
-  } else {
-    mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);
+    if (asyncExecTool.name !== EXEC_TOOL_NAME) {
+      throw new Error('Assembly: async exec handler changed the canonical tool name.');
+    }
+    handlerOverrides.set(EXEC_TOOL_NAME, asyncExecTool);
   }
+  const mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);
 
   const toolingDeps = {
     toolRegistry: mainRegistry,

@@ -7,14 +7,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import * as path from 'path';
+import { createHash } from 'crypto';
 import { DIALOG_ARCHIVE_DIR } from '../../src/foundation/dialog-store/dirs.js';
-import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { ContextInjector } from '../../src/core/runtime/injector.js';
+import { Runtime } from '../../src/core/runtime/runtime.js';
 import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
@@ -22,12 +20,8 @@ import { makeSession } from '../helpers/session-fixtures.js';
 import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-// phase 1909 Step C（M16/M17）：断言期望值经模板单源，不复制字面（防双源）
-import {
-  ACTIVE_CONTRACT_SECTION_HEADING,
-  AVAILABLE_SKILLS_HEADING,
-  contractSubtaskLine,
-} from '../../src/templates/messages/index.js';
+// phase 1909 Step C（M17）：断言期望值经模板单源，不复制字面（防双源）
+import { AVAILABLE_SKILLS_HEADING } from '../../src/templates/messages/index.js';
 
 describe('Dialog', () => {
   describe('DialogStore', () => {
@@ -297,11 +291,12 @@ describe('Dialog', () => {
       expect(parts.skills).toContain(AVAILABLE_SKILLS_HEADING);
       expect(parts.skills).toContain('skill1');
       expect(parts.skills).toContain('Test fixture skill');
-      expect(parts.contract).toBe('');
+      expect(parts).not.toHaveProperty('contract');
     });
 
-    // buildParts: contract 注入（含 completed/pending checkbox）
-    it('should include contract in buildParts when contractManager has active contract', async () => {
+    // Phase 2193 C1: legacy contract loader 不再是 system prompt 输入。
+    it('should not read or include active contract in buildParts', async () => {
+      await nodeFs.writeAtomic('AGENTS.md', '# Agent Instructions');
       const mockContractManager = {
         loadActive: vi.fn().mockResolvedValue({
           id: 'c1',
@@ -312,24 +307,33 @@ describe('Dialog', () => {
             { id: 'impl', description: 'Implement', status: 'pending' },
           ],
         }),
-      } as any;
-      const inj = new ContextInjector({ fs: nodeFs, loadActiveContract: () => mockContractManager.loadActive() });
+      };
+      const inj = new ContextInjector({
+        fs: nodeFs,
+        loadActiveContract: () => mockContractManager.loadActive(),
+      } as any);
 
       const parts = await inj.buildParts();
-      expect(parts.contract).toContain(ACTIVE_CONTRACT_SECTION_HEADING);
-      expect(parts.contract).toContain(contractSubtaskLine(true, 'design', 'Design API'));
-      expect(parts.contract).toContain(contractSubtaskLine(false, 'impl', 'Implement'));
+
+      expect(mockContractManager.loadActive).not.toHaveBeenCalled();
+      expect(parts).not.toHaveProperty('contract');
+      expect(Object.values(parts).join('\n')).not.toContain('Build Tool');
+      expect(Object.values(parts).join('\n')).not.toContain('Implement');
     });
 
-    // buildParts: contractManager.loadActive 抛异常 → 静默跳过
-    it('should skip contract silently when loadActive throws', async () => {
+    it('should ignore a legacy loadActive callback even when it throws', async () => {
       const mockContractManager = {
         loadActive: vi.fn().mockRejectedValue(new Error('corrupted')),
-      } as any;
-      const inj = new ContextInjector({ fs: nodeFs, loadActiveContract: () => mockContractManager.loadActive() });
+      };
+      const inj = new ContextInjector({
+        fs: nodeFs,
+        loadActiveContract: () => mockContractManager.loadActive(),
+      } as any);
 
       const parts = await inj.buildParts();
-      expect(parts.contract).toBe('');
+
+      expect(mockContractManager.loadActive).not.toHaveBeenCalled();
+      expect(parts).not.toHaveProperty('contract');
     });
 
     // buildParts: AGENTS.md 内容为空白 → agents 为空
@@ -339,8 +343,8 @@ describe('Dialog', () => {
       expect(parts.agents).toBe('');
     });
 
-    // buildSystemPrompt: 包含 skill 和 contract
-    it('should include skills and contract in buildSystemPrompt', async () => {
+    // buildSystemPrompt: 保留 skill，排除 active contract 与 checkbox 状态。
+    it('should include skills but no active contract in buildSystemPrompt', async () => {
       await nodeFs.writeAtomic('AGENTS.md', '# Agent Instructions');
       const mockSkillRegistry = {
         formatForContext: vi.fn().mockReturnValue('## Skills\n- skill1'),
@@ -350,14 +354,113 @@ describe('Dialog', () => {
           id: 'c1', title: 'T', goal: 'G',
           subtasks: [{ id: 'x', description: 'do x', status: 'pending' }],
         }),
-      } as any;
-      const inj = new ContextInjector({ fs: nodeFs, skillRegistry: mockSkillRegistry, loadActiveContract: () => mockContractManager.loadActive() });
+      };
+      const inj = new ContextInjector({
+        fs: nodeFs,
+        skillRegistry: mockSkillRegistry,
+        loadActiveContract: () => mockContractManager.loadActive(),
+      } as any);
 
       const prompt = await inj.buildSystemPrompt();
+
       expect(prompt).toContain('Agent Instructions');
       expect(prompt).toContain('## Skills');
-      expect(prompt).toContain(ACTIVE_CONTRACT_SECTION_HEADING);
-      expect(prompt).toContain(contractSubtaskLine(false, 'x', 'do x'));
+      expect(prompt).not.toContain('## Active Contract');
+      expect(prompt).not.toContain('do x');
+      expect(prompt).not.toContain('[ ]');
+      expect(mockContractManager.loadActive).not.toHaveBeenCalled();
+    });
+
+    it('should keep full prompt, identity, and content revision stable when only contract changes', async () => {
+      const loadActive = vi.fn()
+        .mockResolvedValueOnce({
+          id: 'c1', title: 'Contract A', goal: 'Goal A',
+          subtasks: [{ id: 'x', description: 'do x', status: 'pending' }],
+        })
+        .mockResolvedValueOnce({
+          id: 'c2', title: 'Contract B', goal: 'Goal B',
+          subtasks: [{ id: 'y', description: 'do y', status: 'completed' }],
+        });
+      const inj = new ContextInjector({
+        fs: {
+          read: vi.fn(async (file: string) => {
+            if (file === 'AGENTS.md') return '# Stable Agents';
+            if (file === 'MEMORY.md') return 'Stable memory';
+            return '';
+          }),
+        } as any,
+        skillRegistry: { formatForContext: () => '## Skills\n- stable-skill' } as any,
+        loadActiveContract: () => loadActive(),
+      } as any);
+      const runtime = new Runtime({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        llmConfig: {} as any,
+        dependencies: { auditWriter: { write: vi.fn() } } as any,
+      });
+      (runtime as unknown as { contextInjector: ContextInjector }).contextInjector = inj;
+
+      const beforeRegime = await inj.buildSystemPromptForRegime();
+      const before = await runtime.getSystemPromptSnapshot();
+      const afterRegime = await inj.buildSystemPromptForRegime();
+      const after = await runtime.getSystemPromptSnapshot();
+
+      expect(afterRegime).toEqual(beforeRegime);
+      expect(after).toEqual(before);
+      expect(before.content).toBe(beforeRegime.full);
+      expect(before.revision).toBe(createHash('sha256').update(before.content).digest('hex'));
+      expect(before.content).not.toContain('Active Contract');
+      expect(loadActive).not.toHaveBeenCalled();
+    });
+
+    it('should change full revision for AGENTS/MEMORY/skills but identity only for AGENTS/skills', async () => {
+      let agents = '# Agents v1';
+      let memory = 'Memory v1';
+      let skills = '## Skills\n- skill v1';
+      const readSnapshot = async () => {
+        const inj = new ContextInjector({
+          fs: {
+            read: vi.fn(async (file: string) => {
+              if (file === 'AGENTS.md') return agents;
+              if (file === 'MEMORY.md') return memory;
+              return '';
+            }),
+          } as any,
+          skillRegistry: { formatForContext: () => skills } as any,
+        });
+        const regime = await inj.buildSystemPromptForRegime();
+        const runtime = new Runtime({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          llmConfig: {} as any,
+          dependencies: { auditWriter: { write: vi.fn() } } as any,
+        });
+        (runtime as unknown as { contextInjector: ContextInjector }).contextInjector = inj;
+        const snapshot = await runtime.getSystemPromptSnapshot();
+        return { regime, snapshot };
+      };
+
+      const baseline = await readSnapshot();
+      agents = '# Agents v2';
+      const agentsChanged = await readSnapshot();
+      agents = '# Agents v1';
+      memory = 'Memory v2';
+      const memoryChanged = await readSnapshot();
+      memory = 'Memory v1';
+      skills = '## Skills\n- skill v2';
+      const skillsChanged = await readSnapshot();
+
+      for (const variant of [agentsChanged, memoryChanged, skillsChanged]) {
+        expect(variant.regime.full).not.toBe(baseline.regime.full);
+        expect(variant.snapshot.content).toBe(variant.regime.full);
+        expect(variant.snapshot.revision).not.toBe(baseline.snapshot.revision);
+        expect(variant.snapshot.revision).toBe(
+          createHash('sha256').update(variant.snapshot.content).digest('hex'),
+        );
+      }
+      expect(agentsChanged.regime.identityContent).not.toBe(baseline.regime.identityContent);
+      expect(memoryChanged.regime.identityContent).toBe(baseline.regime.identityContent);
+      expect(skillsChanged.regime.identityContent).not.toBe(baseline.regime.identityContent);
     });
 
   });

@@ -261,7 +261,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     }));
 
     // phase 1260 Step A: contract_created typed event 精确断言（create commit 后 emit）
-    expect(notifyCalls).toEqual([{
+    expect(notifyCalls).toEqual([expect.objectContaining({
       type: 'contract_created',
       contractId,
       title: 'Cancel Notify Test',
@@ -270,18 +270,18 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       messageId: `contract:${contractId}:created`,
       idempotencyKey: `contract:${contractId}:contract_created`,
       createdAt: expect.any(String),
-    }]);
+    })]);
     // create triggers contract_created notify, clear to only verify cancel
     notifyCalls.length = 0;
 
     await manager.cancel(contractId, 'user cancelled');
 
-    expect(notifyCalls).toEqual([{
+    expect(notifyCalls).toEqual([expect.objectContaining({
       type: 'contract_cancelled',
       contractId,
       reason: 'user cancelled',
       deliveryId: `contract:${contractId}:cancelled:v2`,
-    }]);
+    })]);
   });
 
   // 反向 1: happy path — cancelContract archives contract via intent; no pre-rename progress mutation.

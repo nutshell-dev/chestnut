@@ -79,3 +79,15 @@ export function contractCancelledNotificationBody(clawId: string, event: Contrac
       : contractCancelledEmptyReasonLine(),
   ].join('\n');
 }
+
+/** Stable context-event summary; identity and revision live in envelope metadata. */
+export interface ContractContextMessageInput {
+  eventType: string;
+  contractId: string;
+  detailLines: readonly string[];
+}
+
+/** Pure presentation only; callers map typed fields and never parse this body back. */
+export function contractContextEventBody(input: ContractContextMessageInput): string {
+  return [`[${input.eventType}] contract=${input.contractId}`, ...input.detailLines].join('\n');
+}

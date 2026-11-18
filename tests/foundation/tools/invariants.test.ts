@@ -77,9 +77,10 @@ describe('phase 1027: DEFAULT_TOOL_TIMEOUT_MS L2 唯一 ownership', () => {
  * Tool profiles business semantic boundary test (phase 947 M#2 align)
  */
 describe('Tool profiles DONE_TOOL_NAME business semantic boundary (phase 947 M#2 align)', () => {
-  it('full profile does not contain DONE_TOOL_NAME (main motion uses submit_subtask not done)', () => {
+  it('full profile carries the canonical DONE descriptor (parent denial is executor-gated)', () => {
     const doneTool = createDoneTool();
-    expect(doneTool.profiles).not.toContain('full');
+    expect(doneTool.profiles).toContain('full');
+    expect(doneTool.executionGate).toBeDefined();
   });
 
   it('subagent profile still contains DONE_TOOL_NAME (subagent hard-stop protocol)', () => {

@@ -20,6 +20,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   VERIFICATION_STARTED: 'contract_verification_started',
   UPDATED: 'contract_updated',
   NOTIFY_FAILED: 'contract_notify_failed',
+  // Phase 2193 C2: malformed durable notification evidence is retained and surfaced.
+  NOTIFICATION_OUTBOX_MALFORMED: 'contract_notification_outbox_malformed',
   MOVE_ARCHIVE_FAILED: 'contract_move_archive_failed',
   VERIFICATION_INBOX_FAILED: 'contract_verification_inbox_failed',
   VERIFICATION_RESET_FAILED: 'contract_verification_reset_failed',
@@ -185,6 +187,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_verification_started: 'audit',
   contract_updated: 'audit',
   contract_notify_failed: 'audit',
+  contract_notification_outbox_malformed: 'audit',
   contract_move_archive_failed: 'audit',
   contract_verification_inbox_failed: 'audit',
   contract_verification_reset_failed: 'audit',

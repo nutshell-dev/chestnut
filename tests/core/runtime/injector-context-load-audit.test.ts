@@ -7,7 +7,7 @@
  * Tests:
  * - FNF silent: AGENTS.md/MEMORY.md not found → 0 audit
  * - non-FNF audit: AGENTS.md read throws PermissionError → audit LOAD_FAILED
- * - contractManager.loadActive throws non-FNF → audit LOAD_FAILED file=contract
+ * - legacy loadActive callbacks are not called and cannot emit contract audit
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -45,48 +45,28 @@ describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
     expect(parts[partsKey]).toBe('');
   });
 
-  it('contractManager.loadActive throws non-FNF → audit LOAD_FAILED file=contract', async () => {
+  it.each([
+    { name: 'non-FNF error', err: new Error('disk corrupted') },
+    { name: 'FileNotFoundError', err: new FileNotFoundError('contract') },
+  ])('legacy loadActive is not called when it would throw $name', async ({ err }) => {
     const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const mockFs = {
       read: vi.fn().mockResolvedValue(''),
     };
     const mockContractManager = {
-      loadActive: vi.fn().mockRejectedValue(new Error('disk corrupted')),
+      loadActive: vi.fn().mockRejectedValue(err),
     };
     const injector = new ContextInjector({
       fs: mockFs as any,
       loadActiveContract: () => mockContractManager.loadActive(),
       audit: mockAudit as any,
-    });
+    } as any);
 
     const parts = await injector.buildParts();
 
-    expect(mockAudit.write).toHaveBeenCalledTimes(1);
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED,
-      'file=contract',
-      expect.stringContaining('reason='),
-    );
-    expect(parts.contract).toBe('');
-  });
-
-  it('contractManager.loadActive throws FileNotFoundError → silent (0 audit)', async () => {
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const mockFs = {
-      read: vi.fn().mockResolvedValue(''),
-    };
-    const mockContractManager = {
-      loadActive: vi.fn().mockRejectedValue(new FileNotFoundError('contract')),
-    };
-    const injector = new ContextInjector({
-      fs: mockFs as any,
-      loadActiveContract: () => mockContractManager.loadActive(),
-      audit: mockAudit as any,
-    });
-
-    const parts = await injector.buildParts();
-
+    expect(mockContractManager.loadActive).not.toHaveBeenCalled();
     expect(mockAudit.write).not.toHaveBeenCalled();
-    expect(parts.contract).toBe('');
+    expect(parts).toEqual({ agents: '', memory: '', skills: '' });
+    expect(parts).not.toHaveProperty('contract');
   });
 });

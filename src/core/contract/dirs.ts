@@ -12,6 +12,8 @@ export const CONTRACT_ARCHIVE_DIR = 'contract/archive' as const;
 export const CONTRACT_LIFECYCLE_INTENTS_DIR = 'contract/lifecycle-intents' as const;
 // Phase 2151 B4: durable cancellation delivery/stop evidence, outside terminal archives.
 export const CONTRACT_CANCELLATION_DELIVERY_DIR = 'contract/cancellation-delivery' as const;
+// Phase 2193 C2: durable typed-notification delivery facts, independent of contract state.
+export const CONTRACT_NOTIFICATION_OUTBOX_DIR = 'contract/notification-outbox' as const;
 // Phase 1201 Step C: durable immutable verification outcome store (additive 资源、
 // 位于 active/archive 之外、不随 terminal rename 删除、非 lifecycle SoT)。
 export const CONTRACT_VERIFICATION_OUTCOMES_DIR = 'contract/verification-outcomes' as const;

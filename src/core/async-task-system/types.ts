@@ -6,10 +6,11 @@
 
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolUseId = llmProviderProtocol.ToolUseId;
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { ToolRegistry } from '../../foundation/tools/index.js';
+import type { ToolExecutionContext, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
@@ -298,7 +299,13 @@ export interface ExecutorPayloadInterpretation {
   readonly systemPrompt?: string;
   /** 直接传给 runSubagent 的消息序列。 */
   readonly messages?: Message[];
-  /** 受限工具覆盖（foundation applyRestrictedOverrides；如 shadow 子代理的受限 registry）。 */
+  /** Frozen provider-facing definitions supplied by the parent turn. */
+  readonly toolsForLLM?: ToolDefinition[];
+  readonly manifestRevision?: string;
+  readonly promptRevision?: string;
+  /** Owner-declared execution capabilities for this subagent run. */
+  readonly execution?: ToolExecutionContext;
+  /** Legacy restricted clone defense; authorization remains executor-gated. */
   readonly applyRestrictedOverrides?: boolean;
   /** 结果捕获工具名（缺省走 runSubagent 默认）。 */
   readonly resultTool?: string;

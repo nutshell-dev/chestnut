@@ -22,20 +22,24 @@ interface CompletedSubtaskNotification {
   readonly forceAccepted: boolean;
 }
 
-interface ContractCreatedNotification {
+/** Optional on emitter input; ContractSystem's durable delivery wrapper fills all four. */
+interface ContractNotificationDeliveryMetadata {
+  readonly stateRevision?: number;
+  readonly occurredAt?: string;
+  readonly idempotencyKey?: string;
+  readonly messageId?: string;
+}
+
+interface ContractCreatedNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'contract_created';
   readonly contractId: ContractId;
   readonly title: string;
   readonly subtaskCount: number;
-  /** Phase 1955 Step D：稳定业务身份（contract:<id>:created）。 */
-  readonly messageId: string;
-  /** Phase 1955 Step D：幂等键（contract:<id>:contract_created）。 */
-  readonly idempotencyKey: string;
   /** 首次创建时间（重投递不改变）。 */
   readonly createdAt: string;
 }
 
-interface ContractCompletedNotification {
+interface ContractCompletedNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'contract_completed';
   readonly contractId: ContractId;
   readonly title: string;
@@ -44,7 +48,7 @@ interface ContractCompletedNotification {
   readonly completedAt: string;
 }
 
-interface ContractCancelledNotification {
+interface ContractCancelledNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'contract_cancelled';
   readonly contractId: ContractId;
   readonly reason: string;
@@ -54,7 +58,7 @@ interface ContractCancelledNotification {
  * Phase 1396 Step D: execution-failure terminal fact. Distinct from
  * contract_cancelled: cancelled is explicit business cancellation only.
  */
-interface ContractFailedNotification {
+interface ContractFailedNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'contract_failed';
   readonly contractId: ContractId;
   readonly reason: string;
@@ -62,7 +66,7 @@ interface ContractFailedNotification {
   readonly producer: string;
 }
 
-interface SubtaskCompletedNotification {
+interface SubtaskCompletedNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'subtask_completed';
   readonly contractId: ContractId;
   readonly subtaskId: SubtaskId;
@@ -70,7 +74,7 @@ interface SubtaskCompletedNotification {
   readonly forceAccepted?: true;
 }
 
-export interface VerificationFailedNotification {
+export interface VerificationFailedNotification extends ContractNotificationDeliveryMetadata {
   readonly type: 'verification_failed';
   readonly contractId: ContractId;
   readonly subtaskId: SubtaskId;

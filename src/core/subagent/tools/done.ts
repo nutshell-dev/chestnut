@@ -87,7 +87,7 @@ export function createDoneTool(capture?: ResultCaptureChannel<{ result: string }
   const channel = capture ?? createResultCaptureChannel<{ result: string }>();
   const tool: Tool = {
     name: DONE_TOOL_NAME,
-    profiles: ['subagent'],
+    profiles: ['subagent', 'full', 'readonly'],
     description: 'Submit your final result and exit. ' +
       'Use when your task is complete and you have a result to return to the caller. ' +
       'After calling done, no further tool use is expected.',
@@ -103,6 +103,16 @@ export function createDoneTool(capture?: ResultCaptureChannel<{ result: string }
     },
     readonly: false,
     idempotent: false,
+    executionGate: (ctx) => {
+      const allowed = ctx.execution?.allowDone ?? ctx.profile !== 'full';
+      return allowed
+        ? { allowed: true }
+        : {
+            allowed: false,
+            code: 'done_unavailable_in_context',
+            reason: 'done is only available to a subagent execution context with result capture.',
+          };
+    },
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const result = String(args.result ?? '');

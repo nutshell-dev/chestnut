@@ -190,7 +190,13 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
         clawId,
         notifyAsync: (target, message) => notifier.notifyAsync(target, message),
       });
-      emit(event);
+      emit({
+        ...event,
+        stateRevision: event.stateRevision ?? 1,
+        occurredAt: event.occurredAt ?? '2026-11-18T00:00:00.000Z',
+        idempotencyKey: event.idempotencyKey ?? `contract:${event.contractId}:contract_cancelled`,
+        messageId: event.messageId ?? `contract:${event.contractId}:contract_cancelled`,
+      });
       await deliver(event);
       return { inboxPendingDir, streamWrite };
     }
@@ -213,8 +219,9 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
 
       const { audit, events } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: true });
-      const [msg] = await readInboxDir(inboxPendingDir);
-      expect(msg.type).toBe('contract_cancelled');
+      const messages = await readInboxDir(inboxPendingDir);
+      const msg = messages.find(message => message.type === 'contract_cancelled')!;
+      expect(msg).toBeDefined();
       const content = await providerVisibleContent(runtime, msg);
 
       expect(content).toContain('契约已取消｜c-self');
@@ -237,7 +244,8 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
 
       const { audit } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: false });
-      const [msg] = await readInboxDir(inboxPendingDir);
+      const messages = await readInboxDir(inboxPendingDir);
+      const msg = messages.find(message => message.type === 'contract_cancelled')!;
       const content = await providerVisibleContent(runtime, msg);
 
       expect(content).toContain('契约已取消｜c-w');

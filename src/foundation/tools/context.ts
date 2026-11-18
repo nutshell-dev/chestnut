@@ -11,7 +11,7 @@
 import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
-import type { ExecContext, FileState } from './types.js';
+import type { ExecContext, FileState, ToolExecutionContext } from './types.js';
 import type { TraceId } from '../audit/index.js';
 import type { llmProviderProtocol } from '../llm-provider/index.js';
 type ToolUseId = llmProviderProtocol.ToolUseId;
@@ -40,6 +40,8 @@ interface ExecContextImplOptions {
   
   /** Tool profile for permission control */
   profile: ToolProfile;
+  /** Caller-scoped execution capabilities, independent of LLM tool visibility. */
+  execution?: ToolExecutionContext;
   
   /** File system instance */
   fs: FileSystem;
@@ -138,6 +140,7 @@ export class ExecContextImpl implements ExecContext {
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
+  execution?: ToolExecutionContext;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
@@ -163,6 +166,7 @@ export class ExecContextImpl implements ExecContext {
     this.workspaceDir = options.workspaceDir;
     this.syncDir = options.syncDir;
     this.profile = options.profile;
+    this.execution = options.execution;
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;

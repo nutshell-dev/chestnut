@@ -88,12 +88,7 @@ async function buildMotionSystemPrompt({
     sections.push(parts.skills);
   }
 
-  // 7. contract
-  if (parts.contract) {
-    sections.push(parts.contract);
-  }
-
-  // 8. AUTH_POLICY.md
+  // 7. AUTH_POLICY.md
   const authPolicy = await tryReadOptionalSection(systemFs, CLAW_AUTH_POLICY_FILE, audit);
   if (authPolicy) sections.push(authPolicy);
 

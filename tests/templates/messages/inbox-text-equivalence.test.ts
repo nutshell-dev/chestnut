@@ -332,10 +332,18 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       goal: '目标\n多行',
       completedAt: '2026-09-11T00:00:00.000Z',
       subtasks: [{ id: 'st-1', completedAt: '2026-09-11T00:01:00.000Z', forceAccepted: false }],
+      stateRevision: 1,
+      occurredAt: '2026-11-18T00:00:00.000Z',
+      idempotencyKey: 'contract:c-9:contract_completed',
+      messageId: 'contract:c-9:contract_completed',
     } as never);
     const cancelledEvent = {
       type: 'contract_cancelled', contractId: 'c-9', reason: 'user manual',
       deliveryId: 'contract:c-9:cancelled:v2',
+      stateRevision: 2,
+      occurredAt: '2026-11-18T00:00:01.000Z',
+      idempotencyKey: 'contract:c-9:contract_cancelled',
+      messageId: 'contract:c-9:contract_cancelled',
     } as never;
     sink(cancelledEvent);
     const notifier = createClawNotifier({
@@ -350,7 +358,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     await deliverCancellation(cancelledEvent);
     const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
     const messages = files.map(f => decodeInbox(fsNative.readFileSync(path.join(pendingDir, f), 'utf8')));
-    const allCases = messages.map(msg => ({
+    const legacyMessages = messages.filter(msg => msg.type === 'contract_events' || msg.type === 'contract_cancelled');
+    const allCases = legacyMessages.map(msg => ({
       case: String(msg.type),
       body: msg.content,
       envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
@@ -377,7 +386,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(completed.envelope).toEqual({ type: 'contract_events', from: 'system', to: '', priority: 'high' });
     const cancelled = takenOver.find(c => c.case === 'contract_cancelled')!;
     expect(cancelled.envelope).toEqual({ type: 'contract_cancelled', from: 'system', to: '', priority: 'high' });
-    expect(messages.length).toBe(2);
+    expect(legacyMessages.length).toBe(2);
+    expect(messages.filter(msg => msg.type === 'contract_context_event')).toHaveLength(2);
   });
 
   it('M05 contract events entry bodies + observer composition', async () => {

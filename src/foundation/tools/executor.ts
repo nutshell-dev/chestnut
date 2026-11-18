@@ -11,7 +11,7 @@ import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
   ToolTimeoutError } from './errors.js';
-import type { ExecContext } from './types.js';
+import type { ExecContext, Tool, ToolGateResult } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
@@ -95,9 +95,41 @@ export class ToolExecutorImpl implements IToolExecutor {
       }, DEFAULT_TOOL_OUTPUT_BOUNDS);
     }
 
+    // 2. Dynamic execution gate: visibility is manifest-owned, never profile-filtered.
+    const gateResult = this.gate(tool, ctx);
+    if (!gateResult.allowed) {
+      let manifestRevision = ctx.execution?.manifestRevision ?? 'unavailable';
+      if (ctx.execution?.manifestRevision === undefined && typeof this.registry.getManifest === 'function') {
+        try {
+          manifestRevision = this.registry.getManifest()?.revision ?? 'unavailable';
+        } catch {
+          // silent: pre-freeze execution has no revision; denial evidence remains explicit.
+          manifestRevision = 'unfrozen';
+        }
+      }
+      try {
+        ctx.auditWriter?.write(
+          TOOL_AUDIT_EVENTS.TOOL_GATE_DENIED,
+          `toolName=${toolName}`,
+          `callerKind=${ctx.execution?.callerKind ?? 'legacy'}`,
+          `manifestRevision=${manifestRevision}`,
+          `code=${gateResult.code}`,
+          `toolUseId=${options.toolUseId ?? ''}`,
+          `trace_id=${String(ctx.trace_id ?? '')}`,
+        );
+      } catch (auditError) {
+        process.stderr.write(`[tools] gate denial audit failed: ${formatErr(auditError)}\n`);
+      }
+      return enforceToolResultBounds(ctx, toolName, {
+        success: false,
+        error: gateResult.code,
+        content: gateResult.reason,
+      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS);
+    }
+
     const timeoutMs = options.timeoutMs ?? tool.defaultTimeoutMs ?? this.defaultTimeoutMs;
 
-    // 2. Schema validation (simple check)
+    // 3. Schema validation (simple check)
     const validation = this.validateArgs(toolName, args);
     if (!validation.valid) {
       const errMsg = validation.errors?.[0] ?? 'Invalid input';
@@ -270,6 +302,19 @@ export class ToolExecutorImpl implements IToolExecutor {
     }
 
     return result!;
+  }
+
+  private gate(tool: Tool, ctx: ExecContext): ToolGateResult {
+    const ownerResult = tool.executionGate?.(ctx) ?? { allowed: true as const };
+    if (!ownerResult.allowed) return ownerResult;
+    if (Array.isArray(tool.profiles) && !tool.profiles.includes(ctx.profile)) {
+      return {
+        allowed: false,
+        code: 'tool_profile_denied',
+        reason: `Tool '${tool.name}' is not available for execution profile '${ctx.profile}'.`,
+      };
+    }
+    return { allowed: true };
   }
 
   /**
@@ -480,6 +525,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private fsFactory?: (baseDir: string) => FileSystem;
   private llm?: LLMOrchestrator;
   private auditWriter?: AuditLog;
+  private execution?: ExecContext['execution'];
   constructor(options: ToolExecutorOptions) {
     super(options.registry, options.defaultTimeoutMs, options.baseRegistry);
     this.clawDir = options.clawDir;
@@ -489,6 +535,7 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;
     this.auditWriter = options.auditWriter;
+    this.execution = options.execution;
   }
 
   /**
@@ -496,7 +543,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; signal?: AbortSignal; permissionChecker?: PermissionChecker; subagentTaskId?: string; trace_id?: import('../audit/index.js').TraceId }
+    options: { clawId: string; signal?: AbortSignal; permissionChecker?: PermissionChecker; subagentTaskId?: string; trace_id?: import('../audit/index.js').TraceId; execution?: ExecContext['execution'] }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -504,6 +551,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       workspaceDir: this.workspaceDir,
       syncDir: this.syncDir,
       profile,
+      execution: options.execution ?? this.execution,
       permissionChecker: options.permissionChecker,
       fs: this.fs,
       ...(this.fsFactory ? { fsFactory: this.fsFactory } : {}),
