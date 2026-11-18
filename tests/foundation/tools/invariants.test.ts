@@ -80,7 +80,6 @@ describe('Tool profiles DONE_TOOL_NAME business semantic boundary (phase 947 M#2
   it('full profile carries the canonical DONE descriptor (parent denial is executor-gated)', () => {
     const doneTool = createDoneTool();
     expect(doneTool.profiles).toContain('full');
-    expect(doneTool.executionGate).toBeDefined();
   });
 
   it('subagent profile still contains DONE_TOOL_NAME (subagent hard-stop protocol)', () => {

@@ -149,14 +149,6 @@ export function createShadowTool(deps: ShadowToolDeps): Tool {
     readonly: false,
     idempotent: false,
     defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,
-    executionGate: (ctx) => ctx.execution?.allowShadow === false
-      ? {
-          allowed: false,
-          code: 'shadow_recursion_rejected',
-          reason: 'shadow is not callable from within a shadow (no recursion).',
-        }
-      : { allowed: true },
-
     async execute(this: Tool & { allowRecursion?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       // 防递归（D6 A ratify）：DI 注入替代 ctx.callerLabel；审计写入经 lifecycle owner。
       if (this.allowRecursion === false) {

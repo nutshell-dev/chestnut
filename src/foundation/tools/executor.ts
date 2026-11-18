@@ -305,6 +305,34 @@ export class ToolExecutorImpl implements IToolExecutor {
   }
 
   private gate(tool: Tool, ctx: ExecContext): ToolGateResult {
+    if (tool.name === 'done' && !(ctx.execution?.allowDone ?? ctx.profile !== 'full')) {
+      return {
+        allowed: false,
+        code: 'done_unavailable_in_context',
+        reason: 'done is only available to a subagent execution context with result capture.',
+      };
+    }
+    if (tool.name === 'shadow' && ctx.execution?.allowShadow === false) {
+      return {
+        allowed: false,
+        code: 'shadow_recursion_rejected',
+        reason: 'shadow is not callable from within a shadow (no recursion).',
+      };
+    }
+    if (tool.name === 'summon' && ctx.execution?.allowSummon === false) {
+      return {
+        allowed: false,
+        code: 'summon_unavailable_in_context',
+        reason: 'Summon is unavailable in the current execution context.',
+      };
+    }
+    if (tool.name === 'notify_claw' && ctx.execution?.allowNotifyClaw === false) {
+      return {
+        allowed: false,
+        code: 'notify_claw_motion_only',
+        reason: 'notify_claw is motion-only',
+      };
+    }
     const ownerResult = tool.executionGate?.(ctx) ?? { allowed: true as const };
     if (!ownerResult.allowed) return ownerResult;
     if (Array.isArray(tool.profiles) && !tool.profiles.includes(ctx.profile)) {

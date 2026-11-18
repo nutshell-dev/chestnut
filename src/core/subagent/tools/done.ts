@@ -103,17 +103,6 @@ export function createDoneTool(capture?: ResultCaptureChannel<{ result: string }
     },
     readonly: false,
     idempotent: false,
-    executionGate: (ctx) => {
-      const allowed = ctx.execution?.allowDone ?? ctx.profile !== 'full';
-      return allowed
-        ? { allowed: true }
-        : {
-            allowed: false,
-            code: 'done_unavailable_in_context',
-            reason: 'done is only available to a subagent execution context with result capture.',
-          };
-    },
-
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const result = String(args.result ?? '');
       if (!result) {

@@ -9,7 +9,7 @@
  * 渲染，不进入 guidance registry。
  *
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
- * 当前结构：11 NO_GUIDANCE sentinel + generic real composer + 3 CLI typed binding。
+ * 当前结构：12 NO_GUIDANCE sentinel + generic real composer + 3 CLI typed binding。
  * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合；
  * phase 1266 Step A: contract_events 加入同一聚合；
  * phase 1267 Step A: contract_cancelled 加入同一聚合。
@@ -18,7 +18,7 @@
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
  */
 
-import type { MotionGuidanceRegistry } from '../types.js';
+import { NO_GUIDANCE, type MotionGuidanceRegistry } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
@@ -59,6 +59,7 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   // phase 9: 'message' catch-all 拆为 4 typed event
   registry.register('task_result', taskResult);
   registry.register('contract_created', contractCreated);
+  registry.register('contract_context_event', NO_GUIDANCE);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
 }

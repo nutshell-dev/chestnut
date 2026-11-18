@@ -11,7 +11,11 @@ import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
-type ToolDefinition = llmProviderProtocol.ToolDefinition;
+type ToolDefinition = {
+  name: string;
+  description: string;
+  input_schema: JSONSchema7;
+};
 
 import type { PermissionChecker } from '../tool-protocol/index.js';
 
@@ -117,8 +121,6 @@ export interface ExecutionInfra {
    * inherit the main-agent async wrapper exec.
    */
   baseRegistry?: ToolRegistry;
-  /** Default dynamic capabilities for every context created by this executor. */
-  execution?: ExecContext['execution'];
 }
 
 /** 执行控制维度（D4）：signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */

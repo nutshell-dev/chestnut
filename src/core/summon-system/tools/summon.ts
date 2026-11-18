@@ -54,14 +54,6 @@ export class SummonTool implements Tool {
    */
   readonly accessesCaller = true;
   readonly restrictedOverrides = { allowFromShadow: false };
-  readonly executionGate = (ctx: ExecContext) => ctx.execution?.allowSummon === false
-    ? {
-        allowed: false as const,
-        code: 'summon_unavailable_in_context' as const,
-        reason: 'Summon is unavailable in the current execution context.',
-      }
-    : { allowed: true as const };
-
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
   // Phase 1396 Step K: 移除无行为的 _subagentMaxSteps 占位，避免位置参数误传。
   // phase 1866 Step B（SU-D1）: 位置参 → typed options（编译器强制迁移；
