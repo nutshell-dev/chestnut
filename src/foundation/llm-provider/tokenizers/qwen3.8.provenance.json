@@ -28,8 +28,11 @@
   "license": {
     "name": "Apache License 2.0",
     "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/37561816e66b5b9153b1b64c10968c18c1e6f4a0/LICENSE",
-    "sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
-    "notice": "LICENSE.qwen3.8"
+    "sourceSha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+    "notice": "LICENSE.qwen3.8",
+    "noticeSha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+    "noticeBytes": 11343,
+    "normalization": "CRLF to LF line endings only; license text unchanged"
   },
   "runtime": {
     "networkDownload": false,
