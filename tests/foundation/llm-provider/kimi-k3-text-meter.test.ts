@@ -18,11 +18,13 @@ import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runt
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
 const CONTROLS = ['<|open|>', '<|close|>', '<|sep|>', '<|end_of_msg|>'] as const;
+/** Offline asset fixture only needs a short, positive provider timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 const referenceEncoder = new Tiktoken(kimiK3Bpe);
 const config: ProviderConfig = {
   name: 'moonshot', model: 'kimi-k3', apiFormat: 'openai',
   baseUrl: 'https://api.moonshot.cn/v1', catalogProvider: 'moonshotai-cn',
-  catalogModel: 'kimi-k3', apiKey: 'offline-only', timeoutMs: 1_000,
+  catalogModel: 'kimi-k3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
 };
 
 let meter: ModelInputMeter;
