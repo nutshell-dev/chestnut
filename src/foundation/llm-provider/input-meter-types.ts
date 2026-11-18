@@ -56,7 +56,7 @@ export interface InputMeterDescriptor {
 
 export type InputMeasurement =
   | { kind: 'counted'; tokens: number; method: 'deepseek-v41-template' }
-  | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k' | 'kimi-k3-text'; reason: string }
+  | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k' | 'kimi-k3-text' | 'qwen3.8-text'; reason: string }
   | { kind: 'unavailable'; reason: string };
 
 export interface MessageAdditiveInputCounter {

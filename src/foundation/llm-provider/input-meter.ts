@@ -19,6 +19,7 @@ import {
 import type { CatalogResolution } from './catalog-strategy.js';
 import { deepseekV41InputProfile } from './deepseek-input-profile.js';
 import { kimiK3TextInputProfile } from './kimi-k3-text-meter.js';
+import { qwenTextInputProfile } from './qwen-text-meter.js';
 export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter-types.js';
 
 interface InputMeterProfile {
@@ -37,6 +38,7 @@ interface InputMeterProfile {
 const INPUT_METER_PROFILES = [
   deepseekV41InputProfile,
   kimiK3TextInputProfile,
+  qwenTextInputProfile,
 ] as const satisfies readonly InputMeterProfile[];
 
 function matchingProfile(

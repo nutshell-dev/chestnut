@@ -1,0 +1,48 @@
+{
+  "asset": "qwen3.8.tokenizer.json",
+  "purpose": "local estimated text-only context trimming; not final provider wire counting",
+  "source": {
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "tokenizerUrl": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/37561816e66b5b9153b1b64c10968c18c1e6f4a0/tokenizer.json",
+    "tokenizerSha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "tokenizerBytes": 12809320,
+    "configUrl": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/37561816e66b5b9153b1b64c10968c18c1e6f4a0/tokenizer_config.json",
+    "configSha256": "207c03c41a06a9c3b0cc527d8a56115159c1eac6b59a4ffae85b646e773d074e",
+    "configBytes": 9984,
+    "mergeableVocabSize": 248044,
+    "addedTokenCount": 33
+  },
+  "conversion": {
+    "version": "phase2199-qwen3.8-verbatim-tokenizer-json-v1",
+    "target": "@huggingface/tokenizers@0.2.0 tokenizer.json",
+    "tool": "none; pinned upstream JSON copied verbatim because the installed runtime loads this format directly",
+    "assetSha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "assetBytes": 12809320,
+    "verification": "upstream and committed asset SHA-256 match; runtime plain-text encoding strips added_tokens and projection controls use their pinned IDs"
+  },
+  "controlTokens": {
+    "<|im_start|>": 248045,
+    "<|im_end|>": 248046
+  },
+  "license": {
+    "name": "Apache License 2.0",
+    "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/37561816e66b5b9153b1b64c10968c18c1e6f4a0/LICENSE",
+    "sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+    "notice": "LICENSE.qwen3.8"
+  },
+  "runtime": {
+    "networkDownload": false,
+    "remoteTokenApi": false,
+    "kind": "estimated",
+    "projection": "qwen-text-im-v1",
+    "unsupported": [
+      "tools and tool call/result",
+      "thinking blocks",
+      "image/audio/URL media and unknown blocks",
+      "plain-text Qwen added/control tokens",
+      "duplicate system projections",
+      "non-OpenAI or unresolved identities"
+    ]
+  }
+}

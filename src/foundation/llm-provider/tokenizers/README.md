@@ -45,3 +45,24 @@ It does not establish final provider-wire `counted` qualification. Runtime
 downloads, remote token APIs, tool/thinking/multimodal projection, and use as
 post-call `ProviderUsage` are prohibited. The upstream
 [Kimi K3 License](LICENSE.kimi-k3) notice is preserved with the asset.
+
+# Qwen3.8 text estimator
+
+[`qwen3.8.tokenizer.json`](qwen3.8.tokenizer.json) is a verbatim copy of the
+official `Qwen/Qwen3.8-27B` `tokenizer.json` at revision
+`37561816e66b5b9153b1b64c10968c18c1e6f4a0`. Its SHA-256 is
+`0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3`.
+[`qwen3.8.provenance.json`](qwen3.8.provenance.json) pins the source, config,
+asset, license, conversion decision, and projection control-token IDs.
+
+`@huggingface/tokenizers@0.2.0` loads the official JSON directly, so no lossy or
+handwritten vocabulary conversion is needed. Runtime plain-text encoding removes
+`added_tokens`; the two structural `<|im_start|>`/`<|im_end|>` tokens are counted
+from their pinned IDs. Any Qwen added/control token appearing in user text makes
+the estimate unavailable instead of being silently interpreted as wire syntax.
+
+This asset is bundled locally for **`estimated` text-only context trimming**.
+It does not establish final provider-wire `counted` qualification. Runtime
+downloads, remote token APIs, tool/thinking/multimodal projection, and use as
+post-call `ProviderUsage` are prohibited. The upstream
+[Apache License 2.0](LICENSE.qwen3.8) notice is preserved with the asset.
