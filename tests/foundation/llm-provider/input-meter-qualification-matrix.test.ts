@@ -12,6 +12,10 @@ import {
   isDeepseekV41MeterProfile,
   qualifyMeter,
 } from '../../../src/foundation/llm-provider/input-meter.js';
+import {
+  KIMI_K3_TEXT_ASSET_REVISION,
+  KIMI_K3_TEXT_PROJECTION_REVISION,
+} from '../../../src/foundation/llm-provider/kimi-k3-text-meter.js';
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
 import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';
 
@@ -48,6 +52,36 @@ describe('input meter qualification matrix', () => {
     const canonical = resolvePiAiModel(await loadPiAiRuntime(), { ...config, model: 'deepseek-flash' });
     expect(canonical.resolution.modelId).toBe('deepseek-flash');
     expect(qualifyMeter(canonical.resolution, canonical.model).kind).toBe('counted');
+  });
+
+  it('estimates only exact resolved Kimi K3 OpenAI identities with the local text profile', async () => {
+    const kimi = resolvePiAiModel(await loadPiAiRuntime(), {
+      name: 'moonshot', model: 'kimi-k3', apiFormat: 'openai',
+      baseUrl: 'https://api.moonshot.cn/v1', catalogProvider: 'moonshotai-cn',
+      catalogModel: 'kimi-k3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+    expect(kimi.resolution).toMatchObject({
+      kind: 'metadata_only', providerId: 'moonshotai-cn', modelId: 'kimi-k3',
+      wire: { model: 'kimi-k3', api: 'openai-completions' },
+    });
+    expect(qualifyMeter(kimi.resolution, kimi.model)).toEqual({
+      kind: 'estimated',
+      method: 'kimi-k3-text',
+      projection: KIMI_K3_TEXT_PROJECTION_REVISION,
+      assetRevision: KIMI_K3_TEXT_ASSET_REVISION,
+      reason: 'context_trim_only:kimi_k3_text_projection',
+      limits: { supportedTools: 'none' },
+    });
+    expect(createInputMeter(config, kimi.model, {}, kimi.resolution).measure({
+      messages: [{ role: 'user', content: 'hello' }],
+    })).toMatchObject({ kind: 'estimated', method: 'kimi-k3-text' });
+
+    const global = resolvePiAiModel(await loadPiAiRuntime(), {
+      name: 'moonshot-global', model: 'kimi-k3', piAiProvider: 'moonshotai',
+      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+    expect(global.resolution.kind).toBe('catalog_model');
+    expect(qualifyMeter(global.resolution, global.model).method).toBe('kimi-k3-text');
   });
 
   it.each([
@@ -107,6 +141,35 @@ describe('input meter qualification matrix', () => {
       method: 'legacy-cl100k',
       reason: expect.stringContaining('catalog=custom'),
     });
+  });
+
+  it('keeps same-name K3 provider, API, and unresolved identities on legacy estimated', async () => {
+    const kimi = resolvePiAiModel(await loadPiAiRuntime(), {
+      name: 'moonshot', model: 'kimi-k3', piAiProvider: 'moonshotai',
+      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+    const candidates = [
+      {
+        candidateModel: kimi.model,
+        candidateResolution: { ...kimi.resolution, providerId: 'fireworks' },
+      },
+      {
+        candidateModel: { ...kimi.model, api: 'anthropic-messages' } as typeof kimi.model,
+        candidateResolution: {
+          ...kimi.resolution,
+          wire: { ...kimi.resolution.wire, api: 'anthropic-messages' },
+        },
+      },
+      {
+        candidateModel: kimi.model,
+        candidateResolution: { ...kimi.resolution, kind: 'custom', providerId: undefined },
+      },
+    ];
+    for (const { candidateModel, candidateResolution } of candidates) {
+      expect(qualifyMeter(candidateResolution as CatalogResolution, candidateModel)).toMatchObject({
+        kind: 'estimated', method: 'legacy-cl100k', limits: { supportedTools: 'declared' },
+      });
+    }
   });
 
   it('isolates descriptor cache keys when qualification identity changes', () => {

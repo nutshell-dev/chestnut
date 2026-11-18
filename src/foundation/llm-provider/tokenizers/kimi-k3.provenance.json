@@ -1,0 +1,55 @@
+{
+  "asset": "kimi-k3.tiktoken.json",
+  "purpose": "local estimated text-only context trimming; not final provider wire counting",
+  "source": {
+    "repository": "moonshotai/Kimi-K3",
+    "revision": "f831ab66814297da540d832a5235f8e904f29d06",
+    "modelUrl": "https://huggingface.co/moonshotai/Kimi-K3/resolve/f831ab66814297da540d832a5235f8e904f29d06/tiktoken.model",
+    "modelSha256": "b6c497a7469b33ced9c38afb1ad6e47f03f5e5dc05f15930799210ec050c5103",
+    "modelBytes": 2795286,
+    "mergeableRanks": 163584,
+    "tokenizerUrl": "https://huggingface.co/moonshotai/Kimi-K3/resolve/f831ab66814297da540d832a5235f8e904f29d06/tokenization_kimi.py",
+    "tokenizerSha256": "f28ea66e2d862a2a5814970b2ce40c2f7d8296ff09aed90a7e7def689b906944",
+    "configUrl": "https://huggingface.co/moonshotai/Kimi-K3/resolve/f831ab66814297da540d832a5235f8e904f29d06/tokenizer_config.json",
+    "configSha256": "5d0803c94db9cd78763499e0956c95fd5a225c14a727e5a6cf5db3f96f010a6e",
+    "projectionUrl": "https://huggingface.co/moonshotai/Kimi-K3/resolve/f831ab66814297da540d832a5235f8e904f29d06/encoding_k3.py",
+    "projectionSha256": "49ff03305fdc4be26867972788d36150b67f8a9e852e62bb7959d87482223676"
+  },
+  "conversion": {
+    "version": "phase2195-k3-tiktoken-json-v1",
+    "target": "js-tiktoken@1.0.21 TiktokenBPE",
+    "bpeRanks": "base64 tokens preserved in official rank order and encoded as js-tiktoken compressed rank lines",
+    "regex": "semantics-preserving JS u-flag adaptation: Script=Han, negative-lookahead Han exclusion, explicit ASCII case alternatives",
+    "sourcePatStrSha256": "de5781783b193d5ccf5b1b28edfa70fa816ce78d54603fdc422cfd8d4ea4411f",
+    "assetSha256": "4ee94ee50af7f856daadc2f25d9f8071cb20ab767b2f31dab031673f0cc2dd8f",
+    "assetBytes": 1762199,
+    "officialTokenizerComparison": "222 deterministic fixtures, zero mismatches"
+  },
+  "controlTokens": {
+    "<|end_of_msg|>": 163586,
+    "<|open|>": 163587,
+    "<|close|>": 163588,
+    "<|sep|>": 163589
+  },
+  "license": {
+    "name": "Kimi K3 License",
+    "copyright": "Copyright (c) 2026 Moonshot AI",
+    "url": "https://huggingface.co/moonshotai/Kimi-K3/resolve/f831ab66814297da540d832a5235f8e904f29d06/LICENSE",
+    "sha256": "20c797ce19af0c17de52c6afb144644768a591c521655f5ebf5712c9850f2887",
+    "notice": "LICENSE.kimi-k3",
+    "redistribution": "The upstream notice is preserved. Model-as-a-Service revenue and large-commercial-product attribution conditions remain applicable as stated upstream."
+  },
+  "runtime": {
+    "networkDownload": false,
+    "remoteTokenApi": false,
+    "kind": "estimated",
+    "unsupported": [
+      "tools and tool call/result",
+      "thinking blocks",
+      "image/audio/URL media and unknown blocks",
+      "plain-text K3 control tokens",
+      "duplicate system projections",
+      "non-OpenAI or unresolved identities"
+    ]
+  }
+}
