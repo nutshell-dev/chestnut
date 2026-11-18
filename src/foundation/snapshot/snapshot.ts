@@ -22,6 +22,10 @@ import {
   emitSnapshotInitCleanupFailed,
   emitSnapshotInitFailed,
   emitSnapshotLegacySchemaMigrated,
+  emitSnapshotIgnoreMigrated,
+  emitSnapshotIgnoreRefreshed,
+  emitSnapshotIgnoreRefreshFailed,
+  emitSnapshotIgnoreRefreshSkipped,
   emitSnapshotPersistFailed,
   emitSnapshotRealpathFailed,
   emitSnapshotStateCorrupt,
@@ -36,8 +40,21 @@ type Result<T, E> =
   | { ok: true; value: T }
   | { ok: false; error: E };
 import { classifyGitError, type ExpectedGitFailure, type GitExecError } from './git-errors.js';
+import { runSnapshotMaintenance } from './maintenance.js';
+import type { SnapshotMaintenanceOptions, SnapshotMaintenanceResult } from './maintenance-types.js';
 
 export type SnapshotCommitResult = Result<void, ExpectedGitFailure>;
+
+export interface SnapshotIgnoreMigration {
+  path: string;
+  bytes: number | null;
+}
+
+export type SnapshotIgnoreRefreshResult = Result<
+  | { kind: 'updated' | 'unchanged'; addedPatterns: number; migratedFiles: SnapshotIgnoreMigration[] }
+  | { kind: 'skipped'; reason: 'staged_changes'; stagedPaths: string[] },
+  ExpectedGitFailure
+>;
 
 export interface SnapshotCommitter {
   commit(message: string): Promise<SnapshotCommitResult>;
@@ -186,6 +203,7 @@ export class Snapshot implements SnapshotCommitter {
   private execImpl: typeof defaultExec;
   private _lastCommitMs = 0;
   private state: SnapshotState = INITIAL_STATE;
+  private gitOperationTail: Promise<void> = Promise.resolve();
 
   /**
    * @param dir - snapshot 根目录绝对路径（必须等于 fs.baseDir、调用方装配责任）
@@ -207,8 +225,21 @@ export class Snapshot implements SnapshotCommitter {
     return [...this.ignorePatterns, ...DEFAULT_IGNORES].join('\n') + '\n';
   }
 
-  private async git(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const result = await this.execImpl('git', args, { cwd: this.dir });
+  private runGitExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.gitOperationTail.then(operation, operation);
+    this.gitOperationTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async git(
+    args: string[],
+    options?: { timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<{ stdout: string; stderr: string }> {
+    const result = await this.execImpl('git', args, {
+      cwd: this.dir,
+      timeout: options?.timeoutMs,
+      signal: options?.signal,
+    });
     // phase 1935 Step C: Git 协议只消费纯 stdout（combined output 混入 stderr 诊断）；
     // 成功 stderr 统一观察一次——不污染解析、不静默丢弃。
     observeGitStderr(this.audit, this.dir, result.stderr);
@@ -248,14 +279,19 @@ export class Snapshot implements SnapshotCommitter {
       // Post-init integrity check: a repo is only ready if HEAD exists
       // (git init + git commit completed). If init crashed between git init
       // and git commit, .git exists but HEAD does not → commit() would fail.
+      let existingHead = '';
       try {
-        const head = await this.git(['rev-parse', 'HEAD']);
-        if (head.stdout) {
-          // idempotent: do NOT reset counter (preserve cross-reassemble failure history)
-          return { ok: true as const, value: undefined };
-        }
+        existingHead = (await this.git(['rev-parse', 'HEAD'])).stdout;
       } catch {
         // silent: rev-parse failure means incomplete repo — handled by re-init below
+      }
+      if (existingHead) {
+        // Existing repositories absorb new owner patterns without overwriting local rules.
+        // Refresh errors stay outside the rev-parse catch: they must never trigger reinit/cleanup.
+        const refreshed = await this.refreshIgnorePatterns();
+        if (!refreshed.ok) return refreshed;
+        // idempotent: do NOT reset counter (preserve cross-reassemble failure history)
+        return { ok: true as const, value: undefined };
       }
       emitSnapshotInitFailed(this.audit, {
         dir: this.dir,
@@ -320,7 +356,140 @@ export class Snapshot implements SnapshotCommitter {
    * - 预期失败 → Result.err（降级；连续 3 次触发 snapshot_degraded）
    * - 不可预期失败 → throw
    */
+  async refreshIgnorePatterns(): Promise<SnapshotIgnoreRefreshResult> {
+    return this.runGitExclusive(() => this.refreshIgnorePatternsLocked());
+  }
+
+  private async refreshIgnorePatternsLocked(): Promise<SnapshotIgnoreRefreshResult> {
+    const desired = [...this.ignorePatterns, ...DEFAULT_IGNORES];
+    let current = '';
+    try {
+      current = await this.fs.read('.gitignore');
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        emitSnapshotIgnoreRefreshFailed(this.audit, {
+          dir: this.dir,
+          stage: 'read_ignore',
+          reason: formatErr(error),
+        });
+        throw error;
+      }
+    }
+
+    const existing = new Set(current.split(/\r?\n/).map(line => line.trim()));
+    const missing = desired.filter(pattern => !existing.has(pattern));
+    let trackedPaths: string[];
+    try {
+      const tracked = await this.git(['ls-files', '-z', '--', ...desired]);
+      trackedPaths = tracked.stdout.split('\0').filter(Boolean);
+    } catch (rawErr) {
+      const failure = this.classifyOrThrow(rawErr);
+      emitSnapshotIgnoreRefreshFailed(this.audit, {
+        dir: this.dir,
+        stage: 'list_tracked',
+        reason: failure.output,
+      });
+      return { ok: false, error: failure };
+    }
+
+    if (missing.length === 0 && trackedPaths.length === 0) {
+      return { ok: true, value: { kind: 'unchanged', addedPatterns: 0, migratedFiles: [] } };
+    }
+
+    let stagedPaths: string[];
+    try {
+      const staged = await this.git(['diff', '--cached', '--name-only', '-z']);
+      stagedPaths = staged.stdout.split('\0').filter(Boolean);
+    } catch (rawErr) {
+      const failure = this.classifyOrThrow(rawErr);
+      emitSnapshotIgnoreRefreshFailed(this.audit, {
+        dir: this.dir,
+        stage: 'check_staged',
+        reason: failure.output,
+      });
+      return { ok: false, error: failure };
+    }
+    if (stagedPaths.length > 0) {
+      emitSnapshotIgnoreRefreshSkipped(this.audit, {
+        dir: this.dir,
+        reason: 'staged_changes',
+        paths: stagedPaths,
+      });
+      return {
+        ok: true,
+        value: { kind: 'skipped', reason: 'staged_changes', stagedPaths },
+      };
+    }
+
+    const migratedFiles: SnapshotIgnoreMigration[] = [];
+    for (const trackedPath of trackedPaths) {
+      try {
+        migratedFiles.push({ path: trackedPath, bytes: (await this.fs.stat(trackedPath)).size });
+      } catch (error) {
+        if (isFileNotFound(error)) migratedFiles.push({ path: trackedPath, bytes: null });
+        else {
+          emitSnapshotIgnoreRefreshFailed(this.audit, {
+            dir: this.dir,
+            stage: 'stat',
+            reason: `${trackedPath}: ${formatErr(error)}`,
+          });
+          throw error;
+        }
+      }
+    }
+
+    if (missing.length > 0) {
+      const prefix = current.length > 0 && !current.endsWith('\n') ? `${current}\n` : current;
+      try {
+        await this.fs.writeAtomic('.gitignore', `${prefix}${missing.join('\n')}\n`);
+      } catch (error) {
+        emitSnapshotIgnoreRefreshFailed(this.audit, {
+          dir: this.dir,
+          stage: 'write_ignore',
+          reason: formatErr(error),
+        });
+        throw error;
+      }
+      emitSnapshotIgnoreRefreshed(this.audit, { dir: this.dir, addedPatterns: missing.length });
+    }
+
+    if (trackedPaths.length > 0) {
+      try {
+        await this.git(['rm', '--cached', '--', ...trackedPaths]);
+      } catch (rawErr) {
+        const failure = this.classifyOrThrow(rawErr);
+        emitSnapshotIgnoreRefreshFailed(this.audit, {
+          dir: this.dir,
+          stage: 'untrack',
+          reason: failure.output,
+        });
+        return { ok: false, error: failure };
+      }
+      for (const migration of migratedFiles) {
+        emitSnapshotIgnoreMigrated(this.audit, { dir: this.dir, ...migration });
+      }
+    }
+
+    return {
+      ok: true,
+      value: { kind: 'updated', addedPatterns: missing.length, migratedFiles },
+    };
+  }
+
+  async maintain(options: SnapshotMaintenanceOptions = {}): Promise<SnapshotMaintenanceResult> {
+    return this.runGitExclusive(() => runSnapshotMaintenance({
+      dir: this.dir,
+      audit: this.audit,
+      fs: this.fs,
+      git: (args, gitOptions) => this.git(args, gitOptions),
+    }, options));
+  }
+
   async commit(message: string): Promise<SnapshotCommitResult> {
+    return this.runGitExclusive(() => this.commitLocked(message));
+  }
+
+  private async commitLocked(message: string): Promise<SnapshotCommitResult> {
     // Throttle: skip commits within COMMIT_THROTTLE_MS (phase 1051)
     const now = Date.now();
     if (now - this._lastCommitMs < COMMIT_THROTTLE_MS) {

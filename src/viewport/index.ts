@@ -13,6 +13,11 @@ export { runChatViewport, type ChatViewportOptions } from './chat-viewport.js';
 export {
   createViewportAudit,
   VIEWPORT_AUDIT_EVENTS,
+  VIEWPORT_AUDIT_FILE,
+  VIEWPORT_AUDIT_MAX_SIZE_MB,
+  VIEWPORT_AUDIT_RETENTION_DAYS,
+  VIEWPORT_AUDIT_MAX_ARCHIVES,
+  VIEWPORT_SNAPSHOT_IGNORE,
   VIEWPORT_FILE_ROUTING,
 } from './viewport-audit-events.js';
 export { VIEWPORT_DRAFT_FILE } from './chat-viewport-draft.js';

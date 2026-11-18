@@ -11,7 +11,9 @@
 
 import { STREAM_EVENT_NAMES, type StreamEventMap } from '../foundation/stream/index.js';
 import { STREAM_TASK_EVENTS } from '../core/async-task-system/index.js';
-import { ASSEMBLY_STREAM_EVENTS } from '../assembly/index.js';
+// Local stable wire value avoids Viewport ↔ Assembly module cycles; parity is locked
+// by tests/cli/stream-event-types.test.ts against the Assembly owner declaration.
+const ASSEMBLY_STREAM_EVENTS = { DAEMON_STARTED: 'daemon_started' } as const;
 
 /**
  * phase 1789: 稳定 wire catalog——agent turn 生命周期 6 事件的字符串映射。

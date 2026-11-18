@@ -154,7 +154,14 @@ export async function assemble(
     let heartbeat: import('../core/heartbeat/index.js').Heartbeat | undefined;
     let cronRunner: import('../foundation/cron/index.js').CronRunner | undefined;
     if (isMotion) {
-      const motionAddons = await createMotionAddons({ core, business, runtime, config, streamWriter: streamWriter! });
+      const motionAddons = await createMotionAddons({
+        core,
+        business,
+        runtime,
+        config,
+        streamWriter: streamWriter!,
+        snapshot,
+      });
       gateway = motionAddons.gateway;
       heartbeat = motionAddons.heartbeat;
       cronRunner = motionAddons.cronRunner;

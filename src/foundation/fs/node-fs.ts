@@ -451,6 +451,12 @@ export class NodeFileSystem implements FileSystem {
     return wrapENOENT(relativePath, () => stat(absolute));
   }
 
+  async statFs(relativePath: string): Promise<{ availableBytes: number }> {
+    const absolute = this.resolveAndCheck(relativePath);
+    const stats = await wrapENOENT(relativePath, () => fs.statfs(absolute));
+    return { availableBytes: Number(stats.bavail) * Number(stats.bsize) };
+  }
+
   async utimes(relativePath: string, atime: Date, mtime: Date): Promise<void> {
     const absolute = this.resolveAndCheck(relativePath);
     return wrapENOENT(relativePath, () => fs.utimes(absolute, atime, mtime));

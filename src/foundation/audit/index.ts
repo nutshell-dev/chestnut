@@ -30,10 +30,12 @@ export {
 export type {
   AuditLog,
   AuditWriteOutcome,
+  AuditRetentionFailure,
   IdNamingEntry,
   ColSchemaEntry,
   TraceId,
   AuditFileName,
+  AuditFilePolicy,
   AuditFileRoutingContribution,
   AuditArtifactRef,
   AuditLossRecord,

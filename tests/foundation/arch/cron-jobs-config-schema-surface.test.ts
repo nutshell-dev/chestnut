@@ -14,12 +14,13 @@ describe('Cron cronJobsConfigSchema deep surface', () => {
   it('keeps the jobs schema local behind cronConfigSchema', () => {
     expect(configSchemaSource).not.toMatch(/export\s+const\s+cronJobsConfigSchema\b/);
     expect(configSchemaSource).toMatch(/(?:^|\n)const\s+cronJobsConfigSchema\s*=\s*z\.object\(\{/);
-    // five job keys
+    // six job keys
     expect(configSchemaSource).toMatch(/\n\s*dream_trigger:\s*z\.object\(\{/);
     expect(configSchemaSource).toMatch(/\n\s*contract_observer:\s*z\.object\(\{/);
     expect(configSchemaSource).toMatch(/\n\s*audit_size_monitor:\s*z\.object\(\{/);
     expect(configSchemaSource).toMatch(/\n\s*outbox_summary:\s*z\.object\(\{/);
     expect(configSchemaSource).toMatch(/\n\s*executor_supervisor:\s*z\.object\(\{/);
+    expect(configSchemaSource).toMatch(/\n\s*snapshot_maintenance:\s*snapshotMaintenanceConfigSchema\.extend\(\{/);
     // Phase 1974 Step B: executor_supervisor schedule/stale threshold defaults
     expect(configSchemaSource).toMatch(
       /executor_supervisor:\s*z\.object\(\{\s*\n\s*enabled:\s*z\.boolean\(\)\.default\(true\),\s*\n\s*schedule:\s*cronJobScheduleField\.default\('interval:30s'\),\s*\n\s*heartbeat_stale_timeout_ms:\s*z\.number\(\)\.min\(60_000\)\.default\(180_000\),\s*\n\s*\}\)\.default\(\{\}\),/,

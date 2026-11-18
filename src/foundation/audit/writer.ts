@@ -30,7 +30,7 @@
 import * as path from 'node:path';
 import { newShortUuid } from  '../node-utils/index.js';
 import { formatErr } from "../node-utils/index.js";
-import type { AuditLog, AuditWriteOutcome, TraceId } from './types.js';
+import type { AuditLog, AuditRetentionFailure, AuditWriteOutcome, TraceId } from './types.js';
 import type { AuditArtifactRef, AuditLossRecord } from './types.js';
 import { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 import * as nodeFs from 'node:fs';
@@ -525,6 +525,7 @@ export class AuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
   private readonly maxBytes: number | null;
   private readonly retentionDays: number | null;
+  private readonly maxArchives: number | null;
   private seq = 0; // NEW phase 1125
   /** phase 1343 α-6: turn-level trace id for cross-module audit correlation */
   traceId?: TraceId;
@@ -534,9 +535,11 @@ export class AuditWriter implements AuditLog {
     private readonly filePath: string,
     maxSizeMb?: number | null,
     retentionDays?: number | null,
+    maxArchives?: number | null,
   ) {
     this.maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : null;
     this.retentionDays = retentionDays ?? null;
+    this.maxArchives = maxArchives ?? null;
   }
 
   write(type: string, ...cols: (string | number)[]): AuditWriteOutcome {
@@ -547,9 +550,10 @@ export class AuditWriter implements AuditLog {
       parts.push(`trace_id=${esc(this.traceId)}`);
     }
     const line = parts.join('\t') + '\n';
+    const retentionFailures: AuditRetentionFailure[] = [];
     try {
-      if (this.maxBytes) this.rotateIfNeeded();
-      if (this.retentionDays) this.rotateByDayIfNeeded();
+      if (this.maxBytes) this.rotateIfNeeded(retentionFailures);
+      if (this.retentionDays || this.maxArchives !== null) this.rotateByDayIfNeeded(retentionFailures);
       this.fs.appendSync(this.filePath, line);
       try {
         this.fs.syncSync(this.filePath);
@@ -561,6 +565,15 @@ export class AuditWriter implements AuditLog {
         const reason = formatErr(syncErr);
         console.error(`[AUDIT WARNING] sync failed: type=${type} path=${this.filePath} reason=${reason}`);
         return { kind: 'committed_platform_limited', path: this.filePath, row: line, error: syncErr };
+      }
+      if (retentionFailures.length > 0) {
+        return {
+          kind: 'committed_with_retention_failure',
+          path: this.filePath,
+          row: line,
+          error: retentionFailures[0].error,
+          failures: retentionFailures,
+        };
       }
       return { kind: 'durable' };
     } catch (err) {
@@ -582,7 +595,7 @@ export class AuditWriter implements AuditLog {
   artifact(ref: AuditArtifactRef): string[] { return encodeAuditArtifact(ref); }
   loss(record: AuditLossRecord): string[] { return encodeAuditLoss(record); }
 
-  private rotateIfNeeded(): void {
+  private rotateIfNeeded(failures: AuditRetentionFailure[]): void {
     try {
       const stats = this.fs.statSync(this.filePath);
       if (stats.size >= this.maxBytes!) {
@@ -596,6 +609,7 @@ export class AuditWriter implements AuditLog {
       if (!(err instanceof FileNotFoundError) && code !== 'ENOENT') {
         const reason = formatErr(err);
         console.error(`[AUDIT CRITICAL] rotation check failed: path=${this.filePath} reason=${reason}`);
+        failures.push({ stage: 'size_rotation', path: this.filePath, error: err });
       }
     }
   }
@@ -604,21 +618,22 @@ export class AuditWriter implements AuditLog {
    * phase 1318 Step A: tick.tsv 按天归档 + 30 天 prune。
    * mirror stream retention `pruneArchives` 模式。
    */
-  private rotateByDayIfNeeded(): void {
+  private rotateByDayIfNeeded(failures: AuditRetentionFailure[]): void {
     try {
       // phase 1801: typed probe——系统故障（EACCES/EIO）不再折叠为 null
       // （null 会被当作「无日期」而静默停用本轮 rotation/prune）。
       const probe = this.readFirstLineDate(this.filePath);
       if (probe.kind === 'failed') {
         this.reportRotationProbeFailure(probe);
+        failures.push({ stage: 'rotation_probe', path: probe.path, error: probe.error });
         return;
       }
       const fileDate = probe.kind === 'found' ? probe.value : null;
       const today = formatDateYyyyMmDd(new Date());
       // 无论是否归档，都先 prune 过期归档（兼容空文件/首次写路径）。
-      this.pruneOldArchives(today);
+      this.pruneOldArchives(today, failures);
 
-      if (!fileDate || fileDate >= today) {
+      if (!this.retentionDays || !fileDate || fileDate >= today) {
         // 文件不存在、同天或未来（时钟回拨）不归档。
         return;
       }
@@ -631,6 +646,7 @@ export class AuditWriter implements AuditLog {
       if (!(err instanceof FileNotFoundError) && code !== 'ENOENT') {
         const reason = formatErr(err);
         console.error(`[AUDIT CRITICAL] daily rotation check failed: path=${this.filePath} reason=${reason}`);
+        failures.push({ stage: 'daily_rotation', path: this.filePath, error: err });
       }
     }
   }
@@ -663,15 +679,16 @@ export class AuditWriter implements AuditLog {
     }
   }
 
-  /** 删除超过 retentionDays 天的归档文件（文件名形如 tick.<yyyymmdd>.tsv）。 */
-  private pruneOldArchives(today: string): void {
-    if (!this.retentionDays || this.retentionDays <= 0) return;
+  /** Apply age and count bounds to daily and size-rotation archives. */
+  private pruneOldArchives(today: string, failures: AuditRetentionFailure[]): void {
     const dir = path.dirname(this.filePath);
     const base = path.basename(this.filePath);
     const stem = base.replace(/\.tsv$/, '');
-    const archiveRe = new RegExp(`^${stem}\\.(\\d{8})\\.tsv$`);
-
-    const cutoff = offsetDateYyyyMmDd(today, -this.retentionDays);
+    const dailyArchiveRe = new RegExp(`^${stem}\\.(\\d{8})\\.tsv$`);
+    const sizeArchiveRe = new RegExp(`^${base}\\..+\\.bak$`);
+    const cutoff = this.retentionDays && this.retentionDays > 0
+      ? offsetDateYyyyMmDd(today, -this.retentionDays)
+      : null;
 
     let entries: import('../fs/index.js').FileEntry[];
     try {
@@ -682,22 +699,37 @@ export class AuditWriter implements AuditLog {
       const code = (err as NodeJS.ErrnoException)?.code;
       if (err instanceof FileNotFoundError || code === 'ENOENT') return;
       this.reportRotationProbeFailure({ kind: 'failed', stage: 'list_archives', path: dir, error: formatErr(err) });
+      failures.push({ stage: 'archive_list', path: dir, error: err });
       return;
     }
-    for (const entry of entries) {
-      if (!entry.isFile) continue;
-      const m = entry.name.match(archiveRe);
-      if (!m) continue;
-      const archiveDate = m[1];
-      // archiveDate 是 yyyymmdd；与 today 偏移后的 yyyymmdd 比较。
-      if (archiveDate < cutoff) {
-        try {
-          this.fs.deleteSync(path.join(dir, entry.name));
-        } catch (delErr) {
-          const reason = formatErr(delErr);
-          console.error(`[AUDIT WARNING] prune archive failed: path=${entry.name} reason=${reason}`);
-        }
+
+    const archives = entries.filter(entry => {
+      if (!entry.isFile) return false;
+      return dailyArchiveRe.test(entry.name) || sizeArchiveRe.test(entry.name);
+    });
+    const retained: import('../fs/index.js').FileEntry[] = [];
+    const deleteArchive = (entry: import('../fs/index.js').FileEntry, reason: string): void => {
+      try {
+        this.fs.deleteSync(path.join(dir, entry.name));
+        console.error(`[AUDIT WARNING] archive pruned: path=${entry.name} reason=${reason}`);
+      } catch (delErr) {
+        console.error(`[AUDIT WARNING] prune archive failed: path=${entry.name} reason=${formatErr(delErr)}`);
+        failures.push({ stage: 'archive_delete', path: path.join(dir, entry.name), error: delErr });
+        retained.push(entry);
       }
+    };
+
+    for (const entry of archives) {
+      const match = entry.name.match(dailyArchiveRe);
+      if (cutoff && match && match[1] < cutoff) deleteArchive(entry, 'retention_days');
+      else retained.push(entry);
+    }
+
+    if (this.maxArchives !== null && retained.length > this.maxArchives) {
+      retained.sort((a, b) => a.mtime.getTime() - b.mtime.getTime() || a.name.localeCompare(b.name));
+      const excess = retained.length - this.maxArchives;
+      const overflow = retained.splice(0, excess);
+      for (const entry of overflow) deleteArchive(entry, 'max_archives');
     }
   }
 }

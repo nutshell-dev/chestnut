@@ -115,6 +115,24 @@ describe('AuditWriter durability outcome（phase 1765）', () => {
     }
   });
 
+  it('rotation failure keeps writing but returns typed retention evidence', () => {
+    const rotationError = Object.assign(new Error('rotation ENOSPC'), { code: 'ENOSPC' });
+    const { fs, appendSync } = makeFakeFs();
+    fs.statSync = vi.fn(() => ({ size: 2 * 1024 * 1024 })) as unknown as FileSystem['statSync'];
+    fs.moveSync = vi.fn(() => { throw rotationError; });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const writer = new AuditWriter(fs, FILE_PATH, 1);
+
+    const outcome = writer.write('viewport_render_batch', 'count=1');
+
+    expect(outcome.kind).toBe('committed_with_retention_failure');
+    if (outcome.kind === 'committed_with_retention_failure') {
+      expect(outcome.failures).toEqual([{ stage: 'size_rotation', path: FILE_PATH, error: rotationError }]);
+      expect(outcome.row).toContain('viewport_render_batch');
+    }
+    expect(appendSync).toHaveBeenCalledTimes(1);
+  });
+
   it('DispatchingAuditWriter 透传路由 writer 的 outcome（sync 失败携带目标文件 path）', () => {
     const syncErr = new Error('fsync EIO');
     const appended: Array<{ path: string; line: string }> = [];

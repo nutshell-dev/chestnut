@@ -23,15 +23,24 @@ export interface AuditLog {
  *   携带原始 sync error / path / row identity（完整 TSV 行，含 ts+seq+type）。
  *   不得伪装成功；fallback/retry 责任由 AuditWriter owner 统一承接，
  *   调用者不得自行猜测或重复写入（重复 append 会致 reconcile 双份）。
+ * - `committed_with_retention_failure`：append + sync 已成功，但 rotation/prune
+ *   有结构化失败；当前行不丢失，failures 保留 stage/path/error。
  * - `pending_fallback`：append 本身失败，row 已进模块级 fallback 池
  *   （dump/reconcile/drop counter 通道观测），同样保留 error 与 row identity。
  *
  * 仅 AuditWriter（及 DispatchingAuditWriter 透传）结构化返回；AuditLog 接口
  * 的 `write` 保持 void（协变拓宽合法），经接口调用的 caller 不观测 outcome。
  */
+export interface AuditRetentionFailure {
+  stage: 'size_rotation' | 'daily_rotation' | 'rotation_probe' | 'archive_list' | 'archive_delete';
+  path: string;
+  error: unknown;
+}
+
 export type AuditWriteOutcome =
   | { kind: 'durable' }
   | { kind: 'committed_platform_limited'; path: string; row: string; error: unknown }
+  | { kind: 'committed_with_retention_failure'; path: string; row: string; error: unknown; failures: AuditRetentionFailure[] }
   | { kind: 'pending_fallback'; path: string; row: string; error: unknown };
 
 export interface AuditArtifactRef {
@@ -97,6 +106,13 @@ export interface IdNamingEntry {
  * Owner modules declare `{ eventType: fileName }` records; Assembly aggregates them.
  */
 export type AuditFileName = 'audit' | 'tick' | 'viewport';
+
+/** Optional persistence policy for one physical audit file. */
+export interface AuditFilePolicy {
+  maxSizeMb?: number | null;
+  retentionDays?: number | null;
+  maxArchives?: number | null;
+}
 
 export type AuditFileRoutingContribution = Readonly<Record<string, AuditFileName>>;
 

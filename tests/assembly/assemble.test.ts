@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,6 +24,7 @@ const mockStreamWriter = {
 const mockSnapshot = {
   init: vi.fn(),
   commit: vi.fn(),
+  maintain: vi.fn(),
 };
 const mockProcessManager = {};
 const mockCronRunner = {
@@ -97,6 +99,13 @@ vi.mock('../../src/foundation/snapshot/index.js', () => ({
   Snapshot: vi.fn(function () { return mockSnapshot; }),
   createSnapshot: vi.fn(function () { return mockSnapshot; }),
   SNAPSHOT_FILE_ROUTING: {},
+  snapshotMaintenanceConfigSchema: z.object({
+    enabled: z.boolean().default(true),
+    timeout_ms: z.number().default(300_000),
+    git_warn_bytes: z.number().default(512 * 1024 * 1024),
+    loose_object_warn_count: z.number().default(10_000),
+    disk_available_warn_bytes: z.number().default(1024 * 1024 * 1024),
+  }),
 }));
 
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁出 foundation/snapshot、归 assembly/snapshot-patterns。
@@ -476,6 +485,7 @@ describe('assemble', () => {
     mockStreamWriter.write.mockImplementation(function () { callOrder.push('StreamWriter.write'); });
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
   });
 
   // --------------------------------------------------------------------------

@@ -8,6 +8,7 @@
  */
 import { z } from 'zod';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
+import { snapshotMaintenanceConfigSchema } from '../snapshot/index.js';
 
 const SCHEDULE_REGEX = /^(?:hourly|daily:\d{1,2}:\d{2}|interval:\d+[smh])$/;
 
@@ -34,6 +35,9 @@ const cronJobsConfigSchema = z.object({
   outbox_summary: z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:1s'),
+  }).default({}),
+  snapshot_maintenance: snapshotMaintenanceConfigSchema.extend({
+    schedule: cronJobScheduleField.default('daily:04:30'),
   }).default({}),
   // Phase 1974 Step B: ContractSystem executor-supervisor job（active contract → ensure daemon）
   executor_supervisor: z.object({

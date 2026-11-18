@@ -56,6 +56,7 @@ const mockStreamWriter = {
 const mockSnapshot = {
   init: vi.fn(),
   commit: vi.fn(),
+  maintain: vi.fn(),
 };
 const mockProcessManager = {};
 const mockCronRunner = {
@@ -96,15 +97,25 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
   TICK_RETENTION_DAYS: 30,
 }));
 
-vi.mock('../../src/foundation/snapshot/index.js', () => ({
-  Snapshot: vi.fn(function () {
-    return mockSnapshot;
-  }),
-  createSnapshot: vi.fn(function () {
-    return mockSnapshot;
-  }),
-  SNAPSHOT_FILE_ROUTING: {},
-}));
+vi.mock('../../src/foundation/snapshot/index.js', async () => {
+  const { z } = await vi.importActual<typeof import('zod')>('zod');
+  return {
+    Snapshot: vi.fn(function () {
+      return mockSnapshot;
+    }),
+    createSnapshot: vi.fn(function () {
+      return mockSnapshot;
+    }),
+    SNAPSHOT_FILE_ROUTING: {},
+    snapshotMaintenanceConfigSchema: z.object({
+      enabled: z.boolean().default(true),
+      timeout_ms: z.number().default(300_000),
+      git_warn_bytes: z.number().default(512 * 1024 * 1024),
+      loose_object_warn_count: z.number().default(10_000),
+      disk_available_warn_bytes: z.number().default(1024 * 1024 * 1024),
+    }),
+  };
+});
 
 vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
   SNAPSHOT_IGNORE_PATTERNS: ['.git', 'node_modules'],
@@ -568,6 +579,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
     capturedContractCallback = undefined;
     capturedContractBridgeCreateReader = undefined;
     capturedContractObserverDeps = undefined;
@@ -661,6 +673,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
   });
 
   it('handler returns early when memorySystem is undefined (non-motion claw)', async () => {
@@ -741,6 +754,7 @@ describe('contract observer bridge → evolution guard (phase 620 / phase 1396 S
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
     capturedContractCallback = undefined;
     capturedTaskSystems.length = 0;
   });
@@ -875,6 +889,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
     capturedContractCallback = undefined;
     capturedContractObserverDeps = undefined;
     capturedTaskSystems.length = 0;
@@ -1017,6 +1032,7 @@ describe('phase1396-execution-recovery-wiring', () => {
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
+    mockSnapshot.maintain.mockResolvedValue({ kind: 'completed' });
     capturedContractSystems.length = 0;
     capturedRuntimeDeps.length = 0;
   });

@@ -14,6 +14,7 @@ import { createSystemAudit } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
+import type { Snapshot, SnapshotMaintenanceConfig } from '../foundation/snapshot/index.js';
 import { createHeartbeat, createHeartbeatCursorStore, type Heartbeat } from '../core/heartbeat/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, type CronJob, type CronRunner } from '../foundation/cron/index.js';
@@ -60,6 +61,7 @@ interface MotionAddonsInput {
   runtime: Runtime;
   config: AssembleConfig;
   streamWriter: StreamWriter;
+  snapshot: Snapshot;
 }
 
 /** Phase 1242 Step A: Assembly-owned audit-size-monitor CronJob descriptor. */
@@ -85,6 +87,33 @@ export function createAuditSizeMonitorCronJob(
   } satisfies CronJob;
 }
 
+/** Assembly binds the single motion Snapshot; no cross-repository scanning. */
+export function createSnapshotMaintenanceCronJob(
+  snapshot: Snapshot,
+  globalConfig: {
+    cron: { jobs: { snapshot_maintenance: SnapshotMaintenanceConfig & { schedule: string } } };
+  },
+): CronJob {
+  const jobConfig = globalConfig.cron.jobs.snapshot_maintenance;
+  return {
+    name: 'snapshot-maintenance',
+    enabled: jobConfig.enabled,
+    schedule: parseSchedule(jobConfig.schedule),
+    timeoutMs: jobConfig.timeout_ms,
+    handler: async (signal) => {
+      await snapshot.maintain({
+        timeoutMs: jobConfig.timeout_ms,
+        signal,
+        thresholds: {
+          gitWarnBytes: jobConfig.git_warn_bytes,
+          looseObjectWarnCount: jobConfig.loose_object_warn_count,
+          diskAvailableWarnBytes: jobConfig.disk_available_warn_bytes,
+        },
+      });
+    },
+  };
+}
+
 interface MotionAddonsOutput {
   gateway?: Gateway;
   heartbeat?: Heartbeat;
@@ -96,7 +125,7 @@ interface MotionAddonsOutput {
 export async function createMotionAddons(
   input: MotionAddonsInput,
 ): Promise<MotionAddonsOutput> {
-  const { core, business, runtime, config, streamWriter } = input;
+  const { core, business, runtime, config, streamWriter, snapshot } = input;
   const { clawDir, globalConfig } = config;
   const {
     systemFs, parentFs, auditWriter,
@@ -321,6 +350,7 @@ export async function createMotionAddons(
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
           streamEventType: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
         }, globalConfig),
+        createSnapshotMaintenanceCronJob(snapshot, globalConfig),
         // Phase 1974 Step B：有已发布 active contract 的 claw，其 executor daemon 由
         // ContractSystem cron 确保运行。daemonDir 推导经 ClawTopology；spawn 规格/心跳
         // 协议 capability 由 daemon lifecycle 注入（缺省时不注册本 job）；ChestnutRoot

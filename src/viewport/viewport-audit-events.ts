@@ -60,6 +60,18 @@ export const VIEWPORT_AUDIT_EVENTS = {
  */
 import type { FileSystem } from '../foundation/fs/index.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
+import {
+  VIEWPORT_AUDIT_MAX_ARCHIVES,
+  VIEWPORT_AUDIT_MAX_SIZE_MB,
+  VIEWPORT_AUDIT_RETENTION_DAYS,
+} from './viewport-audit-policy.js';
+export {
+  VIEWPORT_AUDIT_FILE,
+  VIEWPORT_SNAPSHOT_IGNORE,
+  VIEWPORT_AUDIT_MAX_SIZE_MB,
+  VIEWPORT_AUDIT_RETENTION_DAYS,
+  VIEWPORT_AUDIT_MAX_ARCHIVES,
+} from './viewport-audit-policy.js';
 
 export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'>> = {
   viewport_render_batch: 'viewport',
@@ -92,5 +104,10 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
 export function createViewportAudit(fs: FileSystem, agentDir: string): AuditLog {
   return createSystemAudit(fs, agentDir, {
     typeToFile: new Map(Object.entries(VIEWPORT_FILE_ROUTING)),
+    filePolicies: new Map([['viewport', {
+      maxSizeMb: VIEWPORT_AUDIT_MAX_SIZE_MB,
+      retentionDays: VIEWPORT_AUDIT_RETENTION_DAYS,
+      maxArchives: VIEWPORT_AUDIT_MAX_ARCHIVES,
+    }]]),
   });
 }

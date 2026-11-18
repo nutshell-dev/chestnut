@@ -232,6 +232,9 @@ export interface FileSystem {
    */
   stat(path: string): Promise<StatInfo>;
 
+  /** Filesystem free space available to unprivileged processes, in bytes. */
+  statFs(path: string): Promise<{ availableBytes: number }>;
+
   /**
    * Update file access and modification times.
    * @param path - Relative path within configured baseDir

@@ -2,17 +2,23 @@ import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
 import { AuditWriter, AUDIT_FILE } from './writer.js';
 import { DispatchingAuditWriter } from './dispatching-writer.js';
-import type { AuditFileName, AuditLog } from './types.js';
+import type { AuditFileName, AuditFilePolicy, AuditLog } from './types.js';
 
 export function createSystemAudit(
   fs: FileSystem,
   baseDir: string,
-  options?: { typeToFile?: ReadonlyMap<string, AuditFileName>; maxSizeMb?: number | null; tickRetentionDays?: number | null },
+  options?: {
+    typeToFile?: ReadonlyMap<string, AuditFileName>;
+    maxSizeMb?: number | null;
+    tickRetentionDays?: number | null;
+    filePolicies?: ReadonlyMap<string, AuditFilePolicy>;
+  },
 ): AuditLog {
   if (options?.typeToFile && options.typeToFile.size > 0) {
     return new DispatchingAuditWriter(fs, baseDir, options.typeToFile, {
       maxSizeMb: options.maxSizeMb,
       tickRetentionDays: options.tickRetentionDays,
+      filePolicies: options.filePolicies,
     });
   }
   // 向后兼容：无 spec → 单 AuditWriter to audit.tsv

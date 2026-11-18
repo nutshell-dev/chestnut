@@ -74,17 +74,19 @@ describe('Snapshot git stdout/stderr 通道分离（phase 1935 Step C）', () =>
   it('init/HEAD 查询 stdout 合法 + 警告 → 幂等初始化成功，不把警告当 HEAD 缺失', async () => {
     const fs = makeMockFs();
     const headSha = 'a'.repeat(40);
-    const execImpl = vi.fn(() => Promise.resolve(mixed(`${headSha}\n`, WARNING)));
+    const execImpl = vi.fn((_command: string, args: string[]) => Promise.resolve(
+      args[0] === 'rev-parse' ? mixed(`${headSha}\n`, WARNING) : mixed('', ''),
+    ));
     const snapshot = new Snapshot('/tmp/agent-1935-init', fs, audit, [], undefined, execImpl as never);
 
     const r = await snapshot.init();
     expect(r.ok).toBe(true);
 
-    // 仅 rev-parse HEAD 一次；若 stdout 被 output 污染，head.stdout 非空判断仍过，
-    // 但旧实现 output.trim() 含警告文本会被当成合法 SHA 掩盖——此处同时断言
-    // 无 reinit（init/config/add/commit 均未调用）
-    expect(execImpl).toHaveBeenCalledTimes(1);
+    // 完整仓库先 rev-parse，再做幂等 ignore refresh 的只读查询；不得 reinit。
+    expect(execImpl).toHaveBeenCalledTimes(3);
     expect((execImpl.mock.calls[0] as unknown as unknown[])[1]).toEqual(['rev-parse', 'HEAD']);
+    expect((execImpl.mock.calls[1] as unknown as unknown[])[1]).toEqual(['ls-files', '-z', '--', 'logs/', '*.tmp']);
+    expect((execImpl.mock.calls[2] as unknown as unknown[])[1]).toEqual(['diff', '--cached', '--name-only', '-z']);
 
     const gitStderrCalls = (audit.write as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c) => c[0] === SNAPSHOT_AUDIT_EVENTS.GIT_STDERR,

@@ -142,6 +142,103 @@ export function emitSnapshotLegacySchemaMigrated(audit: AuditLog, opts: {
   audit.write(SNAPSHOT_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED, ...cols);
 }
 
+// === IGNORE REFRESH / MAINTENANCE (phase 2196) ===
+export function emitSnapshotIgnoreRefreshed(audit: AuditLog, opts: {
+  dir: string;
+  addedPatterns: number;
+}): void {
+  audit.write(SNAPSHOT_AUDIT_EVENTS.IGNORE_REFRESHED, `dir=${opts.dir}`, `added_patterns=${opts.addedPatterns}`);
+}
+
+export function emitSnapshotIgnoreMigrated(audit: AuditLog, opts: {
+  dir: string;
+  path: string;
+  bytes: number | null;
+}): void {
+  const cols: (string | number)[] = [`dir=${opts.dir}`, `path=${opts.path}`];
+  if (opts.bytes !== null) cols.push(`bytes=${opts.bytes}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.IGNORE_MIGRATED, ...cols);
+}
+
+export function emitSnapshotIgnoreRefreshSkipped(audit: AuditLog, opts: {
+  dir: string;
+  reason: 'staged_changes';
+  paths: readonly string[];
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.IGNORE_REFRESH_SKIPPED,
+    `dir=${opts.dir}`,
+    `reason=${opts.reason}`,
+    `paths=${audit.message(opts.paths.join(','))}`,
+  );
+}
+
+export function emitSnapshotIgnoreRefreshFailed(audit: AuditLog, opts: {
+  dir: string;
+  stage: 'read_ignore' | 'write_ignore' | 'list_tracked' | 'check_staged' | 'untrack' | 'stat';
+  reason: string;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.IGNORE_REFRESH_FAILED,
+    `dir=${opts.dir}`,
+    `stage=${opts.stage}`,
+    `reason=${audit.message(opts.reason)}`,
+  );
+}
+
+export function emitSnapshotMaintenanceCompleted(audit: AuditLog, opts: {
+  dir: string;
+  before: import('./maintenance-types.js').SnapshotRepositoryStats;
+  after: import('./maintenance-types.js').SnapshotRepositoryStats;
+  warnings: number;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.MAINTENANCE_COMPLETED,
+    `dir=${opts.dir}`,
+    `before_git_bytes=${opts.before.gitBytes}`,
+    `after_git_bytes=${opts.after.gitBytes}`,
+    `loose_objects=${opts.after.looseObjectCount}`,
+    `pack_bytes=${opts.after.packBytes}`,
+    `disk_available_bytes=${opts.after.diskAvailableBytes}`,
+    `warnings=${opts.warnings}`,
+  );
+}
+
+export function emitSnapshotMaintenanceSkipped(audit: AuditLog, opts: {
+  dir: string;
+  reason: 'cancelled';
+}): void {
+  audit.write(SNAPSHOT_AUDIT_EVENTS.MAINTENANCE_SKIPPED, `dir=${opts.dir}`, `reason=${opts.reason}`);
+}
+
+export function emitSnapshotMaintenanceFailed(audit: AuditLog, opts: {
+  dir: string;
+  kind: 'timeout' | 'cancelled' | 'disk_full' | 'git' | 'stats';
+  reason: string;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.MAINTENANCE_FAILED,
+    `dir=${opts.dir}`,
+    `kind=${opts.kind}`,
+    `reason=${audit.message(opts.reason)}`,
+  );
+}
+
+export function emitSnapshotSpaceWarning(audit: AuditLog, opts: {
+  dir: string;
+  kind: 'git_size' | 'loose_objects' | 'disk_available';
+  actual: number;
+  threshold: number;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.SPACE_WARNING,
+    `dir=${opts.dir}`,
+    `kind=${opts.kind}`,
+    `actual=${opts.actual}`,
+    `threshold=${opts.threshold}`,
+  );
+}
+
 // === VERSION_INIT_FAILED (phase 1918 Step B) ===
 export function emitSnapshotVersionInitFailed(audit: AuditLog, opts: {
   dir: string;

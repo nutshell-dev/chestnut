@@ -8,13 +8,15 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync, readdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import {
   createViewportAudit,
   VIEWPORT_FILE_ROUTING,
+  VIEWPORT_AUDIT_MAX_SIZE_MB,
+  VIEWPORT_AUDIT_MAX_ARCHIVES,
 } from '../../src/viewport/viewport-audit-events.js';
 import { _resetFallbackForTest } from '../../src/foundation/audit/writer.js';
 
@@ -83,6 +85,38 @@ describe('chat-viewport file routing (phase 1279)', () => {
       expect(viewportContent).not.toContain('viewport_unknown_event');
       expect(viewportContent).not.toContain('viewport_shutdown');
     }
+  });
+
+  it('bounds the live viewport file by rotating at the owner size threshold', () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir });
+    const audit = createViewportAudit(fs, tmpDir);
+    writeFileSync(join(tmpDir, 'viewport.tsv'), Buffer.alloc(VIEWPORT_AUDIT_MAX_SIZE_MB * 1024 * 1024, 120));
+
+    audit.write('viewport_render_batch', 'count=after_rotation');
+
+    expect(readdirSync(tmpDir).some(name => /^viewport\.tsv\..+\.bak$/.test(name))).toBe(true);
+    expect(readFileSync(join(tmpDir, 'viewport.tsv'), 'utf8')).toContain('count=after_rotation');
+    expect(existsSync(join(tmpDir, 'audit.tsv'))).toBe(false);
+  });
+
+  it('prunes expired and excess viewport archives without touching audit archives', () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir });
+    const audit = createViewportAudit(fs, tmpDir);
+    writeFileSync(join(tmpDir, 'viewport.20200101.tsv'), 'expired\n');
+    writeFileSync(join(tmpDir, 'audit.20200101.tsv'), 'keep audit\n');
+    const old = new Date('2020-01-02T00:00:00Z');
+    for (let i = 0; i <= VIEWPORT_AUDIT_MAX_ARCHIVES; i++) {
+      const name = join(tmpDir, `viewport.tsv.${i}.bak`);
+      writeFileSync(name, `archive=${i}\n`);
+      utimesSync(name, old, old);
+    }
+
+    audit.write('viewport_render_batch', 'count=prune');
+
+    const files = readdirSync(tmpDir);
+    expect(files).not.toContain('viewport.20200101.tsv');
+    expect(files).toContain('audit.20200101.tsv');
+    expect(files.filter(name => /^viewport\.tsv\..+\.bak$/.test(name))).toHaveLength(VIEWPORT_AUDIT_MAX_ARCHIVES);
   });
 
   it('per-file seq 独立计数（viewport.tsv 与 audit.tsv 各自 seq=1 起）', () => {

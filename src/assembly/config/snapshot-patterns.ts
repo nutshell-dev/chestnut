@@ -23,6 +23,7 @@
  */
 import { STREAM_SNAPSHOT_IGNORE } from '../../foundation/stream/index.js';
 import { AUDIT_SNAPSHOT_IGNORE } from '../../foundation/audit/index.js';
+import { VIEWPORT_SNAPSHOT_IGNORE } from '../../viewport/index.js';
 import { TASK_SNAPSHOT_IGNORE } from '../../core/async-task-system/index.js';
 import { SUBAGENT_SNAPSHOT_IGNORE } from '../../core/subagent/index.js';
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
@@ -35,6 +36,7 @@ import {
 export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   ...STREAM_SNAPSHOT_IGNORE,
   ...AUDIT_SNAPSHOT_IGNORE,
+  ...VIEWPORT_SNAPSHOT_IGNORE,
   `${TASKS_SYNC_DIR}/`,
   ...TASK_SNAPSHOT_IGNORE,
   ...SUBAGENT_SNAPSHOT_IGNORE,
