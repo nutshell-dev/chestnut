@@ -79,6 +79,14 @@ import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../..
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
 import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
+import {
+  formatAmbiguousProviderReference,
+  formatProviderTarget,
+  providerEntryFor,
+  providerLabelExists,
+  resolveProviderReference,
+  type ResolvedProviderReference,
+} from './provider-reference.js';
 
 function reportDegradedConfigWrite(target: string, write: AtomicWriteResult): void {
   if (write.kind === 'durable') return;
@@ -234,18 +242,17 @@ async function selectPreset(rl: readline.Interface): Promise<{ kind: 'preset'; i
   throw new CliError('Invalid selection');
 }
 
-// Find provider by label in config
-function findProviderIndex(config: LLMGlobalConfigView, label: string): { type: 'primary' | 'fallback'; index: number } | null {
-  if (config.llm.primary.label === label || config.llm.primary.preset === label || config.llm.primary.provider_id === label) {
-    return { type: 'primary', index: -1 };
+function requireProviderReference(
+  config: LLMGlobalConfigView,
+  reference: string,
+  notFoundMessage = `Provider "${reference}" not found`,
+): ResolvedProviderReference {
+  const resolution = resolveProviderReference(config, reference);
+  if (resolution.kind === 'not_found') throw new CliError(notFoundMessage);
+  if (resolution.kind === 'ambiguous_provider_reference') {
+    throw new CliError(formatAmbiguousProviderReference(resolution));
   }
-  const fbIndex = (config.llm.fallbacks ?? []).findIndex(
-    f => f.label === label || f.preset === label || f.provider_id === label
-  );
-  if (fbIndex !== -1) {
-    return { type: 'fallback', index: fbIndex };
-  }
-  return null;
+  return resolution;
 }
 
 // phase 1452 Step B: config mutation 子命令 saveGlobal 成功侧 CLI audit。
@@ -324,7 +331,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     const labelInput = await question(rl, '\nLabel (press Enter to use service name)', defaultLabel);
     const label = labelInput || defaultLabel;
 
-    if (findProviderIndex(config, label)) {
+    if (providerLabelExists(config, label)) {
       throw new CliError(`A provider with label "${label}" already exists`);
     }
 
@@ -506,7 +513,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
 
     const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
-      if (findProviderIndex(fresh, label)) {
+      if (providerLabelExists(fresh, label)) {
         throw new CliError(`A provider with label "${label}" already exists`);
       }
       if (role === 'primary') {
@@ -565,7 +572,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
 
   // Primary
   const pPreset = primary.preset ?? '';
-  const pLabel = primary.label || pPreset || '(unknown)';
+  const pLabel = primary.label || '(no label)';
   const pModel = primary.model || PRESETS[pPreset]?.defaultModel || 'unknown';
   const pBaseUrl = primary.base_url || PRESETS[pPreset]?.defaultBaseUrl || '-';
   const pApiKey = formatApiKeyStatus(primary.api_key, deps);
@@ -574,7 +581,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
   // Fallbacks
   fallbacks.forEach((f, i) => {
     const fPreset = f.preset ?? '';
-    const fLabel = f.label || fPreset || '(unknown)';
+    const fLabel = f.label || '(no label)';
     const fModel = f.model || PRESETS[fPreset]?.defaultModel || 'unknown';
     const fBaseUrl = f.base_url || PRESETS[fPreset]?.defaultBaseUrl || '-';
     const fApiKey = formatApiKeyStatus(f.api_key, deps);
@@ -592,29 +599,30 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
-  const found = findProviderIndex(config, label);
-  if (!found) {
-    throw new CliError(`Provider "${label}" not found`);
-  }
-  
-  if (found.type === 'primary') {
+  const found = requireProviderReference(config, label);
+  if (found.candidate.role === 'primary') {
     throw new CliError('Cannot remove primary provider. Use "set-primary" to change it first.');
   }
 
+  let actualTarget = found;
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
   const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
-    const freshFound = findProviderIndex(fresh, label);
-    if (!freshFound) {
-      throw new CliError(`Provider "${label}" not found`);
-    }
-    if (freshFound.type === 'primary') {
+    const freshFound = requireProviderReference(fresh, label);
+    if (freshFound.candidate.role === 'primary') {
       throw new CliError('Cannot remove primary provider. Use "set-primary" to change it first.');
     }
-    fresh.llm.fallbacks!.splice(freshFound.index, 1);
+    actualTarget = freshFound;
+    fresh.llm.fallbacks!.splice(freshFound.candidate.index, 1);
   });
   reportDegradedConfigWrite('LLM global config', write);
-  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_remove', `label=${label}`);
-  console.log(`✓ Removed "${label}" from fallbacks`);
+  configAudit(deps).write(
+    CLI_AUDIT_EVENTS.CONFIG_SAVED,
+    'command=provider_remove',
+    `label=${actualTarget.candidate.label || '(no label)'}`,
+    `role=${actualTarget.candidate.role}`,
+    `match=${actualTarget.matchedBy}`,
+  );
+  console.log(`✓ Removed provider (${formatProviderTarget(actualTarget)}) from fallbacks`);
   await notifyRunningDaemons(deps, 'remove');
 }
 
@@ -625,19 +633,15 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
-  const found = findProviderIndex(config, label);
-  if (!found) {
-    throw new CliError(`Provider "${label}" not found`);
-  }
-  
-  if (found.type === 'primary') {
-    console.log(`"${label}" is already primary`);
+  const found = requireProviderReference(config, label);
+  if (found.candidate.role === 'primary') {
+    console.log(`Provider (${formatProviderTarget(found)}) is already primary`);
     return;
   }
   
   const currentPrimary = config.llm.primary;
 
-  console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset}) will become fallback #1.`);
+  console.log(`\nCurrent primary (${currentPrimary.label || '(no label)'}) will become fallback #1.`);
   const rl = createRL();
   const confirm = await question(rl, 'Confirm?', 'N');
   rl.close();
@@ -647,24 +651,29 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
     return;
   }
 
+  let actualTarget = found;
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于确认提示）
   const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
-    const freshFound = findProviderIndex(fresh, label);
-    if (!freshFound) {
-      throw new CliError(`Provider "${label}" not found`);
+    const freshFound = requireProviderReference(fresh, label);
+    if (freshFound.candidate.role === 'primary') {
+      throw new CliError(`Provider (${formatProviderTarget(freshFound)}) is already primary`);
     }
-    if (freshFound.type === 'primary') {
-      throw new CliError(`"${label}" is already primary`);
-    }
+    actualTarget = freshFound;
     const freshPrimary = fresh.llm.primary;
-    const target = fresh.llm.fallbacks![freshFound.index];
-    fresh.llm.fallbacks!.splice(freshFound.index, 1);
+    const target = fresh.llm.fallbacks![freshFound.candidate.index];
+    fresh.llm.fallbacks!.splice(freshFound.candidate.index, 1);
     fresh.llm.fallbacks!.unshift(freshPrimary);
     fresh.llm.primary = target;
   });
   reportDegradedConfigWrite('LLM global config', write);
-  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_set_primary', `label=${label}`);
-  console.log(`✓ "${label}" is now primary`);
+  configAudit(deps).write(
+    CLI_AUDIT_EVENTS.CONFIG_SAVED,
+    'command=provider_set_primary',
+    `label=${actualTarget.candidate.label || '(no label)'}`,
+    `role=${actualTarget.candidate.role}`,
+    `match=${actualTarget.matchedBy}`,
+  );
+  console.log(`✓ Provider (${formatProviderTarget(actualTarget)}) is now primary`);
   await notifyRunningDaemons(deps, 'set-primary');
 
   // phase 451: 改 primary 必 probe
@@ -697,12 +706,8 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
-  const found = findProviderIndex(config, label);
-  if (!found) {
-    throw new CliError(`Provider "${label}" not found`);
-  }
-  
-  if (found.type === 'primary') {
+  const found = requireProviderReference(config, label);
+  if (found.candidate.role === 'primary') {
     throw new CliError('Cannot move primary provider');
   }
   
@@ -713,23 +718,29 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
     throw new CliError(`Invalid position. Must be 1-${fallbacks.length}, got: ${position}`);
   }
 
+  let actualTarget = found;
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
   const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
-    const freshFound = findProviderIndex(fresh, label);
-    if (!freshFound) {
-      throw new CliError(`Provider "${label}" not found`);
-    }
-    if (freshFound.type === 'primary') {
+    const freshFound = requireProviderReference(fresh, label);
+    if (freshFound.candidate.role === 'primary') {
       throw new CliError('Cannot move primary provider');
     }
+    actualTarget = freshFound;
     const freshFallbacks = fresh.llm.fallbacks!;
     const clampedPos = Math.min(newPos, freshFallbacks.length - 1);
-    const [removed] = freshFallbacks.splice(freshFound.index, 1);
+    const [removed] = freshFallbacks.splice(freshFound.candidate.index, 1);
     freshFallbacks.splice(clampedPos, 0, removed);
   });
   reportDegradedConfigWrite('LLM global config', write);
-  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_move', `label=${label}`, `position=${newPos + 1}`);
-  console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
+  configAudit(deps).write(
+    CLI_AUDIT_EVENTS.CONFIG_SAVED,
+    'command=provider_move',
+    `label=${actualTarget.candidate.label || '(no label)'}`,
+    `role=${actualTarget.candidate.role}`,
+    `match=${actualTarget.matchedBy}`,
+    `position=${newPos + 1}`,
+  );
+  console.log(`✓ Provider (${formatProviderTarget(actualTarget)}) moved to fallback #${newPos + 1}`);
   await notifyRunningDaemons(deps, 'move');
 }
 
@@ -744,11 +755,12 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
-  const hit = findProviderIndex(config, label);
-  if (!hit) {
-    throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
-  }
-  const entry = hit.type === 'primary' ? config.llm.primary : config.llm.fallbacks![hit.index];
+  const hit = requireProviderReference(
+    config,
+    label,
+    `Provider "${label}" not found (check "chestnut config provider list")`,
+  );
+  const entry = providerEntryFor(config, hit.candidate);
   const preset = entry.preset ? PRESETS[entry.preset] : undefined;
   const piAiProvider = preset?.piAiProvider;
   if (!piAiProvider) {
@@ -780,7 +792,15 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
     type,
     credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
-  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_login', `label=${label}`, `type=${type}`);
+  console.log(`✓ Provider (${formatProviderTarget(hit)}) logged in`);
+  configAudit(deps).write(
+    CLI_AUDIT_EVENTS.CONFIG_SAVED,
+    'command=provider_login',
+    `label=${hit.candidate.label || '(no label)'}`,
+    `role=${hit.candidate.role}`,
+    `match=${hit.matchedBy}`,
+    `type=${type}`,
+  );
   await notifyRunningDaemons(deps, 'login');
 }
 
@@ -789,11 +809,12 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
-  const hit = findProviderIndex(config, label);
-  if (!hit) {
-    throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
-  }
-  const entry = hit.type === 'primary' ? config.llm.primary : config.llm.fallbacks![hit.index];
+  const hit = requireProviderReference(
+    config,
+    label,
+    `Provider "${label}" not found (check "chestnut config provider list")`,
+  );
+  const entry = providerEntryFor(config, hit.candidate);
   const preset = entry.preset ? PRESETS[entry.preset] : undefined;
   const piAiProvider = preset?.piAiProvider;
   if (!piAiProvider) {
@@ -803,7 +824,14 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
     piAiProvider,
     credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
-  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_logout', `label=${label}`);
+  console.log(`✓ Provider (${formatProviderTarget(hit)}) logged out`);
+  configAudit(deps).write(
+    CLI_AUDIT_EVENTS.CONFIG_SAVED,
+    'command=provider_logout',
+    `label=${hit.candidate.label || '(no label)'}`,
+    `role=${hit.candidate.role}`,
+    `match=${hit.matchedBy}`,
+  );
   await notifyRunningDaemons(deps, 'logout');
 }
 

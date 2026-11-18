@@ -216,6 +216,20 @@ describe('config provider add — primary probe', () => {
     expect((config.llm.fallbacks ?? []).some((f) => f.label === 'custom-anthropic')).toBe(true);
   });
 
+  it('allows a new label that equals another entry preset', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
+    // The existing primary has preset=anthropic and no label; this is not a label duplicate.
+    rlAnswers.queue = ['8', 'anthropic', 'sk-ant-new', '', '2', '1'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.label).toBeUndefined();
+    expect((config.llm.fallbacks ?? []).some(f => f.label === 'anthropic')).toBe(true);
+  });
+
   it('Other (custom endpoint) 显示脱敏 preview + 确认，确认后 probe（Phase 1983 Step B）', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'gpt-custom' });
     // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position, confirm y

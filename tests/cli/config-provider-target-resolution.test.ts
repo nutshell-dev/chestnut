@@ -1,0 +1,144 @@
+import { describe, expect, it } from 'vitest';
+import type { LLMGlobalConfigView } from '../../src/core/llm-configuration/index.js';
+import type { LLMProviderConfig } from '../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import {
+  formatAmbiguousProviderReference,
+  formatProviderTarget,
+  providerLabelExists,
+  resolveProviderReference,
+} from '../../src/cli/commands/provider-reference.js';
+
+function entry(input: Partial<LLMProviderConfig>): LLMProviderConfig {
+  return { temperature: 0.7, timeout_ms: 30_000, ...input };
+}
+
+function config(
+  primary: Partial<LLMProviderConfig>,
+  fallbacks: Array<Partial<LLMProviderConfig>> = [],
+): LLMGlobalConfigView {
+  return { llm: { primary: entry(primary), fallbacks: fallbacks.map(entry) } };
+}
+
+describe('provider reference resolution', () => {
+  it('prefers a fallback exact label over primary and fallback preset collisions', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'shared', label: 'primary-label' },
+      [
+        { preset: 'other', label: 'shared' },
+        { preset: 'shared', label: 'other-label' },
+      ],
+    ), 'shared');
+
+    expect(result).toMatchObject({
+      kind: 'resolved',
+      matchedBy: 'label',
+      candidate: { role: 'fallback', index: 0, label: 'shared', preset: 'other' },
+    });
+  });
+
+  it('allows a unique preset compatibility hit without inventing a label', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'anthropic', label: 'main' },
+      [{ preset: 'openai', model: 'gpt-test' }],
+    ), 'openai');
+
+    expect(result).toMatchObject({
+      kind: 'resolved',
+      matchedBy: 'preset',
+      candidate: { role: 'fallback', index: 0, preset: 'openai' },
+    });
+    if (result.kind === 'resolved') {
+      expect(result.candidate.label).toBeUndefined();
+      expect(formatProviderTarget(result)).toBe('label="(no label)" role=fallback match=preset');
+    }
+  });
+
+  it('allows a unique provider_id compatibility hit', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'anthropic', label: 'main' },
+      [{ provider_id: 'catalog-provider', label: 'catalog' }],
+    ), 'catalog-provider');
+
+    expect(result).toMatchObject({
+      kind: 'resolved',
+      matchedBy: 'provider_id',
+      candidate: { role: 'fallback', index: 0, provider_id: 'catalog-provider' },
+    });
+  });
+
+  it('rejects shared preset hits and lists candidates in primary/fallback order', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'shared', label: 'primary-label', base_url: 'https://primary.test' },
+      [
+        { preset: 'shared', label: 'one', model: 'model-one' },
+        { preset: 'shared', model: 'model-two' },
+      ],
+    ), 'shared');
+
+    expect(result).toMatchObject({
+      kind: 'ambiguous_provider_reference',
+      reference: 'shared',
+      candidates: [
+        { role: 'primary', index: -1, label: 'primary-label' },
+        { role: 'fallback', index: 0, label: 'one' },
+        { role: 'fallback', index: 1, preset: 'shared' },
+      ],
+    });
+    if (result.kind !== 'ambiguous_provider_reference') throw new Error('expected ambiguity');
+    const message = formatAmbiguousProviderReference(result);
+    expect(message).toContain('ambiguous_provider_reference');
+    expect(message).toContain('role=primary index=-1');
+    expect(message).toContain('base_url="https://primary.test"');
+    expect(message).toContain('label="(no label)"');
+    expect(message.indexOf('role=primary')).toBeLessThan(message.indexOf('role=fallback'));
+  });
+
+  it('rejects duplicate exact labels rather than choosing the first', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'anthropic', label: 'duplicate' },
+      [{ preset: 'openai', label: 'duplicate' }],
+    ), 'duplicate');
+
+    expect(result).toMatchObject({
+      kind: 'ambiguous_provider_reference',
+      candidates: [
+        { role: 'primary', index: -1 },
+        { role: 'fallback', index: 0 },
+      ],
+    });
+  });
+
+  it('preserves not-found classification', () => {
+    expect(resolveProviderReference(config({ preset: 'anthropic' }), 'missing'))
+      .toEqual({ kind: 'not_found' });
+  });
+
+  it('does not include credentials in candidates or diagnostics', () => {
+    const result = resolveProviderReference(config(
+      { preset: 'shared', api_key: 'secret-primary' },
+      [{ preset: 'shared', api_key: 'secret-fallback' }],
+    ), 'shared');
+
+    expect(JSON.stringify(result)).not.toContain('secret-primary');
+    expect(JSON.stringify(result)).not.toContain('secret-fallback');
+    expect(result.kind === 'ambiguous_provider_reference' && 'api_key' in result.candidates[0])
+      .toBe(false);
+  });
+});
+
+describe('provider add label deduplication', () => {
+  const existing = config(
+    { preset: 'anthropic', label: 'main' },
+    [{ provider_id: 'catalog-provider', label: 'catalog' }],
+  );
+
+  it('detects actual labels in primary and fallback entries', () => {
+    expect(providerLabelExists(existing, 'main')).toBe(true);
+    expect(providerLabelExists(existing, 'catalog')).toBe(true);
+  });
+
+  it('does not treat another entry preset or provider_id as a duplicate label', () => {
+    expect(providerLabelExists(existing, 'anthropic')).toBe(false);
+    expect(providerLabelExists(existing, 'catalog-provider')).toBe(false);
+  });
+});
