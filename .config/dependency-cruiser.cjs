@@ -46,7 +46,8 @@ const path = require('node:path');
  * 全 production source tree 的 barrel 边界程序化生成（phase 1291 / 1346 / 1348）。
  * 模块物理形态只有两种：core/foundation grouping 下的直接子目录模块，及拥有
  * 自身 index.ts 的 src 顶层模块。只发现模块根，不把模块内部 nested index 误判
- * 为独立模块。跨模块 import 必经 owner index.ts（M#7/M#8/M#9）。
+ * 为独立模块。跨模块 import 必经 owner index.ts；Phase 2203 起，显式 setup
+ * 组合面可独立命名为 setup.ts，不进入普通 index barrel（M#7/M#8/M#9）。
  */
 function childDirectoriesWithIndex(parentDir) {
   return fs
@@ -75,12 +76,12 @@ function barrelBoundaryRules() {
       name: `no-deep-into-module-${ruleSuffix}`,
       comment: [
         'M#8 耦合界面最小 / M#7 耦合界面稳定：跨模块 import 必经',
-        `${moduleRoot}/index.ts barrel，不得深路径直达内部文件。`,
+        `${moduleRoot}/index.ts barrel 或显式 setup.ts 组合入口，不得深路径直达内部文件。`,
         'owner internal 相对边排除；phase 1348 全 production module root 自动纳管。',
       ].join(' '),
       severity: 'error',
       from: { path: '^src/', pathNot: [`^src/${moduleRoot}/`] },
-      to: { path: `^src/${moduleRoot}/(?!index\\.ts$).+` },
+      to: { path: `^src/${moduleRoot}/(?!index\\.ts$|setup\\.ts$).+` },
     };
   });
 }

@@ -15,15 +15,15 @@ import {
   type LLMOrchestratorConfig,
   type LLMOrchestratorOwner,
 } from '../foundation/llm-orchestrator/index.js';
-import { llmProviderCall } from '../foundation/llm-provider/index.js';
+import { llmProviderCall, llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
 import { toOrchestratorConfig } from './llm-orchestrator-config.js';
 import {
   resolveLLMConfig,
   snapshotLLMConfig,
-  createLegacyAuthenticationStore,
-  createLocalCredentials,
+  createAuthenticationCapability,
 } from '../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
@@ -223,7 +223,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         isMotion ? undefined : clawConfig!,
         {
           clawId,
-          credentials: createLocalCredentials({ fsFactory }),
+          credentials: createAuthenticationCapability({ fsFactory }),
         },
       );
       llmSelection = snapshot.config;
@@ -276,9 +276,9 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     try {
       const auditLog = auditWriter;
       const llmEvents = createLLMEventSink(auditWriter, streamWriter);
-      // Phase 1927 Step E：pi-ai CredentialStore 装配期固定创建一次注入——backend
-      // 在 orchestrator 生命周期内不漂移（取代 loadGlobalConfig 的全局注册副作用）。
-      const credentialStore = createLegacyAuthenticationStore({ fsFactory });
+      // setup/assembly 组合闭包内固定创建一次 raw store；公共输出只保留中性 ProviderFactory。
+      const authentication = createAuthenticationSetup({ fsFactory });
+      const credentialStore = llmProviderCredentialRuntime.createStore(authentication);
       const providerFactory: llmProviderCall.ProviderFactory = {
         create: input => llmProviderCall.createProviderFromInput(input, {
           credentialStore,

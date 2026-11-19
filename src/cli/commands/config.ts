@@ -11,12 +11,12 @@ import type {
   LLMGlobalConfigView,
 } from '../../core/llm-configuration/index.js';
 import {
-  createLegacyAuthenticationStore,
+  createAuthenticationCapability,
   createLLMNotificationStore,
-  createLocalCredentials,
-  resolveCredentialReference,
   classifyApiKeyConfigValue,
+  resolveCredentialReference,
 } from '../../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
 const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
@@ -464,8 +464,8 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       const candidateProbe = makeSetupCandidateProbe(
         { label, ...(apiKey !== undefined && { apiKey }), model },
         {
-          resolveKey: (ref) => resolveCredentialReference(deps, ref),
-          credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+          resolveKey: (ref) => resolveCredentialReference(createAuthenticationSetup(deps), ref),
+          authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
         },
       );
       const outcome = await probeSetupCandidates(probeCandidates, async (candidate: SetupProbeCandidate) => {
@@ -487,7 +487,10 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     } else {
       const providerProbeConfig = { ...providerConfig };
       if (providerProbeConfig.api_key !== undefined) {
-        const resolvedKey = resolveCredentialReference(deps, providerProbeConfig.api_key);
+        const resolvedKey = resolveCredentialReference(
+          createAuthenticationSetup(deps),
+          providerProbeConfig.api_key,
+        );
         if (resolvedKey === undefined) {
           throw new CliError(
             `API key reference ${providerConfig.api_key} could not be resolved ` +
@@ -497,7 +500,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         providerProbeConfig.api_key = resolvedKey;
       }
       const probe = await checkLLMConnectionFor(toProviderInput(providerProbeConfig), {
-        credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+        authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
       });
       if (!probe.ok) {
         formatLLMError({
@@ -547,8 +550,8 @@ function formatApiKeyStatus(apiKey: unknown, deps: ConfigCommandDeps): string {
   if (classified.kind === 'missing') return '-';
   if (classified.kind === 'legacy-plaintext') return 'legacy-unmigrated';
   if (classified.kind === 'invalid-reference') return 'invalid-ref';
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  return credentials.describe(classified.ref).configured
+  const authentication = createAuthenticationCapability({ fsFactory: deps.fsFactory });
+  return authentication.describe(classified.ref).configured
     ? `ref=${classified.ref}`
     : `ref=${classified.ref}/missing`;
 }
@@ -790,7 +793,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   await runProviderLogin({
     piAiProvider,
     type,
-    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+    authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
   });
   console.log(`✓ Provider (${formatProviderTarget(hit)}) logged in`);
   configAudit(deps).write(
@@ -822,7 +825,7 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   }
   await runProviderLogout({
     piAiProvider,
-    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+    authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
   });
   console.log(`✓ Provider (${formatProviderTarget(hit)}) logged out`);
   configAudit(deps).write(

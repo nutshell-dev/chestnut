@@ -65,7 +65,7 @@ export const FACADES = {
   },
   llmProviderCredentialRuntime: {
     module: './capabilities/credential-runtime.js',
-    roots: ['core/llm-configuration', 'cli'],
+    roots: ['core/llm-configuration', 'cli', 'assembly'],
   },
   llmProviderAbort: {
     module: './capabilities/abort.js',

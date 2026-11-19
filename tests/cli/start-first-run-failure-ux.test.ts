@@ -20,7 +20,7 @@ import { createRootConfig } from '../../src/assembly/index.js';
 import { snapshotLLMConfig } from '../../src/core/llm-configuration/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { START_GATE_EXIT_CODE } from '../../src/cli/start-llm-gate.js';
-import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
 import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
@@ -365,8 +365,8 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
     expect(outcome.kind).toBe('cancelled');
-    const credentials = createLocalCredentials({ fsFactory });
-    expect(credentials.resolve('ANTHROPIC_API_KEY')).toBeUndefined();
+    const authentication = createAuthenticationSetup({ fsFactory });
+    expect(authentication.resolveSync('ANTHROPIC_API_KEY')).toBeUndefined();
     expect(output.join('\n')).toContain('Discarded unused credential');
     expect(output.join('\n')).not.toContain('sk-secret-value');
   });

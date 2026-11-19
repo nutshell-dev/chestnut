@@ -529,8 +529,7 @@ vi.mock('../../src/core/llm-configuration/index.js', async (importOriginal) => {
     ...actual,
     resolveLLMConfig: llmConfigFn,
     snapshotLLMConfig: vi.fn((...args: any[]) => ({ config: llmConfigFn(...args) })),
-    createLegacyAuthenticationStore: vi.fn(function () { return undefined; }),
-    createLocalCredentials: vi.fn(function () { return {}; }),
+    createAuthenticationCapability: vi.fn(function () { return { describe: vi.fn() }; }),
     createLLMConfiguration: vi.fn(() => ({
       loadGlobal: vi.fn(),
       loadSnapshot: vi.fn(),

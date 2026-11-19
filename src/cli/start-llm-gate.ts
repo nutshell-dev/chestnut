@@ -24,11 +24,11 @@ import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
 const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, isCatalogProvider, deriveCatalogAuthProfile } = llmProviderCatalog;
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
-  createLegacyAuthenticationStore,
-  createLocalCredentials,
+  createAuthenticationCapability,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -38,6 +38,7 @@ import { findSetupProvider } from './setup-provider-catalog.js';
 import { storeKeyAsCredential, type StoreKeyHooks } from './credentials-prompt.js';
 import {
   probeLLMConnection,
+  createProbeProviderFactory,
   promptReconfigure,
   formatLLMError,
   LLM_ERROR_HINTS,
@@ -208,7 +209,7 @@ export async function applyStartLLMOptions(
 /** 读取当前有效配置为不可变快照（resolve 与 identity 同源派生）。 */
 function readLLMSnapshot(deps: Pick<GateDeps, 'llmConfiguration' | 'fsFactory'>): LLMConfigSnapshot {
   return snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
-    credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+    credentials: createAuthenticationCapability({ fsFactory: deps.fsFactory }),
   });
 }
 
@@ -229,11 +230,13 @@ async function probeUntilStable(
   via?: 'retry',
 ): Promise<{ verified: VerifiedLLMConfig } | { failure: ProbeFailure }> {
   let current = snapshot;
-  // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore（整轮重验共用同一实例）
-  const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
+  // 整轮重验共用同一 setup 与固定 provider/store 组合，不引入全局 singleton。
+  const providerFactory = createProbeProviderFactory(
+    createAuthenticationSetup({ fsFactory: deps.fsFactory }),
+  );
   for (let attempt = 0; attempt < MAX_SNAPSHOT_DRIFT_ATTEMPTS; attempt++) {
     audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ATTEMPTED);
-    const probe = await probeLLMConnection(current, { credentials });
+    const probe = await probeLLMConnection(current, { providerFactory });
     if (!probe.ok) {
       return { failure: { ok: false, errorType: probe.errorType, message: probe.message, provider: probe.provider } };
     }

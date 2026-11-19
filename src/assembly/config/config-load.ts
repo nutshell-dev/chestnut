@@ -31,7 +31,6 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import {
   createLLMConfiguration,
   createLLMConfigurationDocumentStore,
-  createLocalCredentials,
   getLLMConfigurationPath,
   llmConfigurationSourceDigest,
   assertNoLegacyPlaintextApiKey,
@@ -43,6 +42,7 @@ import {
   type LLMGlobalConfigView,
   type LLMClawConfigView,
 } from '../../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
 import {
   loadWorkspaceAuditConfig,
   initWorkspaceAuditConfig,
@@ -63,8 +63,8 @@ import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js
  * env 缺席为 missing_env，其余错误不吞）。非法 ref 不降级到另一套读取。
  */
 function makeEnvVarResolver(deps: { fsFactory: (baseDir: string) => FileSystem }): (name: string) => string | undefined {
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  return (name) => credentials.resolve(name)?.value;
+  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
+  return (name) => authentication.resolveSync(name)?.accessToken;
 }
 
 /**
@@ -364,14 +364,14 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   try {
     let rawLLM: LLMClawConfigView['raw'];
     const credentialSources: Record<string, 'env' | 'file' | 'project-env' | 'user-env'> = {};
-    const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+    const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
     const resolved = loadYamlConfig<ClawConfig>(
       {
         fsFactory: deps.fsFactory,
         resolveEnvVar: (name) => {
-          const hit = credentials.resolve(name);
+          const hit = authentication.resolveSync(name);
           if (hit !== undefined) credentialSources[name] = hit.source;
-          return hit?.value;
+          return hit?.accessToken;
         },
         validateRaw: (value) => {
           assertNoLegacyPlaintextApiKey(value);

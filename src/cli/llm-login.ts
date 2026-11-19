@@ -4,8 +4,8 @@
  * `Models.login` 是 pi-ai 唯一受支持的登录入口（OAuth device_code / auth_url /
  * manual_code 与 api_key 交互流）；凭证由 pi-ai 自动经 CredentialStore 持久化——
  * 本仓桥接到用户级 Credentials owner（见 pi-ai-credentials.ts），secret 不进
- * YAML/audit/log。Phase 1927 Step E：CredentialStore 由调用方显式注入（装配根
- * 经 createLegacyAuthenticationStore 固定创建），本模块不持任何全局状态。
+ * YAML/audit/log。调用方只传显式 AuthenticationSetupCapability；本函数内部
+ * 组合固定 raw store，不持任何全局状态。
  *
  * 本模块独立成缝：`config provider login/logout` 与 init OAuth 引导共用；
  * 测试 mock 本模块即可覆盖 CLI 编排（不 mock pi-ai 本身）。
@@ -15,7 +15,7 @@ import * as readline from 'readline';
 import type * as PiAi from '@earendil-works/pi-ai';
 import { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 const { loadPiAiRuntime } = llmProviderCredentialRuntime;
-type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
+import type { AuthenticationSetupCapability } from '../core/llm-configuration/setup.js';
 import { CliError } from './errors.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 
@@ -93,8 +93,8 @@ function createReadlineInteraction(rl: readline.Interface): PiAi.AuthInteraction
 export async function runProviderLogin(opts: {
   piAiProvider: string;
   type: ProviderLoginType;
-  /** Phase 1927 Step E：装配根固定创建的 CredentialStore（显式注入）。 */
-  credentials: PiAiCredentialStore;
+  /** 显式 setup；Models login 的 raw store 仅在本函数组合闭包内创建。 */
+  authentication: AuthenticationSetupCapability;
   /** 测试/调用方注入 readline（缺省自建并负责关闭）。 */
   rl?: readline.Interface;
 }): Promise<void> {
@@ -115,7 +115,8 @@ export async function runProviderLogin(opts: {
 
   const ownRl = opts.rl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const models = runtime.createModels({ credentials: opts.credentials });
+    const credentials = llmProviderCredentialRuntime.createStore(opts.authentication);
+    const models = runtime.createModels({ credentials });
     models.setProvider(provider);
     await models.login(opts.piAiProvider, opts.type, createReadlineInteraction(ownRl));
     console.log(`✓ Logged in to ${provider.name} (${opts.type}); credential stored in user credentials file`);
@@ -127,11 +128,12 @@ export async function runProviderLogin(opts: {
 /** 登出：删除 stored credential（OAuth/api_key 同一存储）。 */
 export async function runProviderLogout(opts: {
   piAiProvider: string;
-  /** Phase 1927 Step E：装配根固定创建的 CredentialStore（显式注入）。 */
-  credentials: PiAiCredentialStore;
+  /** 显式 setup；Models login 的 raw store 仅在本函数组合闭包内创建。 */
+  authentication: AuthenticationSetupCapability;
 }): Promise<void> {
   const runtime = await loadPiAiRuntime();
-  const models = runtime.createModels({ credentials: opts.credentials });
+  const credentials = llmProviderCredentialRuntime.createStore(opts.authentication);
+  const models = runtime.createModels({ credentials });
   const provider = runtime.builtinProviders().find((p) => p.id === opts.piAiProvider);
   if (!provider) {
     throw new CliError(`Unknown pi-ai provider "${opts.piAiProvider}" (not in builtin catalog)`);

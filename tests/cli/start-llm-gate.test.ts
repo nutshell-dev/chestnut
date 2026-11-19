@@ -61,6 +61,7 @@ const conn = vi.hoisted(() => ({
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: conn.probeLLMConnection,
+  createProbeProviderFactory: vi.fn(() => ({ create: vi.fn() })),
   promptReconfigure: conn.promptReconfigure,
   formatLLMError: vi.fn((probe: { errorType: string; message: string }) => [
     `✗ ${probe.errorType}`,

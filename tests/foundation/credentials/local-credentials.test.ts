@@ -10,12 +10,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { createLocalCredentials } from '../../../src/core/llm-configuration/legacy-credentials/local.js';
 import {
-  createLocalCredentials,
   isCredentialsError,
-  isCredentialRefName,
   CredentialsError,
-} from '../../../src/core/llm-configuration/index.js';
+} from '../../../src/core/llm-configuration/legacy-credentials/errors.js';
+import { isCredentialRefName } from '../../../src/core/llm-configuration/legacy-credentials/types.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 

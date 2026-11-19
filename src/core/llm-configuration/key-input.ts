@@ -3,13 +3,8 @@
  *
  * 凭据引用识别、派生、解析与存储决策；不包含交互、日志或错误呈现。
  */
-import {
-  createLocalCredentials,
-  isCredentialsError,
-  type CredentialsOwner,
-  type LocalCredentialsDeps,
-} from './legacy-credentials/index.js';
-import { isCredentialRefName } from './legacy-credentials/index.js';
+import { isCredentialsError, isCredentialRefName } from './legacy-credentials/index.js';
+import type { AuthenticationSetupCapability } from './setup.js';
 
 const REF_LITERAL_RE = /^\$\{[^}]+\}$/;
 
@@ -96,31 +91,9 @@ export type StoredCredentialInput =
   | { kind: 'stored'; reference: string; ref: string; created: boolean }
   | { kind: 'environment'; reference: string; ref: string };
 
-/** 将引用或明文输入转换为配置引用；明文经 owner 存储，环境遮蔽按策略处理。 */
-export async function storeCredentialInput(
-  credentials: CredentialsOwner,
-  input: string,
-  ref: string,
-  shadow: 'fallback' | 'error',
-): Promise<StoredCredentialInput> {
-  const value = input.trim();
-  if (isCredentialReference(value)) return { kind: 'reference', reference: value };
-  // 四层来源均计入已存在，初始化取消/失败清理不得删除先前值。
-  const existed = credentials.resolve(ref) !== undefined;
-  try {
-    await credentials.set(ref, value);
-    return { kind: 'stored', reference: '${' + ref + '}', ref, created: !existed };
-  } catch (error) {
-    if (isCredentialsError(error) && error.code === 'shadowed_by_env' && shadow === 'fallback') {
-      return { kind: 'environment', reference: '${' + ref + '}', ref };
-    }
-    throw error;
-  }
-}
-
-/** 只解析引用；legacy 明文必须经显式迁移，不得直达 provider。 */
+/** 只展开完整 `${REF}`；legacy 明文与非法引用继续 fail-closed。 */
 export function resolveCredentialReference(
-  deps: LocalCredentialsDeps,
+  authentication: AuthenticationSetupCapability,
   raw: string,
 ): string | undefined {
   const classified = classifyApiKeyConfigValue(raw);
@@ -132,6 +105,27 @@ export function resolveCredentialReference(
       classified.kind === 'invalid-reference' ? classified.ref : undefined,
     );
   }
-  const credentials = createLocalCredentials(deps);
-  return credentials.resolve(classified.ref)?.value;
+  return authentication.resolveSync(classified.ref)?.accessToken;
+}
+
+/** 将引用或明文输入转换为配置引用；明文经显式 setup 存储，环境遮蔽按策略处理。 */
+export async function storeCredentialInput(
+  credentials: AuthenticationSetupCapability,
+  input: string,
+  ref: string,
+  shadow: 'fallback' | 'error',
+): Promise<StoredCredentialInput> {
+  const value = input.trim();
+  if (isCredentialReference(value)) return { kind: 'reference', reference: value };
+  // 四层来源均计入已存在，初始化取消/失败清理不得删除先前值。
+  const existed = credentials.resolveSync(ref) !== undefined;
+  try {
+    await credentials.set(ref, value);
+    return { kind: 'stored', reference: '${' + ref + '}', ref, created: !existed };
+  } catch (error) {
+    if (isCredentialsError(error) && error.code === 'shadowed_by_env' && shadow === 'fallback') {
+      return { kind: 'environment', reference: '${' + ref + '}', ref };
+    }
+    throw error;
+  }
 }

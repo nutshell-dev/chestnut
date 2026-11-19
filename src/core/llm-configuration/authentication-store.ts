@@ -1,21 +1,42 @@
 /**
  * @module L4.LLMConfiguration.AuthenticationStore
  *
- * 固定绑定兼容用户级 Credentials owner 与 L1 pi-ai CredentialStore。
- * backend 在 store 生命周期内不漂移；modify 完整复用 owner 的跨进程锁事务。
+ * 普通运行时认证面：只解析 API-key access token 并投影非 secret provenance。
+ * legacy owner、文件/锁与 pi-ai runtime store 均不穿过此边界。
  */
-import { llmProviderCredentialRuntime } from '../../foundation/llm-provider/index.js';
-const { createPiAiCredentialStore } = llmProviderCredentialRuntime;
-type PiAiCredentialBackend = llmProviderCredentialRuntime.PiAiCredentialBackend;
-type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
-import { createLocalCredentials, type LocalCredentialsDeps } from './legacy-credentials/index.js';
+import { ApiKeyConfigError } from './key-input.js';
+import { createLocalCredentials } from './legacy-credentials/index.js';
+import {
+  describeAuthentication,
+  type AuthenticationCapabilityDeps,
+  type ProviderAuthenticationDescription,
+} from './authentication-types.js';
 
-/** 创建使用既有用户级存储格式与锁域的 pi-ai CredentialStore。 */
-export function createLegacyAuthenticationStore(deps: LocalCredentialsDeps): PiAiCredentialStore {
+export interface ProviderAuthenticationCapability {
+  resolve(ref: string): Promise<{ readonly accessToken: string }>;
+  describe(ref: string): ProviderAuthenticationDescription;
+}
+
+export type {
+  AuthenticationCapabilityDeps,
+  ProviderAuthenticationDescription,
+} from './authentication-types.js';
+
+/** 创建固定绑定兼容用户级 owner 的窄认证 capability；不暴露可写或 raw store 面。 */
+export function createAuthenticationCapability(
+  deps: AuthenticationCapabilityDeps,
+): ProviderAuthenticationCapability {
   const credentials = createLocalCredentials(deps);
-  const backend: PiAiCredentialBackend = {
-    read: (ref) => Promise.resolve(credentials.resolve(ref)?.value),
-    modify: (ref, fn) => credentials.modify(ref, fn),
+  return {
+    async resolve(ref) {
+      const resolved = credentials.resolve(ref);
+      if (resolved === undefined) {
+        throw new ApiKeyConfigError('credential_unavailable', 'provider.api_key', ref);
+      }
+      return { accessToken: resolved.value };
+    },
+    describe(ref) {
+      return describeAuthentication(ref, credentials.describe(ref));
+    },
   };
-  return createPiAiCredentialStore(backend);
 }

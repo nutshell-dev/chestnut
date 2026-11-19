@@ -9,7 +9,8 @@ import { llmProviderConfigContract } from '../../foundation/llm-provider/index.j
 type ProviderInput = llmProviderConfigContract.ProviderInput;
 const { providerInputIdentity } = llmProviderConfigContract;
 import { sha256Hex } from '../../foundation/node-utils/index.js';
-import type { CredentialSource, CredentialsOwner } from './legacy-credentials/index.js';
+import type { CredentialSource } from './legacy-credentials/index.js';
+import type { ProviderAuthenticationCapability } from './authentication-store.js';
 import { classifyApiKeyConfigValue } from './key-input.js';
 import {
   resolveLLMConfig,
@@ -63,7 +64,7 @@ export interface LLMConfigSnapshot {
 }
 
 export interface LLMConfigSnapshotOptions {
-  credentials?: CredentialsOwner;
+  credentials?: ProviderAuthenticationCapability;
   clawId?: string;
   workspaceRoot?: string;
   revision?: { readonly id: string; readonly revision: number };
@@ -126,7 +127,7 @@ function providerStableProjection(p: ProviderInput): Record<string, unknown> {
 }
 
 function describeRef(
-  credentials: CredentialsOwner | undefined,
+  credentials: ProviderAuthenticationCapability | undefined,
   ref: string,
   fallbackConfigured: boolean,
   observedSource?: CredentialSource,
@@ -134,7 +135,7 @@ function describeRef(
   const info = credentials?.describe(ref);
   return {
     source: observedSource ?? info?.source ?? 'unresolved',
-    identityRef: info?.credentialRef ?? ref,
+    identityRef: info?.identityRef ?? ref,
     configured: observedSource !== undefined ? true : info?.configured ?? fallbackConfigured,
     writable: observedSource !== undefined ? observedSource === 'file' : info?.writable ?? false,
     ...(info?.accountId !== undefined ? { accountId: info.accountId } : {}),
@@ -147,7 +148,7 @@ function credentialForProvider(
   raw: RawProvider,
   effective: RawProvider,
   resolved: ProviderInput,
-  credentials: CredentialsOwner | undefined,
+  credentials: ProviderAuthenticationCapability | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
 ): { provenance: CredentialProvenance; auth: LLMAuthIdentity } {
   const provider = effective.label ?? raw.label
@@ -221,7 +222,7 @@ function headerCredentialProvenance(
   role: string,
   raw: RawProvider,
   effective: RawProvider,
-  credentials: CredentialsOwner | undefined,
+  credentials: ProviderAuthenticationCapability | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
 ): CredentialProvenance[] {
   const result: CredentialProvenance[] = [];

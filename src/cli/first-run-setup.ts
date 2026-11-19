@@ -19,13 +19,13 @@ import {
   GlobalConfigAlreadyExistsError,
 } from '../assembly/index.js';
 import {
-  createLegacyAuthenticationStore,
-  createLocalCredentials,
+  createAuthenticationCapability,
   isCredentialReference,
-  resolveCredentialReference,
   snapshotLLMConfigInput,
+  resolveCredentialReference,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
@@ -191,7 +191,7 @@ function draftToInput(draft: FirstRunConfigInput): FirstRunConfigInput {
 
 function resolveDraftApiKey(deps: FirstRunDeps, raw: string): string {
   if (!isCredentialReference(raw)) return raw;
-  const resolved = resolveCredentialReference(deps, raw);
+  const resolved = resolveCredentialReference(createAuthenticationSetup(deps), raw);
   if (resolved === undefined) {
     throw new CliError(
       `API key reference ${raw} is not set (not in process env, credentials file, or .env fallbacks)`,
@@ -213,7 +213,7 @@ function snapshotForProbe(deps: FirstRunDeps, input: FirstRunConfigInput): LLMCo
   };
   return snapshotLLMConfigInput(buildInitialConfig(input), {
     resolvedInput: buildInitialConfig(probeInput),
-    credentials: createLocalCredentials(deps),
+    credentials: createAuthenticationCapability(deps),
   });
 }
 
@@ -243,7 +243,7 @@ async function probeDraft(
   );
   const t0 = Date.now();
   const probe = await probeLLMConnection(snapshot, {
-    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+    authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
   });
   const latencyMs = Date.now() - t0;
 
@@ -327,11 +327,11 @@ async function discardCreatedCredentials(
   emit: boolean = true,
 ): Promise<void> {
   if (created.length === 0) return;
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
   for (const { ref, value } of created) {
     let removed = false;
     try {
-      await credentials.modify(ref, async (current) => {
+      await authentication.modify(ref, async (current) => {
         if (current === value) {
           removed = true;
           return undefined;
@@ -504,8 +504,8 @@ async function selectSetupEndpoint(
   const candidateProbe = makeSetupCandidateProbe(
     { label: draft.choice.label, ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }), model: draft.model },
     {
-      resolveKey: (ref) => resolveCredentialReference(deps, ref),
-      credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
+      resolveKey: (ref) => resolveCredentialReference(createAuthenticationSetup(deps), ref),
+      authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
     },
   );
 
@@ -777,9 +777,9 @@ export async function discardLauncherCreatedCredentials(
   deps: FirstRunDeps,
   refs: readonly string[],
 ): Promise<void> {
-  const credentials = createLocalCredentials(deps);
+  const authentication = createAuthenticationSetup(deps);
   const created = refs.flatMap((ref) => {
-    const value = credentials.resolve(ref)?.value;
+    const value = authentication.resolveSync(ref)?.accessToken;
     return value === undefined ? [] : [{ ref, value }];
   });
   await discardCreatedCredentials(deps, created, false);

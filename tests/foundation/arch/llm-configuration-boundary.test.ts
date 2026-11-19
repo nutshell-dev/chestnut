@@ -54,6 +54,42 @@ describe('Phase 2097: LLMConfiguration 物理边界', () => {
     }
   });
 
+  it('Phase 2203 Step E：普通 barrel 不暴露 legacy owner/path/parser 或 runtime store', () => {
+    const barrel = fs.readFileSync(path.join(MODULE_ROOT, 'index.ts'), 'utf8');
+    for (const name of [
+      'createLegacyAuthenticationStore',
+      'createLocalCredentials',
+      'CredentialsOwner',
+      'ResolvedCredential',
+      'CredentialInfo',
+      'LocalCredentialsDeps',
+      'PiAiCredentialStore',
+      'createPiAiCredentialStore',
+      'getCredentialsHome',
+      'getCredentialsFilePath',
+      'getUserDotEnvPath',
+      'getProjectDotEnvPath',
+      'parseDotEnv',
+      './setup.js',
+    ]) {
+      expect(barrel).not.toContain(name);
+    }
+    expect(barrel).toContain('ProviderAuthenticationCapability');
+    expect(barrel).toContain('createAuthenticationCapability');
+  });
+
+  it('Phase 2203 Step E：CLI/Assembly 只能经显式 setup 与 L1 createStore 组合', () => {
+    const offenders = [
+      ...walkTsFiles(path.join(SRC_ROOT, 'assembly')),
+      ...walkTsFiles(path.join(SRC_ROOT, 'cli')),
+    ].filter((file) =>
+      /PiAiCredentialStore|createPiAiCredentialStore|createLegacyAuthenticationStore|createLocalCredentials|getCredentials(?:Home|FilePath)|getUserDotEnvPath|getProjectDotEnvPath|parseDotEnv|legacy-credentials/.test(
+        fs.readFileSync(file, 'utf8'),
+      ),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it('反向 fixture：扫描器能识别上层相对导入', () => {
     const fixture = path.join(MODULE_ROOT, 'authentication-store.ts');
     expect(upperLayerImports(fixture)).toEqual([]);

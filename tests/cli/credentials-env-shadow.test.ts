@@ -17,7 +17,8 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
 import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
-import { createLocalCredentials, deriveCredentialRef } from '../../src/core/llm-configuration/index.js';
+import { deriveCredentialRef } from '../../src/core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
 import { setupApiKeyPrompt } from '../../src/templates/messages/index.js';
 import { storeKeyAsCredential } from '../../src/cli/credentials-prompt.js';
 
@@ -137,8 +138,8 @@ describe('storeKeyAsCredential — onShadowedEnv 双语义', () => {
     );
     expect(ref).toBe('${CHESTNUT_ANTHROPIC_API_KEY}');
     expect(deriveCredentialRef('anthropic')).toBe('CHESTNUT_ANTHROPIC_API_KEY');
-    const credentials = createLocalCredentials({ fsFactory });
-    expect(credentials.resolve('CHESTNUT_ANTHROPIC_API_KEY')?.value).toBe('typed-key');
+    const authentication = createAuthenticationSetup({ fsFactory });
+    expect(authentication.resolveSync('CHESTNUT_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
   });
 });
 
@@ -178,8 +179,8 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     expect(rawYaml).not.toContain('typed-key');
     // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
-    const credentials = createLocalCredentials({ fsFactory });
-    expect(credentials.resolve('CHESTNUT_ANTHROPIC_API_KEY')?.value).toBe('typed-key');
+    const authentication = createAuthenticationSetup({ fsFactory });
+    expect(authentication.resolveSync('CHESTNUT_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
   });
 
   it('env 未设置 + typed key → 原 envVar ref（行为保持）', async () => {

@@ -10,18 +10,20 @@ import { formatErr } from "../foundation/node-utils/index.js";
 
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
-  createLegacyAuthenticationStore,
-  createLocalCredentials,
+  createAuthenticationCapability,
   ApiKeyConfigError,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
-import { llmProviderCall } from '../foundation/llm-provider/index.js';
+import {
+  createAuthenticationSetup,
+  type AuthenticationSetupCapability,
+} from '../core/llm-configuration/setup.js';
+import { llmProviderCall, llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 type ProviderInput = llmProviderCall.ProviderInput;
+type ProviderFactory = llmProviderCall.ProviderFactory;
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
 const { PRESETS, catalogProvidersWithoutPreset } = llmProviderCatalog;
-import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
-type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 
 import {
@@ -153,14 +155,37 @@ export function formatLLMError(
   return lines;
 }
 
+export interface LLMProbeOptions {
+  /** 显式 setup 组合；raw store 只在 provider factory 闭包内创建。 */
+  authentication?: AuthenticationSetupCapability;
+  /** start 整轮重验可传入固定组合生命周期；仍是中性公共面。 */
+  providerFactory?: ProviderFactory;
+}
+
+export function createProbeProviderFactory(
+  authentication?: AuthenticationSetupCapability,
+): ProviderFactory {
+  const credentialStore = authentication === undefined
+    ? undefined
+    : llmProviderCredentialRuntime.createStore(authentication);
+  return {
+    create: input => llmProviderCall.createProviderFromInput(input, {
+      ...(credentialStore !== undefined ? { credentialStore } : {}),
+    }),
+  };
+}
+
+function probeProviderFactory(options?: LLMProbeOptions): ProviderFactory {
+  return options?.providerFactory ?? createProbeProviderFactory(options?.authentication);
+}
+
 /**
  * Phase 1926 Step C：对**给定快照**做真实 probe——probe 内不得再隐式读取另一份
  * 配置；返回结果携带被测 identity，调用方据此丢弃漂移结果。
- * Phase 1927 Step E：pi-ai CredentialStore 显式注入（装配根固定创建）。
  */
 export async function probeLLMConnection(
   snapshot: LLMConfigSnapshot,
-  options?: { credentials?: PiAiCredentialStore },
+  options?: LLMProbeOptions,
 ): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
@@ -169,11 +194,7 @@ export async function probeLLMConnection(
     retry: { maxAttempts: 1, delayMs: 0 },
   }, {
     events: { emit: () => {} },
-    providerFactory: {
-      create: input => llmProviderCall.createProviderFromInput(input, {
-        ...(options?.credentials && { credentialStore: options.credentials }),
-      }),
-    },
+    providerFactory: probeProviderFactory(options),
     lifecycle: { mode: 'ephemeral' },
   }));
   let callFailure: { error: unknown } | undefined;
@@ -212,12 +233,11 @@ export async function probeLLMConnection(
 export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
-  // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
-  const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
+  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
   const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
-    credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+    credentials: createAuthenticationCapability({ fsFactory: deps.fsFactory }),
   });
-  return probeLLMConnection(snapshot, { credentials });
+  return probeLLMConnection(snapshot, { authentication });
 }
 
 /**
@@ -226,7 +246,7 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
  */
 export async function checkLLMConnectionFor(
   provider: ProviderInput,
-  options?: { credentials?: PiAiCredentialStore },
+  options?: LLMProbeOptions,
 ): Promise<
   { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
@@ -236,11 +256,7 @@ export async function checkLLMConnectionFor(
     retry: { maxAttempts: 1, delayMs: 0 },
   }, {
     events: { emit: () => {} },
-    providerFactory: {
-      create: input => llmProviderCall.createProviderFromInput(input, {
-        ...(options?.credentials && { credentialStore: options.credentials }),
-      }),
-    },
+    providerFactory: probeProviderFactory(options),
     lifecycle: { mode: 'ephemeral' },
   }));
   let callFailure: { error: unknown } | undefined;
@@ -411,11 +427,10 @@ export async function promptReconfigure(
 
     console.log('Testing connection...');
     const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
-      credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+      credentials: createAuthenticationCapability({ fsFactory: deps.fsFactory }),
     });
-    // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
-    const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
-    const result = await probeLLMConnection(snapshot, { credentials });
+    const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
+    const result = await probeLLMConnection(snapshot, { authentication });
     if (result.ok) {
       console.log('✓ Connection successful!');
       return snapshot;

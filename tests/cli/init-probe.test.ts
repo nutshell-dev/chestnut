@@ -12,7 +12,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
-import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
@@ -196,8 +196,8 @@ describe('initCommand — 失败后留在向导内修复', () => {
     const skipEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_skipped');
     expect(skipEntry?.some(s => s.includes('user_cancel'))).toBe(true);
 
-    const credentials = createLocalCredentials({ fsFactory });
-    expect(credentials.resolve('ANTHROPIC_API_KEY')).toBeUndefined();
+    const authentication = createAuthenticationSetup({ fsFactory });
+    expect(authentication.resolveSync('ANTHROPIC_API_KEY')).toBeUndefined();
   });
 
   it('network 失败 → retry 成功 → 提交', async () => {
@@ -257,8 +257,8 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
     // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
     // 凭据文件保存输入值（断言 ref/值，不打印 secret）
-    const credentials = createLocalCredentials({ fsFactory });
-    expect(credentials.resolve('CHESTNUT_ANTHROPIC_API_KEY')?.value).toBe('typed-key');
+    const authentication = createAuthenticationSetup({ fsFactory });
+    expect(authentication.resolveSync('CHESTNUT_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
     // 提示同时说明两种行为
     expect(
       questionPrompts().some(

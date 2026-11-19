@@ -21,7 +21,7 @@ import { spawnSync } from 'node:child_process';
 
 const MIN_GRAPH_NODES = 50;
 
-const SUMMARY_PATTERN = /\((\d+) modules, (\d+) dependencies cruised\)/;
+const SUMMARY_PATTERN = /(?:\(|\. )(\d+) modules, (\d+) dependencies cruised[).]/;
 
 const result = spawnSync(
   'depcruise',

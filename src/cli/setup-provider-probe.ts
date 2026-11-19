@@ -12,8 +12,7 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js'
 import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
 const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
-import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
-type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
+import type { AuthenticationSetupCapability } from '../core/llm-configuration/setup.js';
 import {
   checkLLMConnectionFor,
   LLM_ERROR_HINTS,
@@ -142,7 +141,7 @@ export function makeSetupCandidateProbe(
   input: SetupCandidateProbeInput,
   deps: {
     resolveKey: (ref: string) => string | undefined;
-    credentials?: PiAiCredentialStore;
+    authentication?: AuthenticationSetupCapability;
   },
 ): (candidate: SetupProbeCandidate) => Promise<SetupProbeResult> {
   return async (candidate) => {
@@ -167,7 +166,7 @@ export function makeSetupCandidateProbe(
     }
     candidateConfig.timeout_ms = Math.min(candidateConfig.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS, SETUP_PROBE_TIMEOUT_MS);
     return checkLLMConnectionFor(toProviderInput(candidateConfig), {
-      ...(deps.credentials !== undefined && { credentials: deps.credentials }),
+      ...(deps.authentication !== undefined && { authentication: deps.authentication }),
     });
   };
 }

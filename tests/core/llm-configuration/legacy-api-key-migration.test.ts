@@ -3,10 +3,10 @@ import * as fs from 'node:fs';
 import {
   ApiKeyConfigError,
   createLLMConfigurationDocumentStore,
-  getCredentialsFilePath,
   migrateLegacyApiKeysAtPath,
   type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
+import { getCredentialsFilePath } from '../../../src/core/llm-configuration/legacy-credentials/paths.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { cleanupTempDirSync, createTrackedTempDirSync } from '../../utils/temp.js';
 import * as path from 'node:path';

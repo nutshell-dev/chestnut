@@ -7,11 +7,11 @@
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import {
-  createLocalCredentials,
   deriveCredentialRef,
   isCredentialsError,
   storeCredentialInput,
 } from '../core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import { CliError } from './errors.js';
 
 export interface StoreKeyContext {
@@ -39,10 +39,10 @@ export async function storeKeyAsCredential(
 ): Promise<string> {
   const trimmed = input.trim();
   const ref = ctx.envVar ?? deriveCredentialRef(ctx.seed ?? 'primary');
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
   try {
     const result = await storeCredentialInput(
-      credentials,
+      authentication,
       trimmed,
       ref,
       ctx.onShadowedEnv ?? 'fallback',

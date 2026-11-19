@@ -232,7 +232,7 @@ describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', (
     expect(rule.to.path).toBe('^src/cli/');
   });
 
-  it('every production module root has the same generated barrel-only error rule (phase 1348)', () => {
+  it('every production module root has the same generated barrel/setup error rule (phase 1348/2203)', () => {
     const moduleRoots = expectedProductionModuleRoots();
     for (const owner of moduleRoots) {
       const rule = config.forbidden.find(
@@ -240,7 +240,7 @@ describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', (
       );
       expect(rule?.severity).toBe('error');
       expect(rule?.from).toEqual({ path: '^src/', pathNot: [`^src/${owner}/`] });
-      expect(rule?.to.path).toBe(`^src/${owner}/(?!index\\.ts$).+`);
+      expect(rule?.to.path).toBe(`^src/${owner}/(?!index\\.ts$|setup\\.ts$).+`);
     }
 
     const generatedNames = config.forbidden

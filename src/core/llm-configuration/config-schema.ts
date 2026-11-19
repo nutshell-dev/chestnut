@@ -5,12 +5,12 @@
  */
 import { z } from 'zod';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+const { llmProviderConfigSchema } = llmProviderConfigContract;
 
 // L4 owns persisted configuration defaults; values remain compatible with L2.
 const DEFAULT_LLM_RETRY_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 const DEFAULT_RESET_TIMEOUT_MS = 60000;
-const { llmProviderConfigSchema } = llmProviderConfigContract;
 
 const circuitBreakerConfigSchema = z.object({
   failure_threshold: z.number().min(1).max(20).default(3),

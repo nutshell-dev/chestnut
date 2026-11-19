@@ -24,7 +24,7 @@ import { loadClawConfig } from './config/config-load.js';
 import {
   createLLMApplicationStore,
   createLLMConfiguration,
-  createLocalCredentials,
+  createAuthenticationCapability,
   snapshotLLMConfig,
 } from '../core/llm-configuration/index.js';
 import { toOrchestratorConfig } from './llm-orchestrator-config.js';
@@ -195,7 +195,7 @@ export async function createRuntimeAssembly(
       : loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
     const snapshot = snapshotLLMConfig(fresh, freshClawCfg, {
       clawId,
-      credentials: createLocalCredentials({ fsFactory }),
+      credentials: createAuthenticationCapability({ fsFactory }),
     });
     return {
       config: toOrchestratorConfig(snapshot.config, {

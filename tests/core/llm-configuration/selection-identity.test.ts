@@ -5,7 +5,7 @@ import {
   snapshotLLMConfigInput,
   llmConfigIdentity,
   LLMConfigIdentityMismatchError,
-  type CredentialsOwner,
+  type ProviderAuthenticationCapability,
   type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
@@ -13,6 +13,7 @@ import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-c
 /** Explicit configuration round-trip fixtures; these are not production defaults. */
 const RETRY_DELAY_FIXTURE_MS = 1_234;
 const CIRCUIT_RESET_FIXTURE_MS = 120_000;
+const DEFAULT_CIRCUIT_RESET_FIXTURE_MS = 60_000;
 
 const input = {
   llm: {
@@ -34,17 +35,18 @@ function snapshotWithPrimary(primary: SharedLLMInput['primary']) {
 
 function credentialsWith(
   entries: Record<string, { source: 'env' | 'file'; accountId?: string }>,
-): CredentialsOwner {
+): ProviderAuthenticationCapability {
   return {
+    resolve: async (ref) => ({ accessToken: entries[ref]?.source ?? 'missing' }),
     describe: (ref) => ({
       configured: entries[ref] !== undefined,
       source: entries[ref]?.source,
       writable: entries[ref]?.source === 'file',
-      credentialRef: ref,
+      identityRef: ref,
       accountId: entries[ref]?.accountId,
       identityVersion: 1,
     }),
-  } as CredentialsOwner;
+  };
 }
 
 describe('LLMConfiguration selection / identity', () => {
@@ -58,7 +60,7 @@ describe('LLMConfiguration selection / identity', () => {
     expect(snapshot.config.retry).toEqual({ maxAttempts: 3, delayMs: 1000 });
     expect(snapshot.config.legacyCircuitBreaker).toEqual({
       failureThreshold: 3,
-      resetTimeoutMs: 60000,
+      resetTimeoutMs: DEFAULT_CIRCUIT_RESET_FIXTURE_MS,
     });
   });
 

@@ -245,7 +245,7 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
 
     expect(loginMock.providerLoginTypes).toHaveBeenCalledWith('openai-codex');
     expect(loginMock.runProviderLogin).toHaveBeenCalledWith({
-      piAiProvider: 'openai-codex', type: 'oauth', credentials: expect.anything(),
+      piAiProvider: 'openai-codex', type: 'oauth', authentication: expect.anything(),
     });
   });
 
@@ -257,7 +257,7 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
     await cmd.parseAsync(['node', 'test', 'provider', 'login', 'openai-codex', '--type', 'api-key']);
 
     expect(loginMock.runProviderLogin).toHaveBeenCalledWith({
-      piAiProvider: 'openai-codex', type: 'api_key', credentials: expect.anything(),
+      piAiProvider: 'openai-codex', type: 'api_key', authentication: expect.anything(),
     });
   });
 
@@ -296,7 +296,7 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
     const cmd = createConfigCommand(commandDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'logout', 'openai-codex']);
     expect(loginMock.runProviderLogout).toHaveBeenCalledWith({
-      piAiProvider: 'openai-codex', credentials: expect.anything(),
+      piAiProvider: 'openai-codex', authentication: expect.anything(),
     });
   });
 });
