@@ -17,6 +17,7 @@ import {
   snapshotLLMConfigInput,
 } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
+import { toOrchestratorConfig } from '../../../src/assembly/llm-orchestrator-config.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const PRIMARY = { providerId: 'primary', authentication: { kind: 'api_key' as const, value: 'key', identity: 'key' }, model: 'model', apiFormat: 'anthropic' as const };
@@ -53,7 +54,7 @@ function makeConfig(
   };
 }
 
-function makeOwner(config: ReturnType<typeof makeConfig>): LLMOrchestratorImpl {
+function makeOwner(config: LLMOrchestratorConfig): LLMOrchestratorImpl {
   const owner = new LLMOrchestratorImpl(config);
   owners.push(owner);
   return owner;
@@ -71,7 +72,11 @@ describe('legacy circuitBreaker diagnostics', () => {
 
     const parsed = createGlobalConfigSchema().parse({ llm: { primary, circuit_breaker: {} } });
     const resolved = resolveLLMConfig(parsed);
-    makeOwner({ ...resolved, events: sink, lifecycle: { mode: 'ephemeral' }, providerFactory: legacyProviderFactory(adapter) });
+    makeOwner(toOrchestratorConfig(resolved, {
+      events: sink,
+      lifecycle: { mode: 'ephemeral' },
+      providerFactory: legacyProviderFactory(adapter),
+    }));
     expect(emitted.filter(event => event.type === 'legacy_config_ignored')).toEqual([{
       type: 'legacy_config_ignored', field: 'circuitBreaker', reason: 'provider_retry_at_policy',
       value: { failureThreshold: 3, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },

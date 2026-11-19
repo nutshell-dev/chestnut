@@ -30,6 +30,7 @@ import {
   getUserActionHint,
 } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
+import { toOrchestratorConfig } from '../assembly/index.js';
 import { FORMAT_MAP } from './provider-format-map.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 
@@ -163,10 +164,10 @@ export async function probeLLMConnection(
 ): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
-  const svc = createLLMOrchestrator({
+  const svc = createLLMOrchestrator(toOrchestratorConfig({
     ...snapshot.config,
-    maxAttempts: 1,
-    retryDelayMs: 0,
+    retry: { maxAttempts: 1, delayMs: 0 },
+  }, {
     events: { emit: () => {} },
     providerFactory: {
       create: input => llmProviderCall.createProviderFromInput(input, {
@@ -174,7 +175,7 @@ export async function probeLLMConnection(
       }),
     },
     lifecycle: { mode: 'ephemeral' },
-  });
+  }));
   let callFailure: { error: unknown } | undefined;
   try {
     await svc.call({
@@ -229,11 +230,11 @@ export async function checkLLMConnectionFor(
 ): Promise<
   { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
-  const svc = createLLMOrchestrator({
+  const svc = createLLMOrchestrator(toOrchestratorConfig({
     primary: provider,
     fallbacks: [],
-    maxAttempts: 1,
-    retryDelayMs: 0,
+    retry: { maxAttempts: 1, delayMs: 0 },
+  }, {
     events: { emit: () => {} },
     providerFactory: {
       create: input => llmProviderCall.createProviderFromInput(input, {
@@ -241,7 +242,7 @@ export async function checkLLMConnectionFor(
       }),
     },
     lifecycle: { mode: 'ephemeral' },
-  });
+  }));
   let callFailure: { error: unknown } | undefined;
   try {
     await svc.call({

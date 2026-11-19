@@ -17,6 +17,7 @@ import {
 } from '../foundation/llm-orchestrator/index.js';
 import { llmProviderCall } from '../foundation/llm-provider/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
+import { toOrchestratorConfig } from './llm-orchestrator-config.js';
 import {
   resolveLLMConfig,
   snapshotLLMConfig,
@@ -284,12 +285,11 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
           auditLog,
         }),
       };
-      llmConfig = {
-        ...llmSelection,
+      llmConfig = toOrchestratorConfig(llmSelection, {
         providerFactory,
         events: llmEvents,
         lifecycle: { mode: 'durable', fs: systemFs, stateDir: STATUS_SUBDIR },
-      };
+      });
       llm = createLLMOrchestrator(llmConfig);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${formatErr(e)}`);

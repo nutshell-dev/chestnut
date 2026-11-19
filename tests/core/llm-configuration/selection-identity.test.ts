@@ -43,6 +43,20 @@ function credentialsWith(
 }
 
 describe('LLMConfiguration selection / identity', () => {
+  it('L4 自有 retry/reset 默认值保持既有数值', () => {
+    const snapshot = snapshotLLMConfigInput({
+      llm: {
+        primary: { preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed' },
+        circuit_breaker: {},
+      },
+    });
+    expect(snapshot.config.retry).toEqual({ maxAttempts: 3, delayMs: 1000 });
+    expect(snapshot.config.legacyCircuitBreaker).toEqual({
+      failureThreshold: 3,
+      resetTimeoutMs: 60000,
+    });
+  });
+
   it('snapshot 明确 scope、revision、provenance 与独立 operational identity', () => {
     const global = createGlobalConfigSchema().parse(input);
     const snapshot = snapshotLLMConfig(global, undefined, {
@@ -67,10 +81,9 @@ describe('LLMConfiguration selection / identity', () => {
     const global = createGlobalConfigSchema().parse(input);
     const snapshot = snapshotLLMConfig(global, override, { clawId: 'claw-a' });
     expect(snapshot.config.primary.model).toBe('gpt-override');
-    expect(snapshot.config.fallbacks?.map(provider => provider.model)).toEqual(['gpt-fixed']);
-    expect(snapshot.config.maxAttempts).toBe(4);
-    expect(snapshot.config.retryDelayMs).toBe(RETRY_DELAY_FIXTURE_MS);
-    expect(snapshot.config.circuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: CIRCUIT_RESET_FIXTURE_MS });
+    expect(snapshot.config.fallbacks.map(provider => provider.model)).toEqual(['gpt-fixed']);
+    expect(snapshot.config.retry).toEqual({ maxAttempts: 4, delayMs: RETRY_DELAY_FIXTURE_MS });
+    expect(snapshot.config.legacyCircuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: CIRCUIT_RESET_FIXTURE_MS });
     expect(snapshot.scope).toMatchObject({ primarySource: 'claw_override', clawId: 'claw-a' });
     expect(snapshot.auth[0]).toMatchObject({ credentialRef: 'OVERRIDE_KEY', authProfile: 'api_key' });
     expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(resolveLLMConfig(global, override)));

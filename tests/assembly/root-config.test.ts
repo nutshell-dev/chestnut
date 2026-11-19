@@ -266,7 +266,7 @@ describe('resolveLLMConfig resolver', () => {
 
     const globalOnly = resolveLLMConfig(globalCfg);
     expect(globalOnly.primary.model).toBe('claude-test');
-    expect(globalOnly.circuitBreaker).toBeUndefined();
+    expect(globalOnly.legacyCircuitBreaker).toBeUndefined();
 
     const clawPath = getClawConfigPath('overrideclaw');
     admin.saveClaw(clawPath, {
@@ -279,8 +279,8 @@ describe('resolveLLMConfig resolver', () => {
     const withClaw = resolveLLMConfig(globalCfg, clawCfg);
     expect(withClaw.primary.model).toBe('gpt-ovr');
     // claw 只覆盖 primary，fallback/retry/breaker 仍取 global。
-    expect(withClaw.maxAttempts).toBe(globalOnly.maxAttempts);
-    expect(withClaw.circuitBreaker).toEqual(globalOnly.circuitBreaker);
+    expect(withClaw.retry).toEqual(globalOnly.retry);
+    expect(withClaw.legacyCircuitBreaker).toEqual(globalOnly.legacyCircuitBreaker);
   });
 });
 

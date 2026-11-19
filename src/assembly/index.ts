@@ -52,3 +52,5 @@ export type { ContractActionContext, ClawActionAudit, ContractActionFsDeps } fro
 // phase 1879 Step C: subagent 结果目录跨 owner 组合解析（async→sync→legacy 顺序归 Assembly）
 export { resolveSubagentResultDir } from './subagent-result-query.js';
 export { createCrossTargetAccess } from './cross-target-access.js';
+export { toOrchestratorConfig } from './llm-orchestrator-config.js';
+export type { OrchestratorAssemblyDeps } from './llm-orchestrator-config.js';

@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { resolveLLMConfig } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
+import { toOrchestratorConfig } from '../../../src/assembly/llm-orchestrator-config.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -178,10 +179,11 @@ describe('phase 320 Step A: reloadConfig', () => {
         primary: { preset: 'anthropic', api_key: 'kA', model: 'mA' },
       },
     });
-    const orch = new LLMOrchestratorImpl({
-      lifecycle: { mode: 'ephemeral' }, ...resolveLLMConfig(cfgA), events: sink,
-        providerFactory: mockProviderFactory,
-      });
+    const orch = new LLMOrchestratorImpl(toOrchestratorConfig(resolveLLMConfig(cfgA), {
+      lifecycle: { mode: 'ephemeral' },
+      events: sink,
+      providerFactory: mockProviderFactory,
+    }));
     expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(1);
     expect(internalsOf(orch).providerRuntime.config().circuitBreaker).toBeUndefined();
     expect((orch as any).breakers).toBeUndefined();
@@ -194,7 +196,11 @@ describe('phase 320 Step A: reloadConfig', () => {
         ],
       },
     });
-    orch.reloadConfig({ ...resolveLLMConfig(cfgB), events: sink, providerFactory: mockProviderFactory });
+    orch.reloadConfig(toOrchestratorConfig(resolveLLMConfig(cfgB), {
+      lifecycle: { mode: 'ephemeral' },
+      events: sink,
+      providerFactory: mockProviderFactory,
+    }));
     expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(2);
     expect((orch as any).breakers).toBeUndefined();
   });

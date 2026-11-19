@@ -248,9 +248,9 @@ export interface RuntimeOptions {
   configReloader?: () => LLMOrchestratorConfig | RuntimeConfigReloadSnapshot;
 
   /**
-   * Phase 1945 Step C：从 configReloader 返回的同一 resolved object 派生配置身份
-   * （Assembly 注入 llmConfigIdentity，与出生事实/start 验证单源）。与 configReloader
-   * 分离注入，不改变既有 reloader 签名与测试 double。缺省 = 不发布身份。
+   * Phase 1945 Step C：兼容/测试上下文可从 configReloader 返回的同一 object
+   * 派生配置身份。与 configReloader 分离注入，不改变既有 reloader 签名与测试 double。
+   * 生产 Assembly 直接使用 L4 snapshot 携带的 identity，不从 L2 config 反推；缺省 = 不发布身份。
    */
   configIdentityOf?: (config: LLMOrchestratorConfig) => string;
 

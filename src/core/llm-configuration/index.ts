@@ -27,6 +27,7 @@ export type {
   LLMGlobalConfigView,
   LLMClawConfigView,
   LLMConfigInput,
+  LLMResolvedConfiguration,
   SharedLLM,
   SharedLLMInput,
 } from './selection.js';

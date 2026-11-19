@@ -30,6 +30,7 @@ import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/in
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import { resolveLLMConfig } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
+import { toOrchestratorConfig } from '../../../src/assembly/llm-orchestrator-config.js';
 import { providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
 /** Keeps the fallback call pending while the primary stream wins the hedge. */
@@ -172,14 +173,14 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
     };
 
     const { sink, emitted } = createMockSink();
-    const service = new LLMOrchestratorImpl({
-      lifecycle: { mode: 'ephemeral' },
+    const service = new LLMOrchestratorImpl(toOrchestratorConfig({
       ...llmConfig,
-      maxAttempts: 1,
-      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
+      retry: { maxAttempts: 1, delayMs: 0 }, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
+    }, {
+      lifecycle: { mode: 'ephemeral' },
       events: sink,
       providerFactory: legacyProviderFactory((cfg) => findAdapter(cfg)),
-    });
+    }));
 
     expect(service.getProviderIdentities()).toHaveLength(3);
     // 缺失的 provider state 即 available；第一次真实失败后由 owner 统一记账。

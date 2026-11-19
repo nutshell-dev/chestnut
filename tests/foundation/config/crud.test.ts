@@ -118,7 +118,7 @@ ${extraLlmYaml}
     expect(globalConfig.llm.circuit_breaker).toBeUndefined();
 
     const llmConfig = resolveLLMConfig(globalConfig);
-    expect(llmConfig.circuitBreaker).toBeUndefined();
+    expect(llmConfig.legacyCircuitBreaker).toBeUndefined();
   });
 
   it('显式 circuit_breaker 值在读写后保持不被覆盖', () => {
@@ -130,7 +130,7 @@ ${extraLlmYaml}
     });
 
     const llmConfig = resolveLLMConfig(globalConfig);
-    expect(llmConfig.circuitBreaker).toEqual({
+    expect(llmConfig.legacyCircuitBreaker).toEqual({
       failureThreshold: 5,
       resetTimeoutMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
@@ -141,7 +141,7 @@ ${extraLlmYaml}
     const globalConfig = loadGlobalConfig({ fsFactory });
     const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.fallbacks).toHaveLength(2);
-    expect(llmConfig.circuitBreaker).toBeUndefined();
+    expect(llmConfig.legacyCircuitBreaker).toBeUndefined();
   });
 });
 

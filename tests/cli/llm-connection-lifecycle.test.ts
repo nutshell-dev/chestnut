@@ -36,7 +36,11 @@ function providerConnection() {
 
 function snapshot(): Parameters<typeof probeLLMConnection>[0] {
   return {
-    config: { primary: providerConnection() },
+    config: {
+      primary: providerConnection(),
+      fallbacks: [],
+      retry: { maxAttempts: 3, delayMs: 1000 },
+    },
     identity: 'snapshot-id',
   } as unknown as Parameters<typeof probeLLMConnection>[0];
 }

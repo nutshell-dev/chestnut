@@ -1,14 +1,15 @@
 /**
  * @module L4.LLMConfiguration.Selection
  *
- * 主配置覆盖、备用顺序与 orchestrator 配置转换的唯一解释入口。
+ * 主配置覆盖、备用顺序与有效配置解析的唯一解释入口。
  */
 import type { z } from 'zod';
-import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
 const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
+type ProviderInput = llmProviderCall.ProviderInput;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
 export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;
@@ -35,26 +36,39 @@ export interface LLMConfigInput {
   llm: SharedLLMInput;
 }
 
-export type LLMConnectionSelection = Omit<
-  LLMOrchestratorConfig,
-  'events' | 'providerFactory' | 'lifecycle'
->;
+export interface LLMResolvedConfiguration {
+  readonly primary: ProviderInput;
+  readonly fallbacks: readonly ProviderInput[];
+  readonly retry: Readonly<{
+    maxAttempts: number;
+    delayMs: number;
+  }>;
+  /** 旧 breaker 段仅作为兼容诊断事实，不表达当前 L2 策略。 */
+  readonly legacyCircuitBreaker?: Readonly<{
+    failureThreshold: number;
+    resetTimeoutMs: number;
+  }>;
+}
 
 /** 将 global 与可选 claw 的 LLM 视图转换为无运行时依赖的输入快照。 */
 export function resolveLLMConfig(
   globalConfig: LLMGlobalConfigView,
   clawConfig?: LLMClawConfigView,
-): LLMConnectionSelection {
+): LLMResolvedConfiguration {
   const llm = globalConfig.llm;
   const cb = llm.circuit_breaker;
   return {
     primary: toProviderInput(clawConfig?.llm?.primary ?? llm.primary),
     fallbacks: (llm.fallbacks ?? []).map(toProviderInput),
-    maxAttempts: llm.retry_attempts,
-    retryDelayMs: llm.retry_delay_ms,
-    circuitBreaker: cb ? {
-      failureThreshold: cb.failure_threshold,
-      resetTimeoutMs: cb.reset_timeout_ms,
-    } : undefined,
+    retry: {
+      maxAttempts: llm.retry_attempts,
+      delayMs: llm.retry_delay_ms,
+    },
+    ...(cb ? {
+      legacyCircuitBreaker: {
+        failureThreshold: cb.failure_threshold,
+        resetTimeoutMs: cb.reset_timeout_ms,
+      },
+    } : {}),
   };
 }

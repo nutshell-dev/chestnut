@@ -4,7 +4,6 @@
  * LLM 配置快照、稳定 auth identity 与 operational identity。secret 值不进入
  * scope、auth 或稳定身份；旧哈希仅保留给 adapter/reload 的 operational 判定。
  */
-import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { llmProviderCall } from '../../foundation/llm-provider/index.js';
 type ProviderInput = llmProviderCall.ProviderInput;
@@ -20,7 +19,7 @@ import {
   type LLMConfigInput,
   type LLMGlobalConfigView,
   type SharedLLMInput,
-  type LLMConnectionSelection,
+  type LLMResolvedConfiguration,
 } from './selection.js';
 
 export interface LLMConfigScope {
@@ -55,7 +54,7 @@ export interface LLMAuthIdentity {
 }
 
 export interface LLMConfigSnapshot {
-  config: LLMConnectionSelection;
+  config: LLMResolvedConfiguration;
   scope: LLMConfigScope;
   credentials: readonly CredentialProvenance[];
   auth: readonly LLMAuthIdentity[];
@@ -86,11 +85,6 @@ function stableIdentityStringify(value: unknown): string {
   return `{${entries.join(',')}}`;
 }
 
-type LLMIdentityConfig = Pick<
-  LLMOrchestratorConfig,
-  'primary' | 'fallbacks' | 'maxAttempts' | 'retryDelayMs' | 'circuitBreaker'
->;
-
 /** Operational 投影只携 L1 descriptor 给出的非 secret 运行事实。 */
 function providerOperationalProjection(p: ProviderInput): Record<string, unknown> {
   const descriptor = describeProviderInput(p);
@@ -109,13 +103,13 @@ function providerOperationalProjection(p: ProviderInput): Record<string, unknown
 }
 
 /** resolved 配置的 operational 摘要；不是稳定账号身份。 */
-export function llmConfigIdentity(config: LLMIdentityConfig): string {
+export function llmConfigIdentity(config: LLMResolvedConfiguration): string {
   return sha256Hex(stableIdentityStringify({
     primary: providerOperationalProjection(config.primary),
-    fallbacks: (config.fallbacks ?? []).map(providerOperationalProjection),
-    maxAttempts: config.maxAttempts,
-    retryDelayMs: config.retryDelayMs,
-    circuitBreaker: config.circuitBreaker,
+    fallbacks: config.fallbacks.map(providerOperationalProjection),
+    maxAttempts: config.retry.maxAttempts,
+    retryDelayMs: config.retry.delayMs,
+    circuitBreaker: config.legacyCircuitBreaker,
   }));
 }
 
@@ -271,7 +265,7 @@ export function snapshotLLMConfig(
       raw: hasOverride ? clawConfig!.raw?.primary ?? clawConfig!.llm!.primary! : rawGlobal.primary,
       resolved: config.primary,
     },
-    ...(config.fallbacks ?? []).map((resolved, index) => {
+    ...config.fallbacks.map((resolved, index) => {
       const raw = rawGlobal.fallbacks?.[index];
       if (raw === undefined) throw new Error(`Incomplete raw LLM credential evidence: fallbacks[${index}]`);
       return { role: `fallbacks[${index}]`, raw, resolved };
@@ -302,10 +296,10 @@ export function snapshotLLMConfig(
       clawId: scope.clawId,
     },
     primary: providerStableProjection(config.primary),
-    fallbacks: (config.fallbacks ?? []).map(providerStableProjection),
-    maxAttempts: config.maxAttempts,
-    retryDelayMs: config.retryDelayMs,
-    circuitBreaker: config.circuitBreaker,
+    fallbacks: config.fallbacks.map(providerStableProjection),
+    maxAttempts: config.retry.maxAttempts,
+    retryDelayMs: config.retry.delayMs,
+    circuitBreaker: config.legacyCircuitBreaker,
     auth: auth.map(({ fingerprint: _fingerprint, ...entry }) => entry),
     credentialRefs: credentials.map(entry => ({
       role: entry.role,

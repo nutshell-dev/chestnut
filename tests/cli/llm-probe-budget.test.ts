@@ -47,7 +47,11 @@ describe('Phase 1979 probe budget', () => {
 
   it('probeLLMConnection 使用共享常量', async () => {
     await probeLLMConnection({
-      config: { primary: providerConnection() },
+      config: {
+        primary: providerConnection(),
+        fallbacks: [],
+        retry: { maxAttempts: 3, delayMs: 1000 },
+      },
       identity: 'id',
     } as unknown as Parameters<typeof probeLLMConnection>[0]);
     expect(mocks.call).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: LLM_PROBE_MAX_TOKENS }));

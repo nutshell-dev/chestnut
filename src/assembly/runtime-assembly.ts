@@ -26,8 +26,8 @@ import {
   createLLMConfiguration,
   createLocalCredentials,
   snapshotLLMConfig,
-  llmConfigIdentity,
 } from '../core/llm-configuration/index.js';
+import { toOrchestratorConfig } from './llm-orchestrator-config.js';
 import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
@@ -198,12 +198,11 @@ export async function createRuntimeAssembly(
       credentials: createLocalCredentials({ fsFactory }),
     });
     return {
-      config: {
-        ...snapshot.config,
+      config: toOrchestratorConfig(snapshot.config, {
         providerFactory: llmConfig.providerFactory,
         events: llmConfig.events,
         lifecycle: llmConfig.lifecycle,
-      },
+      }),
       revision,
       identity: snapshot.operationalIdentity,
       reloadIdentity: `${snapshot.identity}:${snapshot.operationalIdentity}`,
@@ -265,7 +264,8 @@ export async function createRuntimeAssembly(
       toolProfile,
       idleTimeoutMs,
       configReloader,
-      configIdentityOf: (c) => llmConfigIdentity(c),
+      // 生产 identity 已由初始/reload L4 snapshot 提供；Runtime 的 L2
+      // configIdentityOf 仅保留给兼容/测试调用方，不在此反向适配 L4。
       initialConfigIdentity: llmIdentities?.operational,
       initialConfigReloadIdentity: llmIdentities?.reload,
       configApplicationStore,

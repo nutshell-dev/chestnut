@@ -517,7 +517,12 @@ vi.mock('../../src/core/llm-configuration/index.js', async (importOriginal) => {
   // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
   // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(function () {
-    return { provider: 'mock' };
+    return {
+      provider: 'mock',
+      primary: { provider: 'mock' },
+      fallbacks: [],
+      retry: { maxAttempts: 1, delayMs: 0 },
+    };
   });
   // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
   return {
