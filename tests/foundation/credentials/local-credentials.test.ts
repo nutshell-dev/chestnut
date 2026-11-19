@@ -1,10 +1,10 @@
 /**
- * Phase 1925 Step B: 用户级 Credentials owner 行为测试。
+ * Phase 2206 Step B: workspace Credentials owner 行为测试。
  *
- * 冻结契约：分层优先级（env > file > project-env > user-env）、空值缺席、
+ * 冻结契约：分层优先级（env > file > project-env）、空值缺席、
  * describe 不返回值、set/unset 0600/0700 与锁内重读、shadowed 拒绝、
  * 权限位 loud、invalid file loud、外部编辑下一次 resolve 可见。
- * 全部经 CHESTNUT_HOME / CHESTNUT_ROOT stubEnv 隔离，不触碰真实 home。
+ * CHESTNUT_HOME 仅作为旧用户级负向哨兵；所有写入由 CHESTNUT_ROOT 隔离。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -29,11 +29,11 @@ function makeOwner(env?: NodeJS.ProcessEnv) {
 }
 
 function credentialsFile(): string {
-  return path.join(homeDir, 'credentials.yaml');
+  return path.join(projectDir, '.chestnut', 'llm', 'credentials.yaml');
 }
 
 function writeCredentialsFile(content: string, mode = 0o600): void {
-  fs.mkdirSync(homeDir, { recursive: true });
+  fs.mkdirSync(path.dirname(credentialsFile()), { recursive: true });
   fs.writeFileSync(credentialsFile(), content, { mode });
 }
 
@@ -59,7 +59,7 @@ describe('isCredentialRefName', () => {
 });
 
 describe('resolve 分层优先级', () => {
-  it('env > file > project-env > user-env', () => {
+  it('env > file > project-env，且忽略旧用户级 .env', () => {
     writeCredentialsFile('version: 1\nrefs:\n  K: file-value\n');
     fs.writeFileSync(path.join(projectDir, '.env'), 'K=project-value\n');
     fs.writeFileSync(path.join(homeDir, '.env'), 'K=user-value\n');
@@ -70,18 +70,33 @@ describe('resolve 分层优先级', () => {
     expect(makeOwner({ K: 'env-value' }).resolve('K')).toEqual({ value: 'env-value', source: 'env' });
   });
 
-  it('file 缺席时 project-env 胜出；project-env 缺席时 user-env 兜底', () => {
+  it('file 缺席时 project-env 胜出；旧用户级凭据和 .env 均不可见', () => {
     fs.writeFileSync(path.join(projectDir, '.env'), 'P=project-value\n');
     fs.writeFileSync(path.join(homeDir, '.env'), 'U=user-value\nP=project-shadowed\n');
+    fs.writeFileSync(path.join(homeDir, 'credentials.yaml'), 'version: 1\nrefs:\n  U: user-file-value\n');
     expect(makeOwner({}).resolve('P')).toEqual({ value: 'project-value', source: 'project-env' });
-    expect(makeOwner({}).resolve('U')).toEqual({ value: 'user-value', source: 'user-env' });
+    expect(makeOwner({}).resolve('U')).toBeUndefined();
+    expect(fs.readFileSync(path.join(homeDir, 'credentials.yaml'), 'utf8')).toContain('user-file-value');
   });
 
   it('空值处处视为缺席', () => {
     writeCredentialsFile('version: 1\nrefs:\n  K: ""\n');
-    fs.writeFileSync(path.join(homeDir, '.env'), 'K=user-value\n');
-    expect(makeOwner({ K: '' }).resolve('K')).toEqual({ value: 'user-value', source: 'user-env' });
+    fs.writeFileSync(path.join(projectDir, '.env'), 'K=project-value\n');
+    expect(makeOwner({ K: '' }).resolve('K')).toEqual({ value: 'project-value', source: 'project-env' });
     expect(makeOwner({}).resolve('MISSING')).toBeUndefined();
+  });
+
+  it('两个 workspace 的同 ref 凭据互不相读', () => {
+    const owner = makeOwner({});
+    return owner.set('K', 'workspace-a').then(async () => {
+      const workspaceB = createTrackedTempDirSync('chestnut-cred-proj-b-');
+      vi.stubEnv('CHESTNUT_ROOT', workspaceB);
+      expect(owner.resolve('K')).toBeUndefined();
+      await owner.set('K', 'workspace-b');
+      expect(owner.resolve('K')?.value).toBe('workspace-b');
+      vi.stubEnv('CHESTNUT_ROOT', projectDir);
+      expect(owner.resolve('K')?.value).toBe('workspace-a');
+    });
   });
 
   it('外部编辑在下一次 resolve 可见（无缓存）', () => {
@@ -134,7 +149,7 @@ describe('set/unset', () => {
     expect(owner.resolve('MY_KEY')).toEqual({ value: 'sk-test-value', source: 'file' });
     if (process.platform !== 'win32') {
       expect(fs.statSync(credentialsFile()).mode & 0o777).toBe(0o600);
-      expect(fs.statSync(homeDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.dirname(credentialsFile())).mode & 0o777).toBe(0o700);
     }
     // 文件骨架合法
     const content = fs.readFileSync(credentialsFile(), 'utf8');
@@ -243,11 +258,12 @@ describe('modify（Phase 1927 Step E：跨进程 RMW 事务）', () => {
     expect(makeOwner({}).resolve('K')).toBeUndefined();
     // 骨架保留（文件仍在）
     expect(fs.existsSync(credentialsFile())).toBe(true);
-    // 文件从未存在时的删除：物化空骨架（与 unset 语义对齐——不炸）
-    const home2 = createTrackedTempDirSync('chestnut-cred-home2-');
-    vi.stubEnv('CHESTNUT_HOME', home2);
+    // 文件从未存在时的删除仍为 no-op，不物化空骨架。
+    const project2 = createTrackedTempDirSync('chestnut-cred-proj2-');
+    vi.stubEnv('CHESTNUT_ROOT', project2);
     await expect(makeOwner({}).modify('NOPE', async () => undefined)).resolves.toBeUndefined();
-    vi.stubEnv('CHESTNUT_HOME', homeDir);
+    expect(fs.existsSync(path.join(project2, '.chestnut', 'llm', 'credentials.yaml'))).toBe(false);
+    vi.stubEnv('CHESTNUT_ROOT', projectDir);
   });
 
   it('fn 返回相同值 → 跳过重写（文件不被替换）', async () => {

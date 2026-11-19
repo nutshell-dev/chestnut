@@ -41,6 +41,7 @@ import {
   type SharedLLMInput,
   type LLMGlobalConfigView,
   type LLMClawConfigView,
+  type CredentialSource,
 } from '../../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
 import {
@@ -56,8 +57,8 @@ import {
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 
 /**
- * Phase 1925 Step B：`${VAR}` 解析注入 —— 用户级 Credentials owner 分层解析
- * （进程环境 > 用户级凭据文件 > 项目 .env > 用户级 .env）。
+ * Phase 2206 Step B：`${VAR}` 解析注入 —— workspace Credentials owner 分层解析
+ * （进程环境 > workspace 凭据文件 > workspace 根 .env）。
  * owner 无状态不缓存，每次 load 新建即等价「每次 loadYamlConfig 调用注入」。
  * permissions/io_error 等 CredentialsError loud 向上传播（ConfigStore 只包装
  * env 缺席为 missing_env，其余错误不吞）。非法 ref 不降级到另一套读取。
@@ -363,7 +364,7 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   }
   try {
     let rawLLM: LLMClawConfigView['raw'];
-    const credentialSources: Record<string, 'env' | 'file' | 'project-env' | 'user-env'> = {};
+    const credentialSources: Record<string, CredentialSource> = {};
     const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
     const resolved = loadYamlConfig<ClawConfig>(
       {

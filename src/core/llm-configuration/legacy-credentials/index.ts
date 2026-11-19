@@ -17,11 +17,11 @@ export { CredentialsError, isCredentialsError } from './errors.js';
 export type { CredentialsErrorCode } from './errors.js';
 
 export {
-  getCredentialsHome,
   getCredentialsFilePath,
-  getUserDotEnvPath,
   getProjectDotEnvPath,
+  workspaceCredentialsPaths,
 } from './paths.js';
+export type { WorkspaceCredentialsPaths } from './paths.js';
 
 export { createLocalCredentials } from './local.js';
 export type { LocalCredentialsDeps } from './local.js';

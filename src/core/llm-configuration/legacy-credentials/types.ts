@@ -2,16 +2,16 @@
  * @module L4.LLMConfiguration.LegacyCredentials
  * @layer L4 业务层
  *
- * 用户级 Credentials owner 类型契约（Phase 1925 Step B）。
+ * Workspace Credentials owner 类型契约（Phase 2206 Step B）。
  *
  * 配置只保存 `${VAR}` reference；值由本 owner 分层解析：
- * 进程环境（只读、最高）> 用户级凭据文件（唯一可写层）> 项目 .env（只读回退）
- * > 用户级 .env（只读回退）。空值处处视为缺席。
+ * 进程环境（只读、最高）> workspace 凭据文件（唯一可写层）>
+ * workspace 根 .env（只读回退）。空值处处视为缺席。
  * describe/日志永不返回 secret 值。
  */
 
-/** 命中层。'file' = 用户级凭据文件（唯一可写层）。 */
-export type CredentialSource = 'env' | 'file' | 'project-env' | 'user-env';
+/** 命中层。'file' = workspace 凭据文件（唯一可写层）。 */
+export type CredentialSource = 'env' | 'file' | 'project-env';
 
 /** resolve 命中结果（含值 — 仅 resolve 返回 secret）。 */
 export interface ResolvedCredential {

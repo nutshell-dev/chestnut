@@ -1,39 +1,44 @@
 /**
  * @module L4.LLMConfiguration.LegacyCredentials
  *
- * Credentials 路径原语（Phase 1925 Step B）。
- *
- * 凭据根目录是**用户级 home**（默认 `~/.chestnut`），与 workspace 的
- * `.chestnut/` 完全无关；`CHESTNUT_HOME` 环境变量可覆盖该根目录
- * （测试/便携场景）。项目 .env 的项目根 = `CHESTNUT_ROOT ?? process.cwd()`
- * （Credentials 独立读取该旧环境约定，不依赖 claw-identity 路径 API）。
- *
- * os.homedir 使用：依赖巡航不禁 `os` 模块（仅 fs/crypto/child_process/net 等
- * 有 owner 锁定），无既有先例冲突。
+ * Workspace credentials 路径原语（Phase 2206 Step B）。
+ * 唯一可写文件为 `<workspace>/.chestnut/llm/credentials.yaml`，锁由 owner
+ * 放在同目录；workspace 根 `.env` 仅作为只读回退。路径解析与 LLM 配置共用
+ * `getChestnutRoot()`，不读取用户级凭据或 `CHESTNUT_HOME`。
  */
 
-import * as os from 'os';
 import * as path from 'path';
+import { getChestnutRoot } from '../../../foundation/claw-identity/index.js';
 
-/** 凭据根目录：CHESTNUT_HOME 优先，否则 ~/.chestnut。 */
-export function getCredentialsHome(): string {
-  const override = process.env.CHESTNUT_HOME;
-  if (override !== undefined && override !== '') return override;
-  return path.join(os.homedir(), '.chestnut');
+export interface WorkspaceCredentialsPaths {
+  readonly workspaceRoot: string;
+  readonly credentialsFile: string;
+  readonly lockFile: string;
+  readonly workspaceDotEnv: string;
 }
 
-/** 用户级凭据文件路径（$CREDENTIALS_HOME/credentials.yaml）。 */
+/** 从显式 workspace root 派生全部凭据路径；不读取进程环境或 cwd。 */
+export function workspaceCredentialsPaths(workspaceRoot: string): WorkspaceCredentialsPaths {
+  const root = path.resolve(workspaceRoot);
+  const dir = path.join(root, '.chestnut', 'llm');
+  return {
+    workspaceRoot: root,
+    credentialsFile: path.join(dir, 'credentials.yaml'),
+    lockFile: path.join(dir, 'credentials.yaml.lock'),
+    workspaceDotEnv: path.join(root, '.env'),
+  };
+}
+
+function currentWorkspaceCredentialsPaths(): WorkspaceCredentialsPaths {
+  return workspaceCredentialsPaths(path.dirname(getChestnutRoot()));
+}
+
+/** 当前 workspace 的唯一可写凭据文件。 */
 export function getCredentialsFilePath(): string {
-  return path.join(getCredentialsHome(), 'credentials.yaml');
+  return currentWorkspaceCredentialsPaths().credentialsFile;
 }
 
-/** 用户级 .env 回退路径（$CREDENTIALS_HOME/.env）。 */
-export function getUserDotEnvPath(): string {
-  return path.join(getCredentialsHome(), '.env');
-}
-
-/** 项目 .env 回退路径（项目根 = CHESTNUT_ROOT ?? cwd）。 */
+/** 当前 workspace 的只读 .env 回退路径。 */
 export function getProjectDotEnvPath(): string {
-  const projectRoot = process.env.CHESTNUT_ROOT ?? process.cwd();
-  return path.join(projectRoot, '.env');
+  return currentWorkspaceCredentialsPaths().workspaceDotEnv;
 }

@@ -2,11 +2,11 @@
  * @module L4.LLMConfiguration.LegacyCredentials
  * @layer L4 业务层
  *
- * 本地 Credentials owner 实现（Phase 1925 Step B）。
+ * Workspace Credentials owner 实现（Phase 2206 Step B）。
  *
  * 分层解析（首个非空命中胜出，空值处处视为缺席）：
- *   进程环境（只读、最高）> 用户级凭据文件（唯一可写层）
- *   > 项目 .env（只读回退）> 用户级 .env（只读回退）。
+ *   进程环境（只读、最高）> workspace 凭据文件（唯一可写层）
+ *   > workspace 根 .env（只读回退）。
  *
  * 写入纪律：
  * - 凭据文件 0600、凭据根目录 0700（Windows 跳过 chmod 与权限断言）；
@@ -29,11 +29,7 @@ import type {
 } from './types.js';
 import { isCredentialRefName } from './types.js';
 import { CredentialsError } from './errors.js';
-import {
-  getCredentialsFilePath,
-  getProjectDotEnvPath,
-  getUserDotEnvPath,
-} from './paths.js';
+import { getCredentialsFilePath, getProjectDotEnvPath } from './paths.js';
 import { parseDotEnv } from './dotenv.js';
 
 export interface LocalCredentialsDeps {
@@ -197,9 +193,6 @@ export function createLocalCredentials(deps: LocalCredentialsDeps): CredentialsO
 
     const projectValue = readDotEnvLayer(getProjectDotEnvPath())[ref];
     if (present(projectValue)) return { value: projectValue, source: 'project-env' };
-
-    const userValue = readDotEnvLayer(getUserDotEnvPath())[ref];
-    if (present(userValue)) return { value: userValue, source: 'user-env' };
 
     return undefined;
   }

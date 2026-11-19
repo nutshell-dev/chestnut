@@ -64,8 +64,8 @@ describe('storeCredentialInput', () => {
     expect(owner.set).toHaveBeenCalledWith('NEW_REF', 'sk-new');
   });
 
-  it.each<CredentialSource>(['env', 'file', 'project-env', 'user-env'])(
-    '四层来源均计入已存在：%s → created=false',
+  it.each<CredentialSource>(['env', 'file', 'project-env'])(
+    '三层来源均计入已存在：%s → created=false',
     async (source) => {
       const owner = fakeOwner({ resolveSync: vi.fn(() => ({ accessToken: 'existing', source })) });
       await expect(storeCredentialInput(owner, 'replacement', 'EXISTING_REF', 'fallback'))

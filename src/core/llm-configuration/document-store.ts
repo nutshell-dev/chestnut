@@ -19,7 +19,7 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
-import { createLocalCredentials } from './legacy-credentials/index.js';
+import { createLocalCredentials, type CredentialSource } from './legacy-credentials/index.js';
 import type { SharedLLM, SharedLLMInput } from './selection.js';
 import { assertNoLegacyPlaintextApiKey } from './key-input.js';
 import {
@@ -57,7 +57,7 @@ export interface LLMConfigurationDocumentStore {
   readSnapshot(): {
     raw: LLMConfigDocument;
     resolved: ResolvedLLMConfigDocument;
-    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+    credentialSources: Readonly<Record<string, CredentialSource>>;
   };
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
   readRevision(): LLMConfigurationRevision;
@@ -81,7 +81,7 @@ export interface LLMConfigurationAdmin {
     raw: SharedLLMInput;
     revision: LLMConfigurationRevision;
     workspaceRoot: string;
-    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+    credentialSources: Readonly<Record<string, CredentialSource>>;
   };
   mutateGlobalLocked(
     mutator: (config: { llm: SharedLLM }) => void,
@@ -196,10 +196,10 @@ export function createLLMConfigurationDocumentStore(deps: {
   const readSnapshot = (): {
     raw: LLMConfigDocument;
     resolved: ResolvedLLMConfigDocument;
-    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+    credentialSources: Readonly<Record<string, CredentialSource>>;
   } => {
     let raw: LLMConfigDocument | undefined;
-    const credentialSources: Record<string, 'env' | 'file' | 'project-env' | 'user-env'> = {};
+    const credentialSources: Record<string, CredentialSource> = {};
     const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
     try {
       const resolved = loadYamlConfig<ResolvedLLMConfigDocument>(
