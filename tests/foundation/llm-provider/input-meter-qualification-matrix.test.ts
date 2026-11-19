@@ -17,6 +17,11 @@ import {
   KIMI_K3_TEXT_PROJECTION_REVISION,
 } from '../../../src/foundation/llm-provider/kimi-k3-text-meter.js';
 import {
+  GLM53_TEXT_ASSET_REVISION,
+  GLM53_TEXT_PROFILE_ID,
+  GLM53_TEXT_PROJECTION_REVISION,
+} from '../../../src/foundation/llm-provider/glm53-text-meter.js';
+import {
   QWEN3_8_TEXT_ASSET_REVISION,
   QWEN3_8_TEXT_PROFILE_ID,
   QWEN3_8_TEXT_PROJECTION_REVISION,
@@ -266,6 +271,88 @@ describe('input meter qualification matrix', () => {
       {
         candidateModel: qwen.model,
         candidateResolution: { ...qwen.resolution, kind: 'custom', providerId: undefined },
+      },
+    ];
+    for (const { candidateModel, candidateResolution } of candidates) {
+      expect(qualifyMeter(candidateResolution as CatalogResolution, candidateModel)).toMatchObject({
+        kind: 'estimated', method: 'legacy-cl100k', limits: { supportedTools: 'declared' },
+      });
+    }
+  });
+
+  it('uses one estimated GLM-5.3 asset for canonical Z.AI GLM families and wire formats', async () => {
+    const runtime = await loadPiAiRuntime();
+    const zaiConfig: ProviderConfig = {
+      name: 'zai', model: 'glm-5.3', apiFormat: 'anthropic',
+      baseUrl: 'https://api.z.ai/api/anthropic', catalogProvider: 'zai',
+      catalogModel: 'glm-5.3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    };
+    const zai53 = resolvePiAiModel(runtime, zaiConfig);
+    const coding53 = resolvePiAiModel(runtime, {
+      name: 'zai-coding', model: 'glm-5.3-flash', piAiProvider: 'zai-coding-cn',
+      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+    const zai47 = resolvePiAiModel(runtime, {
+      name: 'zai-openai', model: 'glm-4.7', piAiProvider: 'zai',
+      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+
+    expect(zai53.resolution.wire.api).toBe('anthropic-messages');
+    expect(coding53.resolution.wire.api).toBe('openai-completions');
+    for (const candidate of [zai53, coding53, zai47]) {
+      expect(qualifyMeter(candidate.resolution, candidate.model)).toEqual({
+        kind: 'estimated',
+        method: 'glm5.3-text',
+        projection: GLM53_TEXT_PROJECTION_REVISION,
+        assetRevision: GLM53_TEXT_ASSET_REVISION,
+        reason: 'context_trim_only:glm53_text_projection',
+        limits: { supportedTools: 'none' },
+      });
+      const candidateMeter = createInputMeter(zaiConfig, candidate.model, {}, candidate.resolution);
+      expect(candidateMeter.descriptor.profile).toBe(GLM53_TEXT_PROFILE_ID);
+      expect(candidateMeter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
+        kind: 'estimated', method: 'glm5.3-text',
+      });
+    }
+  });
+
+  it('keeps GLM gateways, V models, other vendors, and mismatched identities on legacy estimated', async () => {
+    const zai = resolvePiAiModel(await loadPiAiRuntime(), {
+      name: 'zai', model: 'glm-5.3', apiFormat: 'anthropic',
+      baseUrl: 'https://api.z.ai/api/anthropic', catalogProvider: 'zai',
+      catalogModel: 'glm-5.3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
+    });
+    const consistentModel = (modelId: string) => ({
+      candidateModel: { ...zai.model, id: modelId },
+      candidateResolution: {
+        ...zai.resolution, modelId, wire: { ...zai.resolution.wire, model: modelId },
+      },
+    });
+    const candidates = [
+      ...['openrouter', 'qwen-token-plan', 'opencode'].map(providerId => ({
+        candidateModel: zai.model,
+        candidateResolution: { ...zai.resolution, providerId },
+      })),
+      consistentModel('qwen3.8-max'),
+      consistentModel('glm-4.6v'),
+      consistentModel('glm-4.4'),
+      {
+        candidateModel: zai.model,
+        candidateResolution: { ...zai.resolution, revision: 'pi-ai@0.0.0' },
+      },
+      {
+        candidateModel: { ...zai.model, api: 'openai-completions' } as typeof zai.model,
+        candidateResolution: zai.resolution,
+      },
+      {
+        candidateModel: zai.model,
+        candidateResolution: {
+          ...zai.resolution, wire: { ...zai.resolution.wire, model: 'glm-5.3-flash' },
+        },
+      },
+      {
+        candidateModel: zai.model,
+        candidateResolution: { ...zai.resolution, kind: 'custom', providerId: undefined },
       },
     ];
     for (const { candidateModel, candidateResolution } of candidates) {

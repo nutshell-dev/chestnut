@@ -1,0 +1,61 @@
+{
+  "asset": "glm53.tokenizer.json",
+  "purpose": "local estimated text-only context trimming across declared GLM families; not final provider wire counting",
+  "source": {
+    "repository": "zai-org/GLM-5.3",
+    "revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+    "tokenizerUrl": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/tokenizer.json",
+    "tokenizerSha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+    "tokenizerBytes": 20217442,
+    "configUrl": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/tokenizer_config.json",
+    "configSha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+    "configBytes": 761,
+    "modelConfigUrl": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/config.json",
+    "modelConfigSha256": "3ac72612095574542f7fff847ada8e59d9199dd8af44bdf625d7e02615572e69",
+    "modelConfigVocabSize": 154880,
+    "chatTemplateUrl": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/chat_template.jinja",
+    "chatTemplateSha256": "0e2b6268ac54f04d2bc1157e8cfb896cb66f25c0b5e319ea12e56014c3914f24",
+    "chatTemplateBytes": 10614,
+    "mergeableVocabSize": 154820,
+    "addedTokenCount": 36
+  },
+  "conversion": {
+    "version": "phase2201-glm53-verbatim-tokenizer-json-v1",
+    "target": "@huggingface/tokenizers@0.2.0 tokenizer.json",
+    "tool": "none; pinned upstream JSON copied verbatim because the installed runtime loads this format directly",
+    "assetSha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+    "assetBytes": 20217442,
+    "verification": "upstream and committed asset SHA-256 match; runtime plain-text encoding strips added_tokens and projection controls use their pinned IDs"
+  },
+  "controlTokens": {
+    "[gMASK]": 154822,
+    "<sop>": 154824,
+    "<|system|>": 154826,
+    "<|user|>": 154827,
+    "<|assistant|>": 154828
+  },
+  "license": {
+    "name": "GLM-5.3 License",
+    "url": "https://huggingface.co/zai-org/GLM-5.3/resolve/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE",
+    "sourceSha256": "96e1622099fc9d6b70c9760f007d99e66d7497eec636b63c60fe208401e9170c",
+    "notice": "LICENSE.glm53",
+    "noticeSha256": "96e1622099fc9d6b70c9760f007d99e66d7497eec636b63c60fe208401e9170c",
+    "noticeBytes": 4263,
+    "normalization": "none; upstream license copied verbatim"
+  },
+  "runtime": {
+    "networkDownload": false,
+    "remoteTokenApi": false,
+    "kind": "estimated",
+    "projection": "glm-text-estimate-v1",
+    "crossVersionQualification": "provider-level approximation only; GLM-4.x and GLM-5.x vocabularies differ",
+    "unsupported": [
+      "tools and tool call/result",
+      "thinking blocks",
+      "image/video/audio/URL media and unknown blocks",
+      "plain-text GLM added/control tokens",
+      "duplicate system projections",
+      "unresolved or non-Z.AI provider identities"
+    ]
+  }
+}

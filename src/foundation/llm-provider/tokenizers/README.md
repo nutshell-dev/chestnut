@@ -66,3 +66,27 @@ It does not establish final provider-wire `counted` qualification. Runtime
 downloads, remote token APIs, tool/thinking/multimodal projection, and use as
 post-call `ProviderUsage` are prohibited. The upstream
 [Apache License 2.0](LICENSE.qwen3.8) notice is preserved with the asset.
+
+# GLM-5.3 text estimator
+
+[`glm53.tokenizer.json`](glm53.tokenizer.json) is a verbatim copy of the
+official `zai-org/GLM-5.3` `tokenizer.json` at revision
+`ba32f8c19c8738e2c57c71798c601d477a7bf844`. Its SHA-256 is
+`19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d`.
+[`glm53.provenance.json`](glm53.provenance.json) pins the tokenizer, model and
+tokenizer configs, chat template, license, conversion decision, and projection
+control-token IDs.
+
+`@huggingface/tokenizers@0.2.0` loads the official JSON directly. Runtime
+plain-text encoding removes `added_tokens`; `[gMASK]`, `<sop>`, and role markers
+are counted separately from their pinned IDs. Any GLM added/control token in
+plain text makes the estimate unavailable instead of being interpreted as wire
+syntax. The projection is a deliberately small text-only subset, not the full
+tool/thinking/multimodal chat template.
+
+One asset covers declared canonical Z.AI GLM families as a **provider-level
+approximation**. GLM-4.x and GLM-5.x vocabularies differ, so results remain
+**`estimated`** for context trimming and never become final-wire `counted`
+values or post-call `ProviderUsage`. Runtime downloads, remote token APIs, and
+non-text/tool projections are prohibited. The upstream
+[GLM-5.3 License](LICENSE.glm53) notice is preserved with the asset.
