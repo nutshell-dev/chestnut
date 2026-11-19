@@ -22,10 +22,8 @@ type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 import type { ProviderConnection } from './provider-test-fixtures.js';
-import {
-  InvocationSelectionLedger,
-  type LLMStreamChunk,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 /** Real-timer mock tracks: slow enough to keep the hedge open, fast enough to win after startup. */

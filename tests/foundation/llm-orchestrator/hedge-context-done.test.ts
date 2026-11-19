@@ -9,7 +9,7 @@ type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { ProviderConnection } from './provider-test-fixtures.js';
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
-import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/index.js';
+import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
 type LLMCallOptions = llmProviderCall.LLMCallOptions;
 
 /** Delays the primary stream so the fallback failure is observed before its terminal context-done. */

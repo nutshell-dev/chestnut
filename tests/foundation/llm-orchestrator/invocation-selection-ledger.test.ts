@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/index.js';
+import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
 
 const INVOCATION = 'inv-1';
 const RECOVERY_ATTEMPT = 'recovery-1';

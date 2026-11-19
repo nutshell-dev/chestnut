@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 type InputArtifactRef = llmProviderModelMeasurement.InputArtifactRef;
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
-import { InputMeasurementLedger } from '../../../src/foundation/llm-orchestrator/index.js';
+import { InputMeasurementLedger } from '../../../src/foundation/llm-orchestrator/input-measurement-ledger.js';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);

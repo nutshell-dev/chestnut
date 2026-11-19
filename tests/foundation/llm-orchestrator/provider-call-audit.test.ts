@@ -35,10 +35,8 @@ type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementO
 import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
-import {
-  DEFAULT_RESET_TIMEOUT_MS,
-  InvocationSelectionLedger,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
