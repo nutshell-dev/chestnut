@@ -64,7 +64,14 @@ describe('legacy circuitBreaker diagnostics', () => {
   it('omits diagnostics for absent config and diagnoses explicit empty objects with parsed defaults', () => {
     const emitted: LLMEvent[] = [];
     const sink = { emit: (event: LLMEvent) => { emitted.push(event); } };
-    const primary = { preset: 'anthropic', api_key: 'key', model: 'model' };
+    const primary = {
+      provider_id: 'custom:anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
+      api_key: 'key',
+      model: 'model',
+      base_url: 'https://api.anthropic.com',
+    };
 
     expect(llmOrchestratorConfigSchema.parse({ primary }).circuit_breaker).toBeUndefined();
     makeOwner(makeConfig(sink));
@@ -145,7 +152,14 @@ describe('legacy circuitBreaker diagnostics', () => {
   it('keeps snapshot identity stable and includes explicit legacy values', () => {
     const input = {
       llm: {
-        primary: { preset: 'anthropic', api_key: 'key', model: 'model' },
+        primary: {
+          provider_id: 'custom:anthropic',
+          api_format: 'anthropic',
+          auth_profile: 'api_key',
+          api_key: 'key',
+          model: 'model',
+          base_url: 'https://api.anthropic.com',
+        },
         circuit_breaker: { failure_threshold: 4, reset_timeout_ms: 90_000 },
       },
     } as const;

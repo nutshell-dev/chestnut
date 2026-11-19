@@ -45,8 +45,12 @@ describe('ProviderInput contract', () => {
 
   it('returns a secret-safe descriptor while retaining private L1 resolution', () => {
     const config = toProviderConfig(llmProviderConfigSchema.parse({
-      preset: 'anthropic',
+      provider_id: 'custom:anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
       api_key: 'secret',
+      base_url: 'https://api.test.invalid/anthropic',
+      model: 'model',
       extra_headers: { 'x-secret-header': 'header-secret' },
     }));
     const resolvedInput = providerInputFromResolvedConfig(config);

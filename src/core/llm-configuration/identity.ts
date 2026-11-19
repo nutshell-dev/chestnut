@@ -172,7 +172,6 @@ function credentialForProvider(
 ): { provenance: CredentialProvenance; auth: LLMAuthIdentity } {
   const provider = effective.label ?? raw.label
     ?? effective.provider_id ?? raw.provider_id
-    ?? effective.preset ?? raw.preset
     ?? 'unknown';
   const authProfile = resolved.authentication.profile ?? raw.auth_profile ?? effective.auth_profile ?? 'api_key';
   const classified = classifyApiKeyConfigValue(raw.api_key);
@@ -190,7 +189,7 @@ function credentialForProvider(
     status = 'legacy';
     described = { source: 'unresolved', identityRef: ref, configured: true, writable: false };
   } else if (authProfile === 'oauth') {
-    const oauthProvider = raw.provider_id ?? raw.preset ?? provider;
+    const oauthProvider = raw.provider_id ?? provider;
     ref = `PI_AI_CREDENTIAL_${oauthProvider.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`;
     described = describeRef(credentials, ref, false);
   } else if (authProfile === 'ambient') {

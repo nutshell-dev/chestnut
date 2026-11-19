@@ -39,6 +39,8 @@ const { connMock } = vi.hoisted(() => ({
   connMock: {
     checkLLMConnection: vi.fn(),
     checkLLMConnectionFor: vi.fn(),
+    probeLLMConnection: vi.fn((snapshot: { config: { primary: unknown } }) =>
+      connMock.checkLLMConnectionFor(snapshot.config.primary)),
     promptReconfigure: vi.fn(),
     // Phase 1980 Step C：暴露 formatLLMError 以断言全败时只调用一次
     formatLLMError: vi.fn((probe: { errorType: string; message: string }) => [
@@ -50,6 +52,7 @@ const { connMock } = vi.hoisted(() => ({
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
+  probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: connMock.formatLLMError,
   LLM_ERROR_LABELS: {
@@ -178,10 +181,10 @@ describe('config provider add — primary probe', () => {
     expect(auditContent).toContain('label=new-anthropic');
   });
 
-  it('adds primary, probes fail auth, enters reconfigure', async () => {
+  it('adds primary, probes fail auth, then cancel leaves config unchanged', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'anthropic' });
     connMock.promptReconfigure.mockResolvedValue(undefined);
-    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y', 'cancel'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -214,6 +217,108 @@ describe('config provider add — primary probe', () => {
     expect((config.llm.fallbacks ?? []).some((f) => f.label === 'custom-anthropic')).toBe(true);
   });
 
+  it('retry re-probes the same draft and commits after success', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'anthropic' })
+      .mockResolvedValueOnce({ ok: true, model: 'claude-retried' });
+    // Initial fallback draft, then repair action 1 (retry); no fields are recollected.
+    rlAnswers.queue = ['8', 'retry-anthropic', 'sk-ant-retry', '', '2', '1', 'retry'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    expect(connMock.checkLLMConnectionFor.mock.calls[0][0]).toEqual(
+      connMock.checkLLMConnectionFor.mock.calls[1][0],
+    );
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.fallbacks?.[0]).toMatchObject({
+      label: 'retry-anthropic',
+      model: 'claude-3-7-sonnet-20250219',
+    });
+  });
+
+  it('edit-model updates the same draft, re-probes, and commits the new model', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404', provider: 'anthropic' })
+      .mockResolvedValueOnce({ ok: true, model: 'claude-fixed' });
+    // Initial fallback draft, repair action 3 (model), replacement model.
+    rlAnswers.queue = ['8', 'edited-model', 'sk-ant-edit-model', '', '2', '1', 'model', 'claude-fixed'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    expect(connMock.checkLLMConnectionFor.mock.calls[0][0].model).toBe('claude-3-7-sonnet-20250219');
+    expect(connMock.checkLLMConnectionFor.mock.calls[1][0].model).toBe('claude-fixed');
+    expect(connMock.checkLLMConnectionFor.mock.calls[1][0].authentication).toMatchObject({
+      kind: 'api_key',
+      value: 'sk-ant-edit-model',
+    });
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.fallbacks?.[0]).toMatchObject({
+      label: 'edited-model',
+      model: 'claude-fixed',
+    });
+  });
+
+  it('commit 后 post-write 异常不清理已绑定的新凭据', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
+    rlAnswers.queue = ['8', 'post-write-add', 'sk-post-write-add', '', '2', '1'];
+    const llmConfiguration = createLLMConfiguration({ fsFactory });
+    const store = llmConfiguration.store;
+    const failingStore = {
+      ...store,
+      commitExplicitProvider: async (
+        target: Parameters<typeof store.commitExplicitProvider>[0],
+        config: Parameters<typeof store.commitExplicitProvider>[1],
+        revision?: number,
+      ) => {
+        await store.commitExplicitProvider(target, config, revision);
+        throw new Error('injected provider-add post-write failure');
+      },
+    };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const cmd = createConfigCommand({
+        ...configDeps,
+        llmConfiguration: { ...llmConfiguration, store: failingStore },
+      });
+      await expect(cmd.parseAsync(['node', 'test', 'provider', 'add']))
+        .rejects.toThrow('process.exit(1)');
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+
+    expect(loadGlobalConfig({ fsFactory }).llm.fallbacks?.some(f => f.label === 'post-write-add')).toBe(true);
+    expect(fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8'))
+      .toContain('sk-post-write-add');
+  });
+
+  it('cancel after probe failure does not commit and discards the new credential', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({
+      ok: false,
+      errorType: 'auth',
+      message: '401',
+      provider: 'anthropic',
+    });
+    rlAnswers.queue = ['8', 'cancelled-add', 'sk-cancel-secret', '', '2', '1', 'cancel'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.api_key).toBe('sk-ant-old');
+    expect(config.llm.fallbacks ?? []).toHaveLength(0);
+    const credentials = fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8');
+    expect(credentials).not.toContain('sk-cancel-secret');
+    expect(consoleLines.join('\n')).toContain('Cancelled');
+  });
+
   it('allows a new label that equals another entry preset', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
     // The existing primary has preset=anthropic and no label; this is not a label duplicate.
@@ -223,7 +328,8 @@ describe('config provider add — primary probe', () => {
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.provider_id).toBe('custom:anthropic');
+    expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.label).toBeUndefined();
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'anthropic')).toBe(true);
   });
@@ -392,10 +498,10 @@ describe('config provider add — fallback probe', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
   });
 
-  it('adds fallback and probes it; failure does not block or trigger reconfigure', async () => {
+  it('adds fallback and probes it; repair-menu cancel does not commit', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'openai' });
     // service 6 (OpenAI), label, key, model default, role fallback, position default
-    rlAnswers.queue = ['6', 'new-openai', 'sk-openai', '', '2', '1'];
+    rlAnswers.queue = ['6', 'new-openai', 'sk-openai', '', '2', '1', 'cancel'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -431,6 +537,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     connMock.checkLLMConnectionFor
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' })
       .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: true, model: 'k3-256k' })
       .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
     // service 2 (Kimi), label, key, model default, role fallback, position default
     rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
@@ -438,7 +545,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
-    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(3);
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
     // 每个候选 probe 使用用户 key/model + 候选 baseUrl。
     for (const call of connMock.checkLLMConnectionFor.mock.calls) {
       expect(call[0].authentication).toMatchObject({ kind: 'api_key', value: 'sk-kimi-key' });
@@ -448,6 +555,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
       'https://api.kimi.com/coding',
       'https://api.kimi.ai/coding',
       'https://api.moonshot.cn/anthropic',
+      'https://api.moonshot.cn/anthropic',
     ]);
 
     // winner URL 直接显示在 Selected 行（不使用 CN/Intl 标签）
@@ -456,14 +564,15 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'kimi-test');
     expect(added).toBeDefined();
-    expect(added?.preset).toBe('kimi');
+    expect(added?.provider_id).toBe('kimi');
+    expect(added?.preset).toBeUndefined();
     expect(added?.base_url).toBe('https://api.moonshot.cn/anthropic');
     expect(added?.model).toBe('k3-256k');
   });
 
-  it('Kimi 全败：所有候选 probe 失败时不写入配置', async () => {
+  it('Kimi 全败后 cancel：所有候选 probe 失败且不写入配置', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
-    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'cancel'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -485,9 +594,10 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
   });
 
-  it('Qwen 7 候选首胜：winner baseUrl 落盘，preset 为 qwen', async () => {
+  it('Qwen 7 候选首胜：winner baseUrl 落盘，provider_id 为 qwen', async () => {
     connMock.checkLLMConnectionFor
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '403', provider: 'qwen' })
+      .mockResolvedValueOnce({ ok: true, model: 'qwen3.8-max' })
       .mockResolvedValueOnce({ ok: true, model: 'qwen3.8-max' });
     // service 3 (Qwen), label, key, model default, role fallback, position default
     rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1'];
@@ -495,18 +605,19 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
-    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(3);
     expect(consoleLines.some((l) => l.includes('Selected: https://dashscope-intl.aliyuncs.com/apps/anthropic'))).toBe(true);
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'qwen-test');
-    expect(added?.preset).toBe('qwen');
+    expect(added?.provider_id).toBe('qwen');
+    expect(added?.preset).toBeUndefined();
     expect(added?.base_url).toBe('https://dashscope-intl.aliyuncs.com/apps/anthropic');
     expect(added?.model).toBe('qwen3.8-max');
   });
 
-  it('Qwen 全败：7 个候选全部 probe 且不写入配置', async () => {
+  it('Qwen 全败后 cancel：7 个候选全部 probe 且不写入配置', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'model', message: '404', provider: 'qwen' });
-    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1'];
+    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1', 'cancel'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -537,7 +648,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
         provider: 'kimi',
       })
       .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404b', provider: 'kimi' });
-    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'cancel'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -576,7 +687,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     // 非五家不写显式 base_url（走 preset 默认）
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'new-anthropic');
-    expect(added?.preset).toBe('anthropic');
-    expect(added?.base_url).toBeUndefined();
+    expect(added?.provider_id).toBe('custom:anthropic');
+    expect(added?.preset).toBeUndefined();
+    expect(added?.base_url).toBe('https://api.anthropic.com');
   });
 });

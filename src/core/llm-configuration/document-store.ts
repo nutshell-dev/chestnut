@@ -18,6 +18,8 @@ import {
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
+import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+const { llmProviderConfigSchema } = llmProviderConfigContract;
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import {
   createLocalCredentials,
@@ -32,6 +34,11 @@ import {
   type ApiKeyMigrationAudit,
   type ApiKeyMigrationOutcome,
 } from './api-key-migration.js';
+import {
+  LegacyPresetMigrationError,
+  migrateLegacyLLMConfig,
+  migrateLegacyProviderConfig,
+} from './preset-migration.js';
 
 const DOCUMENT_SCHEMA_VERSION = 1 as const;
 const documentMetadataSchema = z.object({
@@ -46,6 +53,32 @@ const resolvedDocumentSchema = llmOrchestratorConfigSchema.extend({
 export type LLMConfigDocument = SharedLLMInput & z.infer<typeof documentMetadataSchema>;
 export type ResolvedLLMConfigDocument = SharedLLM & z.infer<typeof documentMetadataSchema>;
 export type LLMConfigurationWriteResult = AtomicWriteResult;
+export type LLMConfigurationDocumentMigrationResult =
+  | { readonly outcome: 'noop' }
+  | {
+    readonly outcome: 'migrated';
+    readonly migrationId: string;
+    readonly sourceRevision: number;
+    readonly targetRevision: number;
+    readonly write: LLMConfigurationWriteResult;
+  };
+export type ExplicitLLMProviderConfig = z.input<typeof llmProviderConfigSchema>;
+export type LLMSetupCommitTarget =
+  | { readonly kind: 'initialize' }
+  | { readonly kind: 'primary' }
+  | { readonly kind: 'fallback'; readonly position?: number };
+
+export interface LLMConfigurationCommitResult {
+  readonly target: LLMSetupCommitTarget;
+  readonly revision: LLMConfigurationRevision;
+  readonly write: LLMConfigurationWriteResult;
+  /** 与实际写入 revision 同一把锁内重读的 raw/resolved 文档。 */
+  readonly snapshot: {
+    raw: LLMConfigDocument;
+    resolved: ResolvedLLMConfigDocument;
+    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+  };
+}
 
 export interface LLMConfigurationRevision {
   /** 持久保存序号；配置 identity 仍由 resolved 配置单独派生。 */
@@ -66,12 +99,20 @@ export interface LLMConfigurationDocumentStore {
     credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
+  /** 显式迁移既有 shared legacy 文档；正常读取不会隐式调用。 */
+  migrateLegacyDocument(): Promise<LLMConfigurationDocumentMigrationResult>;
   readRevision(): LLMConfigurationRevision;
   /** 锁内重读 raw 文档；调用方返回完整新文档，revision 由 store 单调推进。 */
   mutate(
     fn: (fresh: LLMConfigDocument) => LLMConfigDocument,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
+  /** setup 的唯一业务提交口；target 之外的文档重建均由 store 负责。 */
+  commitExplicitProvider(
+    target: LLMSetupCommitTarget,
+    explicitConfig: ExplicitLLMProviderConfig,
+    expectedRevision?: number,
+  ): Promise<LLMConfigurationCommitResult>;
   /** 独占创建或核验同内容目标；在确认前不得清理迁移源。 */
   createFromSource(
     source: SharedLLMInput,
@@ -80,7 +121,7 @@ export interface LLMConfigurationDocumentStore {
 }
 
 export interface LLMConfigurationAdmin {
-  loadGlobal(): { llm: SharedLLM };
+  loadGlobal(): import('./selection.js').LLMGlobalConfigView;
   /** 配置与 revision 同次磁盘读取，禁止把旧配置登记成新 revision。 */
   loadSnapshot(): {
     llm: SharedLLM;
@@ -94,7 +135,14 @@ export interface LLMConfigurationAdmin {
     mutator: (config: { llm: SharedLLM }) => void,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
+  commitExplicitProvider(
+    target: LLMSetupCommitTarget,
+    explicitConfig: ExplicitLLMProviderConfig,
+    expectedRevision?: number,
+  ): Promise<LLMConfigurationCommitResult>;
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
+  /** 显式迁移既有 shared legacy 文档；正常读取不会隐式调用。 */
+  migrateLegacyDocument(): Promise<LLMConfigurationDocumentMigrationResult>;
   readRevision(): LLMConfigurationRevision;
   readonly store: LLMConfigurationDocumentStore;
 }
@@ -103,6 +151,27 @@ export class LLMConfigurationNotFoundError extends Error {
   constructor(readonly configPath: string) {
     super(`LLM configuration not found: ${configPath}`);
     this.name = 'LLMConfigurationNotFoundError';
+  }
+}
+
+export class LLMConfigurationAlreadyExistsError extends Error {
+  constructor(readonly configPath: string, options?: ErrorOptions) {
+    super(`LLM configuration already initialized: ${configPath}`, options);
+    this.name = 'LLMConfigurationAlreadyExistsError';
+  }
+}
+
+export class LLMConfigurationRevisionConflictError extends Error {
+  constructor(readonly expectedRevision: number, readonly actualRevision: number) {
+    super(`LLM configuration revision conflict: expected=${expectedRevision}, actual=${actualRevision}`);
+    this.name = 'LLMConfigurationRevisionConflictError';
+  }
+}
+
+export class LLMProviderLabelAlreadyExistsError extends Error {
+  constructor(readonly label: string) {
+    super(`A provider with label "${label}" already exists`);
+    this.name = 'LLMProviderLabelAlreadyExistsError';
   }
 }
 
@@ -122,7 +191,12 @@ interface MigrationRecord {
   migration_id: string;
   source_digest: string;
   target_digest: string;
-  target_write: AtomicWriteResult['kind'];
+  source_revision?: number;
+  target_revision?: number;
+  preset_migration?: boolean;
+  migration_error?: string;
+  outcome?: 'pending' | 'migrated' | 'failed';
+  target_write: AtomicWriteResult['kind'] | 'not_written';
   source_cleanup: 'pending' | 'failed' | 'durable' | 'committed_platform_limited' | 'committed_durability_unknown';
   cleanup_error?: string;
 }
@@ -252,18 +326,256 @@ export function createLLMConfigurationDocumentStore(deps: {
   const writeMigrationRecord = (record: MigrationRecord): AtomicWriteResult =>
     writeYamlConfig(deps, getMigrationRecordPath(record.migration_id), record);
 
+  /** Confirm both the target filename and a newly created llm directory entry. */
+  const confirmTargetDurability = (barrierId: string, targetDigest: string): AtomicWriteResult => {
+    const targetBarrier = writeYamlConfig(
+      deps,
+      path.join(getChestnutRoot(), 'llm', `.${barrierId}.target`),
+      { migration_id: barrierId, target_digest: targetDigest },
+    );
+    const parentBarrier = targetBarrier.kind === 'durable'
+      ? writeYamlConfig(
+        deps,
+        path.join(getChestnutRoot(), `.${barrierId}.llm-dir`),
+        { migration_id: barrierId },
+      )
+      : targetBarrier;
+    return parentBarrier.kind === 'durable' ? targetBarrier : parentBarrier;
+  };
+
+  const recoverPendingDocumentMigration = (
+    metadata: z.infer<typeof documentMetadataSchema>,
+    targetDigest: string,
+  ): LLMConfigurationDocumentMigrationResult | undefined => {
+    const migrationDir = path.join(getChestnutRoot(), 'llm', 'migration');
+    const migrationFs = deps.fsFactory(migrationDir);
+    if (!migrationFs.existsSync('.')) return undefined;
+    const matches: MigrationRecord[] = [];
+    for (const entry of migrationFs.listSync('.')) {
+      if (!entry.isFile || !entry.name.endsWith('.yaml')) continue;
+      const migrationId = entry.name.slice(0, -'.yaml'.length);
+      const record = readLLMMigrationRecord(deps, migrationId);
+      if (
+        record?.outcome === 'pending'
+        && record.preset_migration === true
+        && record.target_digest === targetDigest
+        && record.target_revision === metadata.revision
+        && typeof record.source_revision === 'number'
+      ) {
+        matches.push(record);
+      }
+    }
+    if (matches.length === 0) return undefined;
+    if (matches.length > 1) {
+      throw new LLMConfigurationMigrationError(
+        'LLM document migration recovery is ambiguous; pending evidence preserved',
+        `document-${targetDigest.slice(0, 24)}`,
+      );
+    }
+    const pending = matches[0]!;
+    // The process crashed after the target became visible but before its write
+    // result/evidence was recorded. The explicit digest+revision match proves
+    // completion, not the original directory-fsync durability.
+    const write: AtomicWriteResult = {
+      kind: 'committed_durability_unknown',
+      error: Object.assign(new Error('LLM migration target durability unknown after crash'), { code: 'EIO' }),
+    };
+    writeMigrationRecord({
+      ...pending,
+      outcome: 'migrated',
+      target_write: write.kind,
+      source_cleanup: write.kind,
+    });
+    return {
+      outcome: 'migrated',
+      migrationId: pending.migration_id,
+      sourceRevision: pending.source_revision!,
+      targetRevision: metadata.revision,
+      write,
+    };
+  };
+
+  const migrateLegacyDocument = async (): Promise<LLMConfigurationDocumentMigrationResult> => {
+    let result: LLMConfigurationDocumentMigrationResult | undefined;
+    await withYamlConfigLock(deps, configPath, () => {
+      let raw: unknown;
+      try {
+        raw = readYamlDocument(deps, configPath);
+      } catch (error) {
+        if (isConfigStoreError(error) && error.code === 'not_found') {
+          result = { outcome: 'noop' };
+          return;
+        }
+        // Malformed YAML has no parsed value to digest. Hash only the source bytes
+        // for correlatable evidence; never copy parser errors or source text into it.
+        let sourceDigest = '';
+        try {
+          sourceDigest = sha256Hex(
+            deps.fsFactory(path.dirname(configPath)).readSync(path.basename(configPath)),
+          );
+        } catch {
+          // silent: the original read error remains authoritative.
+        }
+        if (sourceDigest) {
+          const migrationId = `document-${sourceDigest.slice(0, 24)}`;
+          try {
+            writeMigrationRecord({
+              schema_version: 1,
+              migration_id: migrationId,
+              source_digest: sourceDigest,
+              target_digest: '',
+              outcome: 'failed',
+              migration_error: 'invalid_source: document',
+              target_write: 'not_written',
+              source_cleanup: 'pending',
+            });
+          } catch {
+            // silent: evidence failure must not mask the original corruption.
+          }
+        }
+        throw error;
+      }
+
+      const source = isRecord(raw)
+        ? (() => {
+          const { schema_version: _schemaVersion, revision: _revision, ...config } = raw;
+          return config;
+        })()
+        : raw;
+      const sourceDigest = llmConfigurationSourceDigest(source as SharedLLMInput);
+      const sourceRevision = isRecord(raw) && typeof raw.revision === 'number'
+        ? raw.revision
+        : undefined;
+      const migrationId = `document-${sourceDigest.slice(0, 24)}`;
+      const writeFailure = (error: unknown): void => {
+        const evidence: MigrationRecord = {
+          schema_version: 1,
+          migration_id: migrationId,
+          source_digest: sourceDigest,
+          target_digest: '',
+          ...(sourceRevision !== undefined ? { source_revision: sourceRevision } : {}),
+          outcome: 'failed',
+          migration_error: error instanceof LegacyPresetMigrationError
+            ? `${error.code}: ${error.role}`
+            : 'invalid_source: document',
+          target_write: 'not_written',
+          source_cleanup: 'pending',
+        };
+        try { writeMigrationRecord(evidence); } catch {
+          // silent: fail-closed source error remains authoritative.
+        }
+      };
+
+      let metadata: z.infer<typeof documentMetadataSchema>;
+      let migration: ReturnType<typeof migrateLegacyLLMConfig>;
+      try {
+        metadata = documentMetadataSchema.parse(raw);
+        migration = migrateLegacyLLMConfig(source);
+      } catch (error) {
+        writeFailure(error);
+        throw error;
+      }
+      if (!migration.migrated) {
+        result = recoverPendingDocumentMigration(metadata, sourceDigest) ?? { outcome: 'noop' };
+        return;
+      }
+
+      const targetRevision = metadata.revision + 1;
+      const targetDigest = llmConfigurationSourceDigest(migration.config);
+      // Persist the complete recovery identity before replacing the source. If
+      // the process dies after the target write, a later explicit read can match
+      // this pending record and finish the evidence instead of reporting noop.
+      writeMigrationRecord({
+        schema_version: 1,
+        migration_id: migrationId,
+        source_digest: sourceDigest,
+        target_digest: targetDigest,
+        source_revision: metadata.revision,
+        target_revision: targetRevision,
+        preset_migration: true,
+        outcome: 'pending',
+        target_write: 'not_written',
+        source_cleanup: 'pending',
+      });
+      const write = writeYamlConfig(deps, configPath, {
+        ...migration.config,
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision: targetRevision,
+      });
+      const confirmed = parseRawDocument(readYamlDocument(deps, configPath), configPath);
+      if (
+        confirmed.revision !== targetRevision
+        || llmConfigurationSourceDigest(documentConfig(confirmed)) !== targetDigest
+      ) {
+        throw new LLMConfigurationMigrationError(
+          `LLM document migration verification failed: ${migrationId}`,
+          migrationId,
+        );
+      }
+      writeMigrationRecord({
+        schema_version: 1,
+        migration_id: migrationId,
+        source_digest: sourceDigest,
+        target_digest: targetDigest,
+        source_revision: metadata.revision,
+        target_revision: confirmed.revision,
+        preset_migration: true,
+        outcome: 'migrated',
+        target_write: write.kind,
+        source_cleanup: write.kind,
+      });
+      result = {
+        outcome: 'migrated',
+        migrationId,
+        sourceRevision: metadata.revision,
+        targetRevision,
+        write,
+      };
+    });
+    return result!;
+  };
+
   const createFromSource = (
     source: SharedLLMInput,
     migrationId: string,
   ): AtomicWriteResult => {
     const sourceDigest = llmConfigurationSourceDigest(source);
-    const sourceConfig = llmOrchestratorConfigSchema.parse(source);
-    // 写回原始 source（含 `${REF}`），parse 仅用于校验，避免秘密/默认值改写。
+    const rawSourceRevision = (source as unknown as Record<string, unknown>).revision;
+    const sourceRevision = typeof rawSourceRevision === 'number' ? rawSourceRevision : undefined;
+    let migration: ReturnType<typeof migrateLegacyLLMConfig>;
+    try {
+      migration = migrateLegacyLLMConfig(source);
+    } catch (error) {
+      if (error instanceof LegacyPresetMigrationError) {
+        const evidence: MigrationRecord = {
+          schema_version: 1,
+          migration_id: migrationId,
+          source_digest: sourceDigest,
+          target_digest: '',
+          ...(sourceRevision !== undefined ? { source_revision: sourceRevision } : {}),
+          migration_error: `${error.code}: ${error.role}`,
+          target_write: 'not_written',
+          source_cleanup: 'pending',
+        };
+        try { writeMigrationRecord(evidence); } catch {
+          // silent: the typed migration error remains authoritative and no target was written.
+        }
+      }
+      throw error;
+    }
+    const targetSource = migration.config;
+    const {
+      schema_version: _sourceSchemaVersion,
+      revision: _sourceRevision,
+      ...targetConfig
+    } = targetSource as unknown as Record<string, unknown>;
+    const sourceConfig = llmOrchestratorConfigSchema.parse(targetConfig);
+    // Write raw references (never expanded secrets) after explicit migration.
     void sourceConfig;
     if (!configExists(deps, configPath)) {
       try {
         writeYamlConfigExclusive(deps, configPath, {
-          ...source,
+          ...targetConfig,
           schema_version: DOCUMENT_SCHEMA_VERSION,
           revision: 1,
         });
@@ -300,7 +612,8 @@ export function createLLMConfigurationDocumentStore(deps: {
       );
     }
     const targetDigest = llmConfigurationSourceDigest(documentConfig(existing));
-    if (targetDigest !== sourceDigest) {
+    const expectedTargetDigest = llmConfigurationSourceDigest(targetConfig as SharedLLMInput);
+    if (targetDigest !== expectedTargetDigest) {
       throw new LLMConfigurationMigrationError(
         `LLM migration source/target conflict; neither document was cleared or overwritten: ${migrationId}`,
         migrationId,
@@ -310,24 +623,15 @@ export function createLLMConfigurationDocumentStore(deps: {
     // writeExclusiveSync 只 fsync 文件，不证明目录项持久。两个 barrier 分别
     // fsync .chestnut/llm（目标文件名）与 .chestnut（新建 llm 目录项）；
     // 任一未确认都返回非 durable，由 Assembly 保留 root.llm。
-    const targetBarrier = writeYamlConfig(
-      deps,
-      path.join(getChestnutRoot(), 'llm', `.${migrationId}.target`),
-      { migration_id: migrationId, target_digest: targetDigest },
-    );
-    const parentBarrier = targetBarrier.kind === 'durable'
-      ? writeYamlConfig(
-        deps,
-        path.join(getChestnutRoot(), `.${migrationId}.llm-dir`),
-        { migration_id: migrationId },
-      )
-      : targetBarrier;
-    const confirmedBarrier = parentBarrier.kind === 'durable' ? targetBarrier : parentBarrier;
+    const confirmedBarrier = confirmTargetDurability(migrationId, targetDigest);
     const confirmation = writeMigrationRecord({
       schema_version: 1,
       migration_id: migrationId,
       source_digest: sourceDigest,
       target_digest: targetDigest,
+      ...(sourceRevision !== undefined ? { source_revision: sourceRevision } : {}),
+      target_revision: existing.revision,
+      preset_migration: migration.migrated,
       target_write: confirmedBarrier.kind,
       source_cleanup: 'pending',
     });
@@ -368,20 +672,123 @@ export function createLLMConfigurationDocumentStore(deps: {
       if (value === undefined) delete nextPrimary[key];
       else nextPrimary[key] = value;
     }
+    if (typeof patch.preset === 'string' || typeof patch.provider_id === 'string') {
+      // UX compatibility patches replace the identity as a unit; stale explicit
+      // protocol/auth/hints must not leak across providers.
+      for (const key of ['provider_id', 'api_format', 'auth_profile', 'catalog_provider', 'catalog_model']) {
+        if (patch[key] === undefined || typeof patch.preset === 'string') delete nextPrimary[key];
+      }
+      if (typeof patch.preset === 'string') nextPrimary.preset = patch.preset;
+      else nextPrimary.provider_id = patch.provider_id;
+      return { ...fresh, primary: migrateLegacyProviderConfig(nextPrimary) } as LLMConfigDocument;
+    }
     return { ...fresh, primary: nextPrimary } as LLMConfigDocument;
   });
+
+  const commitExplicitProvider = async (
+    target: LLMSetupCommitTarget,
+    explicitConfig: ExplicitLLMProviderConfig,
+    expectedRevision?: number,
+  ): Promise<LLMConfigurationCommitResult> => {
+    // Normal setup accepts only the explicit schema. Legacy presets must have
+    // already crossed the explicit migration boundary; never resolve them here.
+    const provider = llmProviderConfigSchema.parse(explicitConfig);
+    if (target.kind === 'initialize') {
+      if (expectedRevision !== undefined && expectedRevision !== 0) {
+        throw new LLMConfigurationRevisionConflictError(expectedRevision, 0);
+      }
+      const initial = llmOrchestratorConfigSchema.parse({
+        primary: provider,
+        circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
+      });
+      let initialized: LLMConfigurationCommitResult | undefined;
+      await withYamlConfigLock(deps, configPath, () => {
+        try {
+          writeYamlConfigExclusive(deps, configPath, {
+            ...initial,
+            schema_version: DOCUMENT_SCHEMA_VERSION,
+            revision: 1,
+          });
+          // Exclusive creation only fsyncs the file. Reuse the migration
+          // target/parent barriers before claiming the initialize is durable.
+          const write = confirmTargetDurability(
+            'initialize',
+            llmConfigurationSourceDigest(initial),
+          );
+          initialized = {
+            target,
+            revision: { id: '1', revision: 1 },
+            write,
+            snapshot: readSnapshot(),
+          };
+        } catch (error) {
+          if (isConfigStoreError(error) && error.code === 'already_exists') {
+            throw new LLMConfigurationAlreadyExistsError(configPath, { cause: error });
+          }
+          throw error;
+        }
+      });
+      return initialized!;
+    }
+
+    let committed: LLMConfigurationCommitResult | undefined;
+    await withYamlConfigLock(deps, configPath, () => {
+      const fresh = read();
+      if (expectedRevision !== undefined && fresh.revision !== expectedRevision) {
+        throw new LLMConfigurationRevisionConflictError(expectedRevision, fresh.revision);
+      }
+      const label = provider.label;
+      if (label !== undefined && [fresh.primary, ...(fresh.fallbacks ?? [])]
+        .some(entry => entry.label === label)) {
+        throw new LLMProviderLabelAlreadyExistsError(label);
+      }
+      const current = documentConfig(fresh);
+      let next: SharedLLMInput;
+      if (target.kind === 'primary') {
+        next = {
+          ...current,
+          primary: provider,
+          fallbacks: [fresh.primary, ...(fresh.fallbacks ?? [])],
+        };
+      } else {
+        const position = target.position ?? (fresh.fallbacks?.length ?? 0);
+        if (!Number.isInteger(position) || position < 0) {
+          throw new Error(`Invalid fallback position: ${String(position)}`);
+        }
+        const fallbacks = [...(fresh.fallbacks ?? [])];
+        fallbacks.splice(Math.min(position, fallbacks.length), 0, provider);
+        next = { ...current, fallbacks };
+      }
+      const validated = llmOrchestratorConfigSchema.parse(next);
+      const revision = fresh.revision + 1;
+      const write = writeYamlConfig(deps, configPath, {
+        ...validated,
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision,
+      });
+      committed = {
+        target,
+        revision: { id: String(revision), revision },
+        write,
+        snapshot: readSnapshot(),
+      };
+    });
+    return committed!;
+  };
 
   return {
     read,
     readResolved,
     readSnapshot,
     migrateLegacyApiKeys: (audit) => migrateLegacyApiKeysAtPath(deps, configPath, audit),
+    migrateLegacyDocument,
     readRevision: () => {
       const document = read();
       return { id: String(document.revision), revision: document.revision };
     },
     mutate,
     patchPrimary,
+    commitExplicitProvider,
     createFromSource,
   };
 }
@@ -426,7 +833,10 @@ export function createLLMConfiguration(deps: {
       return { ...view.llm, schema_version: fresh.schema_version, revision: fresh.revision } as LLMConfigDocument;
     }),
     patchPrimary: (patch) => store().patchPrimary({ ...patch }),
+    commitExplicitProvider: (target, explicitConfig, expectedRevision) =>
+      store().commitExplicitProvider(target, explicitConfig, expectedRevision),
     migrateLegacyApiKeys: (audit) => store().migrateLegacyApiKeys(audit),
+    migrateLegacyDocument: () => store().migrateLegacyDocument(),
     readRevision: () => store().readRevision(),
   };
 }

@@ -76,6 +76,7 @@ describe('resolved model input meter', () => {
       catalogModel: undefined,
       piAiProvider: 'deepseek',
       model: 'deepseek-flash',
+      apiFormat: 'openai' as const,
     }],
   ])('keeps %s on the legacy estimated path', async (_name, overrides: Partial<ProviderConfig>) => {
     const meter = await createLLMProvider({ ...config, ...overrides }).prepareInputMeter();

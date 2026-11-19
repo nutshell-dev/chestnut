@@ -127,7 +127,7 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
     const { catalogProvidersWithoutPreset } = await import('../../../src/foundation/llm-provider/catalog-strategy.js');
 
     for (const id of Object.keys(PROVIDER_INVENTORY)) {
-      const models = getBuiltinModels(id) as Array<{ id: string }>;
+      const models = getBuiltinModels(id) as Array<{ id: string; api: string }>;
       if (models.length === 0) {
         // 动态 provider（pi-ai 1.4.0 起含 typesafe）：无静态 seed、apis 为空，
         // 配置入口不适用静态 seed 规则——跳过（快照注释同上）。
@@ -137,15 +137,21 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
       // 显式 model 规则：静态 seed 必须非空（动态 provider 的配置入口也是 seed）
       expect(models.length, `provider ${id} has static catalog seed models`).toBeGreaterThan(0);
 
+      const profile = !PROVIDER_INVENTORY[id].auth.apiKey && PROVIDER_INVENTORY[id].auth.oauth
+        ? 'oauth'
+        : 'api_key';
       const config = toProviderConfig(llmProviderConfigSchema.parse({
         provider_id: id,
         model: models[0].id,
+        api_format: models[0].api,
+        auth_profile: profile,
+        ...(profile === 'api_key' ? { api_key: 'synthetic-key' } : {}),
       }));
       expect(config.piAiProvider).toBe(id);
       expect(config.model).toBe(models[0].id);
       // 派生 profile 合法：oauth ⇒ inventory 声明 oauth；api_key ⇒ 声明 apiKey
-      const profile = config.authProfile;
-      if (profile === 'oauth') expect(PROVIDER_INVENTORY[id].auth.oauth).toBe(true);
+      const resolvedProfile = config.authProfile;
+      if (resolvedProfile === 'oauth') expect(PROVIDER_INVENTORY[id].auth.oauth).toBe(true);
       else expect(PROVIDER_INVENTORY[id].auth.apiKey).toBe(true);
     }
 

@@ -124,6 +124,8 @@ beforeEach(() => {
   mockRl.question.mockClear();
   mockRl.close.mockClear();
   connMock.probeLLMConnection.mockReset();
+  connMock.probeLLMConnection.mockImplementation((snapshot: { config: { primary: unknown } }) =>
+    connMock.checkLLMConnectionFor(snapshot.config.primary));
   connMock.checkLLMConnection.mockReset();
   connMock.checkLLMConnectionFor.mockReset();
   connMock.promptReconfigure.mockReset();
@@ -205,7 +207,7 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
 
     // 落盘配置无 api_key 字段
     const config = loadGlobalConfig({ fsFactory });
-    const added = (config.llm.fallbacks ?? []).find((f) => f.preset === 'amazon-bedrock');
+    const added = (config.llm.fallbacks ?? []).find((f) => f.provider_id === 'amazon-bedrock');
     expect(added).toBeDefined();
     expect(added!.api_key).toBeUndefined();
   });
@@ -229,7 +231,7 @@ function writeCodexConfig() {
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: openai-codex\n    model: gpt-5.5\n`,
+    `llm:\n  primary:\n    preset: openai-codex\n    model: gpt-6.1-sol\n`,
   );
 }
 

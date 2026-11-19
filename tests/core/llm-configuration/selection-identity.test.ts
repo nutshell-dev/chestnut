@@ -17,8 +17,8 @@ const DEFAULT_CIRCUIT_RESET_FIXTURE_MS = 60_000;
 
 const input = {
   llm: {
-    primary: { preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed' },
-    fallbacks: [{ preset: 'openai', api_key: '${FALLBACK_KEY}', model: 'gpt-fixed' }],
+    primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test' },
+    fallbacks: [{ provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${FALLBACK_KEY}', model: 'gpt-fixed', base_url: 'https://provider.example.test/v1' }],
     retry_attempts: 4,
     retry_delay_ms: RETRY_DELAY_FIXTURE_MS,
     circuit_breaker: { failure_threshold: 5, reset_timeout_ms: CIRCUIT_RESET_FIXTURE_MS },
@@ -26,7 +26,7 @@ const input = {
 } as const;
 
 const override = {
-  llm: { primary: { preset: 'openai', api_key: '${OVERRIDE_KEY}', model: 'gpt-override' } },
+  llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${OVERRIDE_KEY}', model: 'gpt-override', base_url: 'https://provider.example.test/v1' } },
 } as const;
 
 function snapshotWithPrimary(primary: SharedLLMInput['primary']) {
@@ -53,7 +53,7 @@ describe('LLMConfiguration selection / identity', () => {
   it('L4 自有 retry/reset 默认值保持既有数值', () => {
     const snapshot = snapshotLLMConfigInput({
       llm: {
-        primary: { preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed' },
+        primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test' },
         circuit_breaker: {},
       },
     });
@@ -140,11 +140,10 @@ describe('LLMConfiguration selection / identity', () => {
 
   it('model/baseUrl/protocol/behavior 与 extra header 名改变 stable 和 operational identity', () => {
     const base = {
-      preset: 'anthropic',
+      provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
       label: 'provider-fixed',
       api_key: '${PRIMARY_KEY}',
-      model: 'claude-fixed',
-      base_url: 'https://provider.example.test',
+      model: 'claude-fixed', base_url: 'https://provider.example.test',
       temperature: 0.4,
       extra_headers: { 'X-Account': '${HEADER_A}' },
     } as const;
@@ -152,7 +151,7 @@ describe('LLMConfiguration selection / identity', () => {
     const changes: Array<readonly [string, SharedLLMInput['primary']]> = [
       ['model', { ...base, model: 'claude-other' }],
       ['baseUrl', { ...base, base_url: 'https://other.example.test' }],
-      ['protocol', { ...base, preset: 'openai' }],
+      ['protocol', { ...base, provider_id: 'custom:openai', api_format: 'openai' }],
       ['behavior', { ...base, temperature: 0.8 }],
       ['extra header name', { ...base, extra_headers: { 'X-Other': '${HEADER_A}' } }],
     ];
@@ -166,9 +165,9 @@ describe('LLMConfiguration selection / identity', () => {
 
   it('extra header secret 值只改变 operational identity，稳定投影不泄露该值', () => {
     const base = {
-      preset: 'anthropic',
+      provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
       api_key: '${PRIMARY_KEY}',
-      model: 'claude-fixed',
+      model: 'claude-fixed', base_url: 'https://provider.example.test',
       extra_headers: { 'X-Account': 'header-first-secret' },
     } as const;
     const first = snapshotWithPrimary(base);
@@ -222,7 +221,7 @@ describe('LLMConfiguration selection / identity', () => {
     const withHeader = (ref: string) => ({
       llm: {
         primary: {
-          preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed',
+          provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test',
           extra_headers: { 'X-Account': ref },
         },
       },
@@ -252,7 +251,7 @@ describe('LLMConfiguration selection / identity', () => {
     const source = {
       llm: {
         primary: {
-          preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed',
+          provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test',
           extra_headers: { 'X-Account': '${HEADER_A}' },
         },
       },
@@ -280,11 +279,13 @@ describe('LLMConfiguration selection / identity', () => {
     ]));
   });
 
-  it('oauth/ambient 使用稳定命名空间，缺失 api_key 显式 unresolved', () => {
-    const oauth = snapshotLLMConfigInput({ llm: { primary: { preset: 'openai-codex' } } });
-    const labeledOauth = snapshotWithPrimary({ preset: 'openai-codex', label: 'labeled-codex' });
-    const ambient = snapshotLLMConfigInput({ llm: { primary: { preset: 'amazon-bedrock' } } });
-    const unresolved = snapshotLLMConfigInput({ llm: { primary: { preset: 'anthropic', auth_profile: 'api_key' } } });
+  it('oauth/ambient 使用稳定命名空间，api_key profile 缺凭据 fail closed', () => {
+    const oauthPrimary = { provider_id: 'openai-codex', api_format: 'openai-codex-responses', auth_profile: 'oauth', model: 'gpt-6.1-sol' } as const;
+    const oauth = snapshotLLMConfigInput({ llm: { primary: oauthPrimary } });
+    const labeledOauth = snapshotWithPrimary({ ...oauthPrimary, label: 'labeled-codex' });
+    const ambient = snapshotLLMConfigInput({ llm: { primary: { provider_id: 'amazon-bedrock', api_format: 'bedrock-converse-stream', auth_profile: 'ambient', model: 'anthropic.claude-sonnet-4-6' } } });
+    const unresolvedInput = { llm: { primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', model: 'claude-fixed', base_url: 'https://provider.example.test' } } } as const;
+    expect(() => snapshotLLMConfigInput(unresolvedInput)).toThrow(/api_key is required/);
     expect(oauth.auth[0]).toMatchObject({
       provider: 'openai-codex', credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX', status: 'stable',
     });
@@ -296,13 +297,11 @@ describe('LLMConfiguration selection / identity', () => {
     });
     expect(ambient.auth[0]).toMatchObject({ credentialRef: 'ambient:amazon-bedrock', status: 'stable' });
     expect(ambient.credentials[0]).toMatchObject({ ref: 'ambient:amazon-bedrock', configured: true });
-    expect(unresolved.auth[0]).toMatchObject({ credentialRef: 'unresolved:primary', status: 'unresolved' });
-    expect(unresolved.credentials[0]?.configured).toBe(false);
   });
 
   it('api_key reference 与 oauth/ambient profile 组合仍优先保留显式 credential provenance', () => {
-    const oauth = snapshotWithPrimary({ preset: 'openai-codex', api_key: '${CODEX_KEY}' });
-    const ambient = snapshotWithPrimary({ preset: 'amazon-bedrock', api_key: '${BEDROCK_KEY}' });
+    const oauth = snapshotWithPrimary({ provider_id: 'openai-codex', api_format: 'openai-codex-responses', auth_profile: 'oauth', model: 'gpt-6.1-sol', api_key: '${CODEX_KEY}' });
+    const ambient = snapshotWithPrimary({ provider_id: 'amazon-bedrock', api_format: 'bedrock-converse-stream', auth_profile: 'ambient', model: 'anthropic.claude-sonnet-4-6', api_key: '${BEDROCK_KEY}' });
 
     expect(oauth.auth[0]).toMatchObject({
       provider: 'openai-codex', authProfile: 'oauth', credentialRef: 'CODEX_KEY', status: 'stable',
@@ -323,7 +322,7 @@ describe('LLMConfiguration selection / identity', () => {
   });
 
   it('legacy plaintext 不进入稳定 auth projection，mismatch 保留 typed 摘要证据', () => {
-    const legacy = { llm: { primary: { preset: 'anthropic', api_key: 'sk-fixed-primary', model: 'claude-fixed' } } } as const;
+    const legacy = { llm: { primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: 'sk-fixed-primary', model: 'claude-fixed', base_url: 'https://provider.example.test' } } } as const;
     const first = snapshotLLMConfigInput(legacy);
     const second = snapshotLLMConfigInput({ llm: { primary: { ...legacy.llm.primary, model: 'other' } } });
     expect(first.auth[0]).toMatchObject({ status: 'legacy', credentialRef: 'legacy:primary' });

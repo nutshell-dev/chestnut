@@ -36,22 +36,25 @@ describe('CLI Config', () => {
   });
 
   describe('toProviderConfig', () => {
-    // Phase 20: preset field and apiFormat
-    it('should set apiFormat=openai when preset is openai', () => {
+    it('should map explicit api_format=openai-responses to apiFormat', () => {
       const result = toProviderConfig({
-        preset: 'openai',
+        provider_id: 'openai',
+        api_format: 'openai-responses',
+        auth_profile: 'api_key',
         api_key: 'sk-test',
         model: 'gpt-4o',
         max_tokens: 4096,
         temperature: 0.7,
         timeout_ms: 60000,
       });
-      expect(result.apiFormat).toBe('openai');
+      expect(result.apiFormat).toBe('openai-responses');
     });
 
     it('should use label as name when provided', () => {
       const result = toProviderConfig({
-        preset: 'openai',
+        provider_id: 'openai',
+        api_format: 'openai-responses',
+        auth_profile: 'api_key',
         label: 'My OpenAI',
         api_key: 'sk-test',
         model: 'gpt-4o',
@@ -64,10 +67,12 @@ describe('CLI Config', () => {
 
     it('should map snake_case to camelCase', () => {
       const input = {
-        preset: 'anthropic',
+        provider_id: 'anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
         api_key: 'test-key',
         base_url: 'https://api.anthropic.com',
-        model: 'claude-3-5-haiku',
+        model: 'claude-haiku-4-5',
         max_tokens: 4096,
         temperature: 0.7,
         timeout_ms: 60000,
@@ -78,17 +83,19 @@ describe('CLI Config', () => {
       expect(result.name).toBe('anthropic');
       expect(result.apiKey).toBe('test-key');
       expect(result.baseUrl).toBe('https://api.anthropic.com');
-      expect(result.model).toBe('claude-3-5-haiku');
+      expect(result.model).toBe('claude-haiku-4-5');
       expect(result.maxTokens).toBe(4096);
       expect(result.temperature).toBe(0.7);
       expect(result.timeoutMs).toBe(60000);
     });
 
-    it('should handle optional base_url', () => {
+    it('should leave baseUrl undefined when optional base_url is omitted', () => {
       const input = {
-        preset: 'anthropic',
+        provider_id: 'anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
         api_key: 'test-key',
-        model: 'claude-3-5-haiku',
+        model: 'claude-haiku-4-5',
         max_tokens: 4096,
         temperature: 0.7,
         timeout_ms: 60000,
@@ -96,7 +103,7 @@ describe('CLI Config', () => {
 
       const result = toProviderConfig(input);
 
-      expect(result.baseUrl).toBe('https://api.anthropic.com');
+      expect(result.baseUrl).toBeUndefined();
     });
   });
 
@@ -118,9 +125,11 @@ describe('CLI Config', () => {
         version: '1',
         llm: {
           primary: {
-            preset: 'anthropic',
+            provider_id: 'anthropic',
+            api_format: 'anthropic',
+            auth_profile: 'api_key',
             api_key: '${CLI_TEST_API_KEY}',
-            model: 'claude-3-5-haiku',
+            model: 'claude-haiku-4-5',
             max_tokens: 4096,
             temperature: 0.7,
             timeout_ms: 60000,
@@ -173,9 +182,11 @@ describe('CLI Config', () => {
         version: '1',
         llm: {
           primary: {
-            preset: 'anthropic',
+            provider_id: 'anthropic',
+            api_format: 'anthropic',
+            auth_profile: 'api_key',
             api_key: '${CLI_TEST_API_KEY}',
-            model: 'claude-3-5-haiku',
+            model: 'claude-haiku-4-5',
             max_tokens: 4096,
             temperature: 0.7,
             timeout_ms: 60000,
@@ -204,9 +215,11 @@ describe('CLI Config', () => {
         version: '1',
         llm: {
           primary: {
-            preset: 'anthropic',
+            provider_id: 'anthropic',
+            api_format: 'anthropic',
+            auth_profile: 'api_key',
             api_key: '${CLI_TEST_API_KEY}',
-            model: 'claude-3-5-haiku',
+            model: 'claude-haiku-4-5',
             max_tokens: 4096,
             temperature: 0.7,
             timeout_ms: 60000,
@@ -227,9 +240,11 @@ describe('CLI Config', () => {
         version: '1',
         llm: {
           primary: {
-            preset: 'anthropic',
+            provider_id: 'anthropic',
+            api_format: 'anthropic',
+            auth_profile: 'api_key',
             api_key: '${CLI_TEST_API_KEY}',
-            model: 'claude-3-5-haiku',
+            model: 'claude-haiku-4-5',
             max_tokens: 4096,
             temperature: 0.7,
             timeout_ms: 60000,
@@ -259,7 +274,7 @@ describe('CLI Config', () => {
       const configPath = getGlobalConfigPath();
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       // Single-quoted string: no JS template interpolation, ${} written literally
-      const rawYaml = 'version: "1"\nllm:\n  primary:\n    name: anthropic\n    api_key: ${TEST_CLAW_API_KEY_EXPAND}\n    model: claude-3-5-haiku\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
+      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    api_key: ${TEST_CLAW_API_KEY_EXPAND}\n    model: claude-haiku-4-5\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
       const loaded = loadGlobalConfig({ fsFactory });
@@ -272,7 +287,7 @@ describe('CLI Config', () => {
       delete process.env.MISSING_CLAW_TEST_VAR_XYZ;
       const configPath = getGlobalConfigPath();
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      const rawYaml = 'version: "1"\nllm:\n  primary:\n    name: anthropic\n    api_key: ${MISSING_CLAW_TEST_VAR_XYZ}\n    model: test\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
+      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    api_key: ${MISSING_CLAW_TEST_VAR_XYZ}\n    model: test\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
       expect(() => loadGlobalConfig({ fsFactory })).toThrow(/MISSING_CLAW_TEST_VAR_XYZ/);

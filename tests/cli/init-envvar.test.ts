@@ -9,10 +9,15 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 import { clearCliCredentialEnv } from '../helpers/cli-credential-env.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
+const commandDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  llmConfiguration: createLLMConfiguration({ fsFactory }),
+};
 
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
 
@@ -140,7 +145,8 @@ describe('initCommand — 服务目录与凭据', () => {
     resetAnswers(['8', '', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.provider_id).toBe('custom:anthropic');
+    expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.api_key).toBe('sk-ant-env-test');
   });
 
@@ -150,7 +156,8 @@ describe('initCommand — 服务目录与凭据', () => {
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-manual');
-    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.provider_id).toBe('custom:anthropic');
+    expect(config.llm.primary.preset).toBeUndefined();
   });
 
   it('Ollama：本地服务不索 key', async () => {
@@ -158,7 +165,9 @@ describe('initCommand — 服务目录与凭据', () => {
     resetAnswers(['11', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('ollama');
+    expect(config.llm.primary.provider_id).toBe('custom:ollama');
+    expect(config.llm.primary.auth_profile).toBe('ambient');
+    expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.api_key).toBeUndefined();
   });
 
@@ -169,7 +178,8 @@ describe('initCommand — 服务目录与凭据', () => {
     ]);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('custom-openai');
+    expect(config.llm.primary.provider_id).toBe('custom:custom-openai');
+    expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.api_key).toBe('sk-manual');
     expect(config.llm.primary.model).toBe('gpt-4o');
     expect(config.llm.primary.base_url).toBe('https://api.openai.com/v1');

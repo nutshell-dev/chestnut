@@ -4,13 +4,14 @@
  */
 
 import type { ThinkingLevel } from './thinking-levels.js';
+import type { ApiFormat, AuthProfile } from './api-format.js';
 
-export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
+export type { ApiFormat, AuthProfile } from './api-format.js';
 
 /**
  * Phase 1979: preset 自带的 thinking/effort 全参数（preset = 完整参数包）。
- * 仅在用户配置未显式给出任何 thinking 字段时由 config-adapter 填充；
- * 不写入 YAML、不做存量迁移。
+ * 仅由 legacy preset migration / UX 预览读取；migration 将结果写成显式字段。
+ * 正常 adapter 不读取这些默认值。
  */
 export interface PresetThinkingDefaults {
   thinking?: boolean;
@@ -29,8 +30,6 @@ export interface PresetThinkingDefaults {
  * - oauth：pi-ai OAuth 凭证（access/refresh），经 `config provider login` 交互登录、
  *   由 workspace Credentials owner 持久化（pi-ai CredentialStore 桥接）。
  */
-export type AuthProfile = 'api_key' | 'ambient' | 'oauth';
-
 /**
  * phase 1793: LLMProvider-owned typed error（unknown-preset-generic-error 治理）。
  *
@@ -58,6 +57,8 @@ interface ProviderPreset {
    * Phase 1926 Step D：ambient/oauth catalog preset 不再携带伪协议，故可选。
    */
   apiFormat?: ApiFormat;
+  /** Explicit legacy catalog wire protocol used only by preset migration/UX. */
+  catalogApiFormat?: ApiFormat;
   /** Phase 1926 Step D：认证装配类别（缺席按 api_key 处理，back-compat）。 */
   authProfile?: AuthProfile;
   /** ambient/oauth preset 的认证来源提示（CLI 交互/失败提示展示，不含 secret）。 */
@@ -108,6 +109,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'gpt-4o',
     envVar: 'OPENAI_API_KEY',
     piAiProvider: 'openai',
+    catalogApiFormat: 'openai-responses',
     // Phase 1979: reasoning 默认 max（gpt-4o 等 catalog reasoning:false 时由 resolve 跳过）
     thinkingDefaults: { reasoningEffort: 'max' },
   },
@@ -191,6 +193,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'grok-4',
     envVar: 'XAI_API_KEY',
     piAiProvider: 'xai',
+    catalogApiFormat: 'openai-responses',
     thinkingDefaults: { reasoningEffort: 'max' },
   },
   'openrouter': {
@@ -257,6 +260,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     authHint: 'AWS 凭证链（AWS_PROFILE / 默认链 / ECS / web identity）+ AWS_REGION；无需 api_key。',
     defaultModel: 'anthropic.claude-sonnet-4-6',
     piAiProvider: 'amazon-bedrock',
+    catalogApiFormat: 'bedrock-converse-stream',
   },
   'google-vertex': {
     id: 'google-vertex',
@@ -265,6 +269,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     authHint: 'GOOGLE_CLOUD_API_KEY 或 ADC（GOOGLE_APPLICATION_CREDENTIALS / gcloud）+ GOOGLE_CLOUD_PROJECT/LOCATION；无需 api_key。',
     defaultModel: 'gemini-2.5-pro',
     piAiProvider: 'google-vertex',
+    catalogApiFormat: 'google-vertex',
   },
   'openai-codex': {
     id: 'openai-codex',
@@ -274,6 +279,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
     defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'openai-codex',
+    catalogApiFormat: 'openai-codex-responses',
   },
   'github-copilot': {
     id: 'github-copilot',
@@ -283,6 +289,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
     defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'github-copilot',
+    catalogApiFormat: 'openai-responses',
   },
   'custom-anthropic': {
     id: 'custom-anthropic',

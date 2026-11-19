@@ -46,7 +46,9 @@ export interface RootConfigAdmin extends RootConfigReader {
    * Phase 1910 Step D：初始化唯一提交点（O_EXCL）；已初始化时 throw
    * GlobalConfigAlreadyExistsError，loser 重读已提交配置、不覆盖。
    */
-  saveGlobalExclusive(config: ClawGlobalConfigInput): void;
+  saveGlobalExclusive(
+    config: Omit<ClawGlobalConfigInput, 'llm'> & { llm?: ClawGlobalConfigInput['llm'] },
+  ): void;
   /** root 锁内执行 legacy LLM 迁移；目标未确认 durable 时保留源。 */
   migrateLLMConfiguration(): Promise<void>;
   /** Explicit async migration for a per-claw legacy plaintext override. */

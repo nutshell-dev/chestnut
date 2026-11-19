@@ -17,7 +17,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createRootConfig } from '../../src/assembly/index.js';
-import { snapshotLLMConfig } from '../../src/core/llm-configuration/index.js';
+import {
+  createLLMConfiguration,
+  snapshotLLMConfig,
+} from '../../src/core/llm-configuration/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { START_GATE_EXIT_CODE } from '../../src/cli/start-llm-gate.js';
 import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
@@ -145,7 +148,11 @@ function resetRun() {
 }
 
 function makeDeps() {
-  return { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
+  return {
+    fsFactory,
+    rootConfig: createRootConfig({ fsFactory }),
+    llmConfiguration: createLLMConfiguration({ fsFactory }),
+  };
 }
 
 function configPath(): string {
@@ -199,6 +206,10 @@ describe('first-run wizard — 展示与提交', () => {
     expect(conn.probeCalls).toBe(1);
     expect(fs.existsSync(configPath())).toBe(true);
     expect(fs.existsSync(readyPath())).toBe(true);
+    expect(fs.readFileSync(configPath(), 'utf8')).not.toMatch(/^llm:/m);
+    const llmYaml = fs.readFileSync(path.join(tmpDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    expect(llmYaml).toContain('provider_id: custom:anthropic');
+    expect(llmYaml).not.toContain('preset:');
 
     const diskSnapshot = snapshotLLMConfig(loadGlobalConfig({ fsFactory }));
     if (outcome.kind === 'verified') {
@@ -207,23 +218,25 @@ describe('first-run wizard — 展示与提交', () => {
     expect(auditEvents.entries.map(e => e[0])).toContain('cli_init_done');
   });
 
-  it('MiniMax 默认：probe 配置带 adaptive/max；YAML 不写 thinking 字段（Phase 1979）', async () => {
+  it('MiniMax 默认：probe 与显式 YAML 均携带 adaptive/max thinking', async () => {
     h.rlAnswers.queue = ['5', 'sk-mm-test', ''];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
     expect(outcome.kind).toBe('verified');
-    // 候选 probe 使用 resolved preset thinking（adaptive/max + dropThinkingBlocks）
-    const probed = conn.checkLLMConnectionFor.mock.calls[0]?.[0];
+    // 候选与最终配置使用同一显式 probe 入口。
+    const probed = conn.probeLLMConnection.mock.calls[0]?.[0]?.config?.primary;
     expect(probed).not.toHaveProperty('defaults');
     expect(resolvedProviderConfig(probed)).toMatchObject({
       thinkingMode: 'adaptive',
       thinkingEffort: 'max',
       dropThinkingBlocks: true,
     });
-    // 生成的 YAML 保持现有字段面：不写 thinking/reasoning
-    const yaml = fs.readFileSync(configPath(), 'utf8');
-    expect(yaml).not.toMatch(/thinking|reasoning_effort/);
+    // LLM 只写 L4 文档；root 仅保留非 LLM 初始化 intent。
+    const yaml = fs.readFileSync(path.join(tmpDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    expect(yaml).toContain('thinking_mode: adaptive');
+    expect(yaml).toContain('thinking_effort: max');
+    expect(yaml).toContain('drop_thinking_blocks: true');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('MiniMax-M3.1-Flash');
   });
 
@@ -347,8 +360,67 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
     expect(outcome.kind).toBe('verified');
-    expect(loadGlobalConfig({ fsFactory }).llm.primary.preset).toBe('openai');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.provider_id).toBe('openai');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.preset).toBeUndefined();
     expect(conn.probeCalls).toBe(2);
+  });
+
+  it('commit 后 post-write 异常保留已绑定凭据与恢复文档', async () => {
+    h.rlAnswers.queue = ['8', 'sk-post-write-bound', ''];
+    const base = makeDeps();
+    const store = base.llmConfiguration.store;
+    const deps = {
+      ...base,
+      llmConfiguration: {
+        store: {
+          ...store,
+          commitExplicitProvider: async (
+            target: Parameters<typeof store.commitExplicitProvider>[0],
+            config: Parameters<typeof store.commitExplicitProvider>[1],
+            revision?: number,
+          ) => {
+            await store.commitExplicitProvider(target, config, revision);
+            throw new Error('injected post-write readSnapshot failure');
+          },
+        },
+      },
+    };
+
+    await expect(runFirstRunSetup(deps, { audit: mockAudit }))
+      .rejects.toThrow('injected post-write readSnapshot failure');
+
+    expect(createAuthenticationSetup({ fsFactory }).resolveSync('ANTHROPIC_API_KEY')?.accessToken)
+      .toBe('sk-post-write-bound');
+    expect(fs.existsSync(path.join(tmpDir, '.chestnut', 'llm', 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(readyPath())).toBe(false);
+  });
+
+  it('非 durable initialize 不发布 ready，但保留已提交凭据与恢复证据', async () => {
+    h.rlAnswers.queue = ['8', 'sk-degraded-bound', ''];
+    const uncertainFsFactory = (baseDir: string) => new (class extends NodeFileSystem {
+      override writeAtomicSync(relativePath: string, content: string) {
+        if (this.resolve(relativePath).endsWith('.initialize.target')) {
+          return {
+            kind: 'committed_durability_unknown' as const,
+            error: Object.assign(new Error('injected initialize durability uncertainty'), { code: 'EIO' }),
+          };
+        }
+        return super.writeAtomicSync(relativePath, content);
+      }
+    })({ baseDir });
+    const deps = {
+      fsFactory: uncertainFsFactory,
+      rootConfig: createRootConfig({ fsFactory: uncertainFsFactory }),
+      llmConfiguration: createLLMConfiguration({ fsFactory: uncertainFsFactory }),
+    };
+
+    await expect(runFirstRunSetup(deps, { audit: mockAudit }))
+      .rejects.toThrow('durable initialization was not confirmed');
+
+    expect(createAuthenticationSetup({ fsFactory }).resolveSync('ANTHROPIC_API_KEY')?.accessToken)
+      .toBe('sk-degraded-bound');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('claude-3-7-sonnet-20250219');
+    expect(fs.existsSync(readyPath())).toBe(false);
   });
 
   it('取消时清理本次新建的未绑定凭据', async () => {

@@ -19,22 +19,18 @@ import {
   GlobalConfigAlreadyExistsError,
 } from '../assembly/index.js';
 import {
-  createAuthenticationCapability,
   isCredentialReference,
-  snapshotLLMConfigInput,
-  resolveCredentialReference,
-  type LLMConfigSnapshot,
+  executeLLMSetupAttempt,
+  runLLMSetupWorkflow,
+  LLMSetupIdentityChangedError,
+  type LLMConfigurationAdmin,
+  type LLMConfigurationCommitResult,
+  type LLMSetupDraft,
+  type LLMSetupWorkflowEvent,
+  type LLMSetupWorkflowDeps,
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
-import {
-  DEFAULT_LLM_TIMEOUT_MS,
-  DEFAULT_LLM_RETRY_ATTEMPTS,
-  DEFAULT_RETRY_DELAY_MS,
-  DEFAULT_RESET_TIMEOUT_MS,
-  INIT_LLM_IDLE_TIMEOUT_MS,
-} from '../foundation/llm-orchestrator/index.js';
-import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
-const { PRESETS, isCatalogProvider } = llmProviderCatalog;
+import { INIT_LLM_IDLE_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { FORMAT_MAP } from './provider-format-map.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/index.js';
 import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../core/heartbeat/index.js';
@@ -45,8 +41,6 @@ import { question as askQuestion } from './utils/prompt.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import {
-  probeLLMConnection,
-  classifyLLMErrorForDisplay,
   formatLLMError,
   summarizeLLMFailure,
   type LLMFailureSummary,
@@ -59,13 +53,16 @@ import {
   describeEffectiveThinking,
   findSetupProvider,
   isCustomSetupChoice,
+  makeExplicitSetupDraft,
+  resolveExplicitSetupTarget,
+  describeExplicitSetupTarget,
   type SetupProviderChoice,
-  type SetupProbeCandidate,
 } from './setup-provider-catalog.js';
 import {
+  emitLLMSetupWorkflowAudit,
   formatSetupProbeFailureLines,
-  makeSetupCandidateProbe,
-  probeSetupCandidates,
+  makeLLMSetupWorkflowProbe,
+  recheckLLMSetupIdentity,
 } from './setup-provider-probe.js';
 import {
   SETUP_WELCOME,
@@ -92,6 +89,7 @@ import {
 export interface FirstRunDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'saveGlobalExclusive' | 'completeInitialization'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'store'>;
 }
 
 export interface FirstRunConfigInput {
@@ -112,24 +110,18 @@ export type FirstRunSetupOutcome =
   | { kind: 'cancelled'; reason: string }
   | { kind: 'concurrent' };
 
-type Question = (prompt: string, defaultValue?: string) => Promise<string>;
+export type Question = (prompt: string, defaultValue?: string) => Promise<string>;
 
 export interface StoredCredential {
   ref: string;
   value: string;
 }
 
-interface DraftProbeFailure {
-  errorType: LLMFailureSummary['errorType'];
-  message: string;
-  provider: string;
-}
-
 /**
  * 跟踪本次 setup 新建的凭据条目。同名条目在本次 setup 内被再次写入时复制最新值，
  * 使取消清理只删除「本次写入且仍未被外部改动」的值。
  */
-function recordCreatedCredential(
+export function recordCreatedCredential(
   created: StoredCredential[],
   ref: string,
   info: { created: boolean; value: string },
@@ -142,34 +134,13 @@ function recordCreatedCredential(
   if (info.created) created.push({ ref, value: info.value });
 }
 
-type DraftProbeOutcome =
-  | { ok: true; verified: VerifiedLLMConfig; latencyMs: number }
-  | { ok: false; failure: DraftProbeFailure };
-
 /**
  * 初始 global config 模板（Phase 1925 Step E 提取单源）：init / start 首次配置共用，
  * 字段默认值不得两处漂移。
  */
-export function buildInitialConfig(input: FirstRunConfigInput) {
-  const primary = {
-    ...(input.providerId ? { provider_id: input.providerId } : { preset: input.presetId }),
-    ...(input.apiKey && { api_key: input.apiKey }),
-    model: input.model,
-    temperature: 0.7,
-    timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-    ...(input.baseUrl && { base_url: input.baseUrl }),
-  };
+export function buildInitialRootConfig() {
   return {
     version: '1',
-    llm: {
-      primary,
-      retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
-      retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-      circuit_breaker: {
-        failure_threshold: 3,
-        reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
-      },
-    },
     tool_timeout_ms: 60_000,
     motion: {
       heartbeat_interval_ms: HEARTBEAT_DEFAULT_INTERVAL_MS,
@@ -189,130 +160,83 @@ function draftToInput(draft: FirstRunConfigInput): FirstRunConfigInput {
   };
 }
 
-function resolveDraftApiKey(deps: FirstRunDeps, raw: string): string {
-  if (!isCredentialReference(raw)) return raw;
-  const resolved = resolveCredentialReference(createAuthenticationSetup(deps), raw);
-  if (resolved === undefined) {
-    throw new CliError(
-      `API key reference ${raw} is not set (not in process env, credentials file, or .env fallbacks)`,
-      { code: START_GATE_EXIT_CODE },
-    );
-  }
-  return resolved;
+function explicitDraft(draft: SetupDraft): LLMSetupDraft {
+  const hasCatalogTarget = draft.choice.target.preset !== undefined || draft.choice.target.providerId !== undefined;
+  const defaultBaseUrl = hasCatalogTarget
+    ? describeExplicitSetupTarget(draft.choice.target).defaultBaseUrl
+    : undefined;
+  return makeExplicitSetupDraft({
+    ...(draft.presetId !== undefined && { presetId: draft.presetId }),
+    ...(draft.providerId !== undefined && { providerId: draft.providerId }),
+    ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }),
+    model: draft.model,
+    ...(draft.baseUrl !== undefined && { baseUrl: draft.baseUrl }),
+    defaultBaseUrl,
+    local: draft.choice.auth === 'local',
+  }, draft.choice.probeCandidates);
 }
 
-/**
- * probe 只消费「解析后 key 的同一份 resolved config」：与磁盘 loadGlobal 的
- * env/credentials 展开同源，因此身份可跨 probe/提交/门控比较。
- */
-function snapshotForProbe(deps: FirstRunDeps, input: FirstRunConfigInput): LLMConfigSnapshot {
-  const apiKey = input.apiKey !== undefined ? resolveDraftApiKey(deps, input.apiKey) : undefined;
-  const probeInput: FirstRunConfigInput = {
-    ...input,
-    ...(apiKey !== undefined && { apiKey }),
-  };
-  return snapshotLLMConfigInput(buildInitialConfig(input), {
-    resolvedInput: buildInitialConfig(probeInput),
-    credentials: createAuthenticationCapability(deps),
-  });
-}
-
-async function probeDraft(
-  deps: FirstRunDeps,
-  input: FirstRunConfigInput,
-  audit: AuditLog | undefined,
-): Promise<DraftProbeOutcome> {
-  let snapshot: LLMConfigSnapshot;
-  try {
-    snapshot = snapshotForProbe(deps, input);
-  } catch (err) {
-    const message = formatErr(err);
-    // Phase 1979: 不再硬编码 auth——凭据/配置解析失败按同一分类器归类。
-    const errorType = classifyLLMErrorForDisplay(err);
-    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_FAILED, `error_type=${errorType}`, `message=${audit.message(message)}`);
-    return {
-      ok: false,
-      failure: { errorType, message, provider: input.presetId ?? input.providerId ?? 'unknown' },
-    };
-  }
-
-  audit?.write(
-    CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED,
-    `preset=${input.presetId ?? input.providerId ?? ''}`,
-    `model=${input.model}`,
-  );
-  const t0 = Date.now();
-  const probe = await probeLLMConnection(snapshot, {
-    authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
-  });
-  const latencyMs = Date.now() - t0;
-
-  if (probe.ok) {
-    audit?.write(
-      CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED,
-      `preset=${input.presetId ?? input.providerId ?? ''}`,
-      `model=${probe.model}`,
-      `latency_ms=${latencyMs}`,
-    );
-    return {
-      ok: true,
-      verified: { snapshot, probe: { model: probe.model }, via: 'init' },
-      latencyMs,
-    };
-  }
-
-  audit?.write(
-    CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
-    `preset=${input.presetId ?? input.providerId ?? ''}`,
-    `error_type=${probe.errorType}`,
-    `message=${audit.message(probe.message)}`,
-  );
-  return {
-    ok: false,
-    failure: { errorType: probe.errorType, message: probe.message, provider: probe.provider },
-  };
-}
-
-/**
- * probe 成功后、提交前重新解析 draft 身份：probe 期间凭据/环境若变化，
- * 已验证身份不再代表将要写入的配置 → fail-closed（不发布未验证配置）。
- */
 interface FirstRunCommitState {
-  /** root staging 已独占提交：此后异常不得清理已绑定凭据；L4 由完成初始化收敛。 */
-  rootConfigWritten?: boolean;
+  /** 调用 L4 即保守保留凭据：写后 snapshot/audit 失败也可能已有绑定文档。 */
+  commitAttempted?: boolean;
+  llmCommitted?: boolean;
+  concurrent?: boolean;
+  commit?: LLMConfigurationCommitResult;
 }
 
-async function commitFirstRun(
+function firstRunWorkflowDeps(
   deps: FirstRunDeps,
-  input: FirstRunConfigInput,
-  verified: VerifiedLLMConfig,
   audit: AuditLog | undefined,
   state: FirstRunCommitState,
-): Promise<'committed' | 'concurrent'> {
-  const current = snapshotForProbe(deps, input);
-  if (current.operationalIdentity !== verified.snapshot.operationalIdentity) {
-    throw new CliError(
-      'Configuration changed during verification; refusing to commit unverified config (fail-closed)',
-      { code: START_GATE_EXIT_CODE },
+  emit?: (event: LLMSetupWorkflowEvent) => void,
+): LLMSetupWorkflowDeps {
+  return {
+    store: {
+      commitExplicitProvider: async (target, config, expectedRevision) => {
+        if (target.kind === 'initialize') {
+          try {
+            // Durable root intent contains no LLM provider document.
+            deps.rootConfig.saveGlobalExclusive(buildInitialRootConfig());
+          } catch (error) {
+            // A prior/concurrent root intent is recoverable. The exclusive L4
+            // initialize below decides which already-probed draft wins.
+            if (!(error instanceof GlobalConfigAlreadyExistsError)) throw error;
+          }
+        }
+        // 宁可保留一个未被采用的凭据，也不能在提交结果不确定时删除已绑定值。
+        state.commitAttempted = true;
+        const commit = await deps.llmConfiguration.store.commitExplicitProvider(target, config, expectedRevision);
+        state.llmCommitted = true;
+        state.commit = commit;
+        return commit;
+      },
+    },
+    probe: makeLLMSetupWorkflowProbe(deps, audit),
+    recheckIdentity: (draft, verified) => recheckLLMSetupIdentity(deps, draft, verified),
+    emit: (event) => {
+      emitLLMSetupWorkflowAudit(audit, event);
+      emit?.(event);
+    },
+  };
+}
+
+function finishFirstRunCommit(
+  deps: FirstRunDeps,
+  state: FirstRunCommitState,
+  audit: AuditLog | undefined,
+  outcome: 'committed' | 'concurrent',
+): void {
+  if (outcome === 'concurrent') state.concurrent = true;
+  if (outcome === 'committed' && state.commit?.write.kind !== 'durable') {
+    // LLM 文档与凭据均已提交并可供下次 init 恢复；目录项耐久性未确认时
+    // 不得发布 ready，把仅文件 fsync 的写入伪装成完整初始化。
+    throw new Error(
+      'LLM configuration committed but durable initialization was not confirmed; ready marker NOT published',
     );
   }
-
-  try {
-    deps.rootConfig.saveGlobalExclusive(buildInitialConfig(input));
-    state.rootConfigWritten = true;
-  } catch (err) {
-    if (err instanceof GlobalConfigAlreadyExistsError) {
-      // 并发 winner 已提交：本进程的 draft 证明不了 winner 配置，放弃验证事实。
-      deps.rootConfig.completeInitialization();
-      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, 'reason=concurrent_winner');
-      return 'concurrent';
-    }
-    throw err;
-  }
-
   deps.rootConfig.completeInitialization();
-  audit?.write(CLI_AUDIT_EVENTS.INIT_DONE);
-  return 'committed';
+  if (outcome === 'committed') audit?.write(CLI_AUDIT_EVENTS.INIT_DONE);
+  else audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, 'reason=concurrent_winner');
 }
 
 // Phase 1983 Step C：question 统一为 cli/utils/prompt.ts 共享 helper（默认值只显示一次）。
@@ -321,8 +245,8 @@ function makeQuestion(rl: readline.Interface): Question {
     askQuestion(rl, prompt, defaultValue);
 }
 
-async function discardCreatedCredentials(
-  deps: FirstRunDeps,
+export async function discardCreatedCredentials(
+  deps: Pick<FirstRunDeps, 'fsFactory'>,
   created: readonly StoredCredential[],
   emit: boolean = true,
 ): Promise<void> {
@@ -359,8 +283,8 @@ async function storeSetupApiKey(
       silent,
     });
   }
-  const presetId = choice.target.preset ?? '';
-  const envVar = PRESETS[presetId]?.envVar;
+  const presetId = choice.target.preset ?? choice.id;
+  const envVar = choice.envVar;
   const storeCtx = envVar && process.env[envVar]
     ? { seed: presetId, onShadowedEnv: 'error' as const }
     : { envVar, seed: presetId, onShadowedEnv: 'error' as const };
@@ -381,9 +305,7 @@ async function promptApiKey(
     return storeSetupApiKey(deps, rawKey, choice, created);
   }
 
-  const presetId = choice.target.preset ?? '';
-  const preset = PRESETS[presetId];
-  const envVar = preset?.envVar;
+  const envVar = choice.envVar;
   const envReady = Boolean(envVar && process.env[envVar]);
   // Phase 1984 Step B：提示同时说明两种行为——回车=读环境变量，输入=使用输入值。
   const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt(envReady ? envVar : undefined)}: `);
@@ -400,8 +322,7 @@ async function promptModel(
   choice: SetupProviderChoice,
   question: Question,
 ): Promise<string> {
-  const preset = choice.target.preset ? PRESETS[choice.target.preset] : undefined;
-  const defaultModel = choice.defaultModel ?? preset?.defaultModel ?? '';
+  const defaultModel = choice.defaultModel ?? '';
   // Phase 1983 Step C：默认值由共享 question helper 追加，prompt 文本不手写。
   const model = await question('Model', defaultModel || undefined);
   if (!model) throw new CliError('Model is required');
@@ -491,62 +412,6 @@ async function confirmDraft(draft: SetupDraft, question: Question): Promise<bool
   return answer.toLowerCase() !== 'n';
 }
 
-async function selectSetupEndpoint(
-  deps: FirstRunDeps,
-  draft: SetupDraft,
-  audit: AuditLog | undefined,
-  emit: boolean = true,
-): Promise<{ ok: true } | { ok: false; failure: DraftProbeFailure; reported?: boolean }> {
-  const candidates = draft.choice.probeCandidates ?? [];
-  if (candidates.length === 0) return { ok: true };
-
-  if (emit) console.log(`\nEndpoint probes (model=${draft.model}):`);
-  const candidateProbe = makeSetupCandidateProbe(
-    { label: draft.choice.label, ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }), model: draft.model },
-    {
-      resolveKey: (ref) => resolveCredentialReference(createAuthenticationSetup(deps), ref),
-      authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
-    },
-  );
-
-  let outcome;
-  try {
-    outcome = await probeSetupCandidates(candidates, async (candidate: SetupProbeCandidate) => {
-      const result = await candidateProbe(candidate);
-      if (emit) console.log(`→ ${candidate.baseUrl} ... ${result.ok ? '✓' : '✗'}`);
-      return result;
-    });
-  } catch (err) {
-    const failure: DraftProbeFailure = {
-      errorType: 'auth',
-      message: formatErr(err),
-      provider: draft.choice.label,
-    };
-    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_FAILED, 'error_type=auth', `message=${audit.message(failure.message)}`);
-    return { ok: false, failure };
-  }
-
-  if (!outcome.winner) {
-    // Phase 1983 follow-up：全败按错误类别分组展示（与 provider add 一致）。
-    if (emit) formatSetupProbeFailureLines(outcome.attempts).forEach(line => console.log(line));
-    const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
-    const failure: DraftProbeFailure = firstFailure && !firstFailure.ok
-      ? { errorType: firstFailure.errorType, message: firstFailure.message, provider: firstFailure.provider }
-      : { errorType: 'unknown', message: 'All endpoint candidates failed', provider: draft.choice.label };
-    audit?.write(
-      CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
-      `error_type=${failure.errorType}`,
-      `message=${audit.message(failure.message)}`,
-    );
-    // 摘要已展示全部失败类别；主循环不再重复打印首个失败详情。
-    return { ok: false, failure, reported: true };
-  }
-
-  draft.baseUrl = outcome.winner.baseUrl;
-  if (emit) console.log(`Selected: ${outcome.winner.baseUrl}`);
-  return { ok: true };
-}
-
 function parseRepairChoice(raw: string): LLMRepairAction | undefined {
   switch (raw.trim().toLowerCase()) {
     case '1': case 'retry': return 'retry';
@@ -558,7 +423,7 @@ function parseRepairChoice(raw: string): LLMRepairAction | undefined {
   }
 }
 
-async function promptRepairAction(question: Question): Promise<LLMRepairAction> {
+export async function promptRepairAction(question: Question): Promise<LLMRepairAction> {
   setupRepairMenuLines().forEach(line => console.log(line));
   for (;;) {
     const raw = await question('\n> ');
@@ -633,55 +498,82 @@ export async function runFirstRunSetup(
       return { kind: 'cancelled', reason: 'user_cancelled' };
     }
 
-    for (;;) {
-      let failure: LLMFailureSummary | undefined;
-
-      if (draft.choice.probeCandidates !== undefined && draft.baseUrl === undefined) {
-        const selection = await selectSetupEndpoint(deps, draft, audit);
-        if (!selection.ok) {
-          failure = summarizeLLMFailure(selection.failure);
-          if (!selection.reported) formatLLMError(failure).forEach(line => console.log(line));
-        }
-      }
-
-      if (failure === undefined) {
-        console.log(setupConnectingLine(draft.choice.label, draft.model));
-        const result = await probeDraft(deps, draftToInput(draft), audit);
-        if (result.ok) {
-          const commit = await commitFirstRun(deps, draftToInput(draft), result.verified, audit, commitState);
-          if (commit === 'concurrent') {
-            console.log('✓ Already initialized (a concurrent setup completed first; keeping its config)');
-            return { kind: 'concurrent' };
-          }
-          console.log(`✓ ${result.verified.probe.model} (${result.latencyMs}ms)`);
-          return { kind: 'verified', verified: result.verified };
-        }
-        failure = summarizeLLMFailure(result.failure);
-        formatLLMError(failure).forEach(line => console.log(line));
-      }
-
-      const action = await promptRepairAction(question);
-      if (action === 'cancel') {
-        audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, 'reason=user_cancel');
-        await discardCreatedCredentials(deps, created);
-        console.log(SETUP_CANCELLED);
-        return { kind: 'cancelled', reason: 'user_cancelled' };
-      }
-      if (action === 'retry') continue;
-
-      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `action=${action}`);
-      try {
-        draft = await applyRepair(action, deps, rl, question, draft, created);
-      } catch (err) {
-        if (!(err instanceof SetupCancelledError)) throw err;
-        await discardCreatedCredentials(deps, created);
-        console.log(SETUP_CANCELLED);
-        return { kind: 'cancelled', reason: 'user_cancelled' };
-      }
+    console.log(setupConnectingLine(draft.choice.label, draft.model));
+    if (draft.choice.probeCandidates !== undefined && draft.choice.probeCandidates.length > 0) {
+      console.log(`\nEndpoint probes (model=${draft.model}):`);
     }
+    const outcome = await runLLMSetupWorkflow(
+      firstRunWorkflowDeps(deps, audit, commitState, (event) => {
+        if (event.type !== 'probe_finished') return;
+        if (event.kind === 'candidate' && event.url !== undefined) {
+          console.log(`→ ${event.url} ... ${event.result.ok ? '✓' : '✗'}`);
+          if (event.winner) console.log(`Selected: ${event.url}`);
+        }
+      }),
+      explicitDraft(draft),
+      { kind: 'initialize' },
+      async (attempt) => {
+        const failure = summarizeLLMFailure(attempt.failure);
+        if (attempt.candidates.some(candidate => candidate.kind === 'candidate')) {
+          formatSetupProbeFailureLines(attempt.candidates.map(candidate => ({
+            candidate: { presetId: '', baseUrl: candidate.url ?? '', label: candidate.identity },
+            result: candidate.result.ok
+              ? { ok: true as const, model: candidate.result.model }
+              : {
+                ok: false as const,
+                errorType: candidate.result.errorType,
+                message: candidate.result.message,
+                provider: candidate.result.provider,
+              },
+          }))).forEach(line => console.log(line));
+        } else {
+          formatLLMError(failure).forEach(line => console.log(line));
+        }
+        const action = await promptRepairAction(question);
+        if (action === 'cancel') return { kind: 'cancel', reason: 'user_cancelled' };
+        if (action === 'retry') return { kind: 'retry' };
+        audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `action=${action}`);
+        try {
+          draft = await applyRepair(action, deps, rl, question, draft, created);
+          return { kind: 'repair', draft: explicitDraft(draft) };
+        } catch (err) {
+          if (!(err instanceof SetupCancelledError)) throw err;
+          return { kind: 'cancel', reason: 'user_cancelled' };
+        }
+      },
+    );
+    if (outcome.kind === 'cancelled') {
+      await discardCreatedCredentials(deps, created);
+      console.log(SETUP_CANCELLED);
+      return { kind: 'cancelled', reason: outcome.reason };
+    }
+    if (outcome.kind === 'concurrent') {
+      finishFirstRunCommit(deps, commitState, audit, 'concurrent');
+      console.log('✓ Already initialized (a concurrent setup completed first; keeping its config)');
+      return { kind: 'concurrent' };
+    }
+    finishFirstRunCommit(deps, commitState, audit, 'committed');
+    const winner = outcome.candidates[outcome.candidates.length - 1];
+    const latencyMs = winner
+      ? Date.parse(winner.completedAt) - Date.parse(winner.startedAt)
+      : 0;
+    console.log(`✓ ${outcome.verified.model} (${latencyMs}ms)`);
+    return {
+      kind: 'verified',
+      verified: {
+        snapshot: outcome.verified.snapshot,
+        probe: { model: outcome.verified.model },
+        via: 'init',
+      },
+    };
   } catch (err) {
-    // 异常中止：仅在 root config 尚未提交时清理本次新建凭据（已提交则引用已绑定）。
-    if (!commitState.rootConfigWritten) await discardCreatedCredentials(deps, created);
+    // commitAttempted 起结果即不确定；只在尚未调用提交口时清理未绑定凭据。
+    if (!commitState.commitAttempted && !commitState.llmCommitted && !commitState.concurrent) {
+      await discardCreatedCredentials(deps, created);
+    }
+    if (err instanceof LLMSetupIdentityChangedError) {
+      throw new CliError(err.message, { code: START_GATE_EXIT_CODE, cause: err });
+    }
     throw err;
   } finally {
     rl.close();
@@ -738,7 +630,7 @@ export async function runLauncherSetupAttempt(
       apiKey = await storeSetupApiKey(deps, apiKey, choice, created, true);
     }
     if (choice.auth === 'api_key' && apiKey === undefined) {
-      const envVar = choice.target.preset ? PRESETS[choice.target.preset]?.envVar : undefined;
+      const envVar = choice.envVar;
       if (envVar && process.env[envVar]) apiKey = '${' + envVar + '}';
     }
     if (choice.auth !== 'local' && apiKey === undefined) throw new CliError('API Key is required');
@@ -754,20 +646,20 @@ export async function runLauncherSetupAttempt(
       ...(raw.baseUrl !== undefined && { baseUrl: raw.baseUrl }),
     };
     const draft: SetupDraft = { ...input, choice, requiresConfirmation: false };
-    if (choice.probeCandidates !== undefined && draft.baseUrl === undefined) {
-      const selected = await selectSetupEndpoint(deps, draft, audit, false);
-      if (!selected.ok) {
-        return { kind: 'repair', failure: summarizeLLMFailure(selected.failure), input: draftToInput(draft) };
-      }
+    const outcome = await executeLLMSetupAttempt(
+      firstRunWorkflowDeps(deps, audit, commitState),
+      explicitDraft(draft),
+      { kind: 'initialize' },
+    );
+    if (outcome.kind === 'repair') {
+      return { kind: 'repair', failure: summarizeLLMFailure(outcome.failure), input: draftToInput(draft) };
     }
-    const result = await probeDraft(deps, draftToInput(draft), audit);
-    if (!result.ok) {
-      return { kind: 'repair', failure: summarizeLLMFailure(result.failure), input: draftToInput(draft) };
-    }
-    const commit = await commitFirstRun(deps, draftToInput(draft), result.verified, audit, commitState);
-    return { kind: commit === 'concurrent' ? 'concurrent' : 'committed' };
+    finishFirstRunCommit(deps, commitState, audit, outcome.kind);
+    return { kind: outcome.kind };
   } catch (err) {
-    if (!commitState.rootConfigWritten) await discardCreatedCredentials(deps, created, false);
+    if (!commitState.commitAttempted && !commitState.llmCommitted && !commitState.concurrent) {
+      await discardCreatedCredentials(deps, created, false);
+    }
     throw err;
   }
 }
@@ -798,21 +690,47 @@ export async function runNonInteractiveFirstRun(
   const commitState: FirstRunCommitState = {};
   try {
     const input = await buildNonInteractiveInput(deps, opts, created);
-    const result = await probeDraft(deps, input, audit);
-    if (!result.ok) {
-      formatLLMError(summarizeLLMFailure(result.failure)).forEach(line => console.error(line));
-      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, 'reason=non_interactive');
+    const draft = makeExplicitSetupDraft({
+      ...(input.presetId !== undefined && { presetId: input.presetId }),
+      ...(input.providerId !== undefined && { providerId: input.providerId }),
+      ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+      model: input.model,
+      ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl }),
+    });
+    let failure: LLMFailureSummary | undefined;
+    const outcome = await runLLMSetupWorkflow(
+      firstRunWorkflowDeps(deps, audit, commitState),
+      draft,
+      { kind: 'initialize' },
+      async (attempt) => {
+        failure = summarizeLLMFailure(attempt.failure);
+        formatLLMError(failure).forEach(line => console.error(line));
+        return { kind: 'cancel', reason: 'non_interactive' };
+      },
+    );
+    if (outcome.kind === 'cancelled') {
       throw new CliError(
-        `LLM verification failed (${result.failure.errorType}); start aborted (non-interactive)`,
+        `LLM verification failed (${failure?.errorType ?? 'unknown'}); start aborted (non-interactive)`,
         { code: START_GATE_EXIT_CODE },
       );
     }
-
-    const commit = await commitFirstRun(deps, input, result.verified, audit, commitState);
-    if (commit === 'concurrent') return { kind: 'concurrent' };
-    return { kind: 'verified', verified: result.verified };
+    finishFirstRunCommit(deps, commitState, audit, outcome.kind);
+    if (outcome.kind === 'concurrent') return { kind: 'concurrent' };
+    return {
+      kind: 'verified',
+      verified: {
+        snapshot: outcome.verified.snapshot,
+        probe: { model: outcome.verified.model },
+        via: 'init',
+      },
+    };
   } catch (err) {
-    if (!commitState.rootConfigWritten) await discardCreatedCredentials(deps, created);
+    if (!commitState.commitAttempted && !commitState.llmCommitted && !commitState.concurrent) {
+      await discardCreatedCredentials(deps, created);
+    }
+    if (err instanceof LLMSetupIdentityChangedError) {
+      throw new CliError(err.message, { code: START_GATE_EXIT_CODE, cause: err });
+    }
     throw err;
   }
 }
@@ -830,8 +748,9 @@ async function buildNonInteractiveInput(
     );
   }
 
-  const presetId = setup?.target.preset ?? opts.provider;
-  const setupProviderId = setup?.target.providerId;
+  const target = opts.provider ? resolveExplicitSetupTarget(opts.provider) : undefined;
+  const presetId = target?.preset;
+  const setupProviderId = target?.providerId;
   if (!presetId && !setupProviderId) {
     throw new CliError('--provider is required for first-time non-interactive setup', {
       code: START_USAGE_EXIT_CODE,
@@ -846,18 +765,15 @@ async function buildNonInteractiveInput(
     );
   }
 
-  const catalogProviderId = setupProviderId
-    ?? (presetId && !PRESETS[presetId] && isCatalogProvider(presetId) ? presetId : undefined);
-
   let apiKey: string | undefined;
   if (opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV]) {
-    apiKey = await resolveNonInteractiveApiKey(deps, opts, presetId ?? '', {
+    apiKey = await resolveNonInteractiveApiKey(deps, opts, presetId ?? setupProviderId ?? '', {
       onStored: (ref, info) => recordCreatedCredential(created, ref, info),
     });
   }
 
   return {
-    ...(catalogProviderId !== undefined ? { providerId: catalogProviderId } : { presetId }),
+    ...(setupProviderId !== undefined ? { providerId: setupProviderId } : { presetId }),
     ...(apiKey !== undefined && { apiKey }),
     model: opts.model ?? 'auto',
     ...(opts.baseUrl !== undefined && { baseUrl: opts.baseUrl }),

@@ -109,7 +109,14 @@ describe('viewportConfigSchema user_input_inline_max_chars (phase 142 / phase 12
 });
 
 describe('llmOrchestratorConfigSchema legacy circuit breaker compatibility', () => {
-  const primary = { preset: 'anthropic', api_key: 'test-key', model: 'claude-test' };
+  const primary = {
+    provider_id: 'custom:anthropic',
+    api_format: 'anthropic',
+    auth_profile: 'api_key',
+    api_key: 'test-key',
+    model: 'claude-test',
+    base_url: 'https://api.anthropic.com',
+  };
 
   it('缺段 circuit_breaker 时不物化配置', () => {
     const cfg = llmOrchestratorConfigSchema.parse({ primary });

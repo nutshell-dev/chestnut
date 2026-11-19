@@ -152,7 +152,7 @@ rootShape(program.command('init'), 'init')
   .action(action('disabled', async () => {
     const { initCommand } = await import('./commands/init.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await initCommand({ fsFactory, rootConfig }, false, { audit });
+    await initCommand({ fsFactory, rootConfig, llmConfiguration }, false, { audit });
   }));
 
 // Launcher first-run setup：JSONL stdin/stdout adapter；秘密只经 stdin，不进入 argv。
@@ -164,7 +164,7 @@ launcherCmd.command('setup')
     if (!opts.json) throw new CliError('launcher setup requires --json');
     const { launcherSetupCommand } = await import('./commands/launcher-setup.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await launcherSetupCommand({ fsFactory, rootConfig }, { audit });
+    await launcherSetupCommand({ fsFactory, rootConfig, llmConfiguration }, { audit });
   }));
 
 launcherCmd.command('status')
@@ -173,7 +173,7 @@ launcherCmd.command('status')
   .action(action('observe_only', async (opts: { json?: boolean }) => {
     if (!opts.json) throw new CliError('launcher status requires --json');
     const { launcherStatusCommand } = await import('./commands/launcher-status.js');
-    await launcherStatusCommand({ fsFactory, rootConfig });
+    await launcherStatusCommand({ fsFactory, rootConfig, llmConfiguration });
   }));
 
 launcherCmd.command('start')

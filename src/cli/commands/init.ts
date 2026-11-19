@@ -11,13 +11,18 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { VerifiedLLMConfig } from '../llm-connection-check.js';
+import {
+  LLMConfigurationNotFoundError,
+  type LLMConfigurationAdmin,
+} from '../../core/llm-configuration/index.js';
 import { runFirstRunSetup } from '../first-run-setup.js';
 import { requireMotionAccess } from '../../core/claw-topology/index.js';
 import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobalExclusive' | 'getInitializationState' | 'completeInitialization'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobalExclusive' | 'migrateLLMConfiguration' | 'getInitializationState' | 'completeInitialization'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'store'>;
 }
 
 /**
@@ -32,6 +37,9 @@ export interface InitCommandResult {
 export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<InitCommandResult> {
   requireMotionAccess(getCapturedCliMotionAccess('configure'), 'configure', 'init');
   const audit = extraDeps?.audit;
+  // 既有 workspace 可能同时残留 legacy shared/root；任何状态诊断或 strict
+  // store.read 之前先经同一显式迁移入口收敛，避免崩溃恢复误报 invalid。
+  if (deps.rootConfig.isInitialized()) await deps.rootConfig.migrateLLMConfiguration();
   // Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：typed 初始化状态。
   // ready 依据 = root config + ready marker + 必需布局核验，不是 root YAML exists。
   const initState = deps.rootConfig.getInitializationState();
@@ -46,11 +54,17 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     );
   }
   if (initState === 'in_progress') {
-    // 崩溃窗口 / legacy 无 marker 布局：幂等补建后发布 ready，不重新交互、
-    // 不覆盖合法配置；LLM probe 不属于 ready，恢复路径不重跑（可用 config 命令修复）。
-    deps.rootConfig.completeInitialization();
-    console.log('✓ Initialization completed (resumed an interrupted bootstrap; existing config kept)');
-    return {};
+    try {
+      deps.llmConfiguration.store.read();
+      // L4 已提交：只恢复布局和 ready，不重跑 probe 或覆盖 winner。
+      deps.rootConfig.completeInitialization();
+      console.log('✓ Initialization completed (resumed an interrupted bootstrap; existing config kept)');
+      return {};
+    } catch (error) {
+      if (!(error instanceof LLMConfigurationNotFoundError)) throw error;
+      // root 非 LLM intent 已存在但 L4 尚未提交：重新收集并验证新 draft，
+      // 随后复用 root intent，由 L4 独占 initialize 完成可恢复顺序。
+    }
   }
 
   console.log('Initializing chestnut...\n');

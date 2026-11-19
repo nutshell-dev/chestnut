@@ -1,4 +1,4 @@
-import type { ApiFormat } from './presets.js';
+import { API_FORMATS, type ApiFormat } from './api-format.js';
 import type { ThinkingLevel } from './thinking-levels.js';
 import type { ProviderConfig, LLMProvider } from './types.js';
 import { sha256Hex, sha256ShortHex } from '../node-utils/index.js';
@@ -35,7 +35,7 @@ export interface ProviderInput {
   readonly baseUrl?: string;
   readonly model: string;
   readonly authentication: ProviderAuthenticationInput;
-  readonly protocol?: string;
+  readonly protocol: ApiFormat;
 }
 
 /** @internal L1 resolved connection; never part of L2/L4 configuration. */
@@ -109,10 +109,14 @@ function authenticationFromResolvedConfig(config: ProviderConfig): ProviderAuthe
 /** Convert the persisted document to the narrow public input, retaining L1 resolution privately. */
 export function providerInputFromResolvedConfig(config: ProviderConfig): ProviderInput {
   const authentication = authenticationFromResolvedConfig(config);
+  const protocol = config.apiFormat ?? config.catalogResolution?.wire.api;
+  if (!protocol || !API_FORMATS.includes(protocol as ApiFormat)) {
+    throw new Error(`Provider "${config.name}": explicit protocol is required`);
+  }
   const input: ProviderInput = {
     ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
     model: config.model,
-    protocol: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'unknown',
+    protocol: protocol as ApiFormat,
     authentication: authentication.kind === 'api_key'
       ? {
           kind: 'api_key',
@@ -158,7 +162,7 @@ export function providerConnectionFromResolvedConfig(config: ProviderConfig): Pr
 
 /** @internal Only the L1 factory may retrieve a setup-time projection. */
 export function resolvedProviderConfig(input: ProviderInput | ProviderConnection): ProviderConfig | undefined {
-  return resolvedInputProjections.get(input) ?? resolvedConnectionProjections.get(input as ProviderConnection);
+  return resolvedInputProjections.get(input as ProviderInput) ?? resolvedConnectionProjections.get(input as ProviderConnection);
 }
 
 function plainInputProviderId(input: ProviderInput): string {

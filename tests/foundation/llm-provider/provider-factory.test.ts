@@ -40,8 +40,12 @@ describe('createLLMProvider config boundary', () => {
 
     it('retains the private L1 catalog projection across the neutral boundary', () => {
       const config = toProviderConfig(llmProviderConfigSchema.parse({
-        preset: 'anthropic',
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
         api_key: 'secret',
+        model: 'claude-test',
+        base_url: 'https://api.test.invalid/anthropic',
       }));
       const connection = providerConnectionFromResolvedConfig(config);
       const provider = createProviderFromConnection(connection);
@@ -54,8 +58,12 @@ describe('createLLMProvider config boundary', () => {
   describe('createProviderFromInput', () => {
     it('creates the equivalent adapter and an opaque descriptor from public input', () => {
       const config = toProviderConfig(llmProviderConfigSchema.parse({
-        preset: 'anthropic',
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
         api_key: 'secret',
+        model: 'claude-test',
+        base_url: 'https://api.test.invalid/anthropic',
       }));
       const input = providerInputFromResolvedConfig(config);
       const legacy = createProviderFromConnection(providerConnectionFromResolvedConfig(config));

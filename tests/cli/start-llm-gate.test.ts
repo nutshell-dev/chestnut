@@ -134,7 +134,10 @@ function makeGlobal(model: string) {
   return {
     llm: {
       primary: {
-        preset: 'anthropic',
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
+        base_url: 'https://api.anthropic.com',
         api_key: '${ANTHROPIC_API_KEY}',
         model,
         temperature: 0.7,
@@ -151,6 +154,13 @@ function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
   const llmConfiguration = {
     loadGlobal: vi.fn(() => globalOf()),
     patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
+    store: {
+      commitExplicitProvider: vi.fn(async () => ({
+        revision: { id: '1', revision: 1 },
+        write: { kind: 'durable' as const },
+        snapshot: {},
+      })),
+    },
   };
   return {
     fsFactory,
@@ -443,11 +453,16 @@ describe('start LLM gate (unit)', () => {
     expect(outcome.kind).toBe('verified');
     expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
     expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
-    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as {
-      llm: { primary: { api_key: string; model: string; preset: string } };
-    };
-    expect(saved.llm.primary.api_key).toBe('${ANTHROPIC_API_KEY}');
+    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as Record<string, unknown>;
+    expect(saved.llm).toBeUndefined();
     expect(JSON.stringify(saved)).not.toContain('sk-test-secret');
+    const committed = deps.llmConfiguration.store.commitExplicitProvider.mock.calls[0][1] as {
+      api_key: string; model: string; provider_id: string; preset?: string;
+    };
+    expect(committed.api_key).toBe('${ANTHROPIC_API_KEY}');
+    expect(committed.model).toBe('claude-x');
+    expect(committed.provider_id).toBe('custom:anthropic');
+    expect(committed.preset).toBeUndefined();
     expect(deps.rootConfig.completeInitialization).toHaveBeenCalledTimes(1);
 
     // 缺 key（无 --api-key-env 且无 CHESTNUT_LLM_API_KEY）→ code=2 零 probe 零落盘
@@ -492,14 +507,14 @@ describe('start LLM gate (unit)', () => {
     }, mockAudit);
     expect(outcome.kind).toBe('verified');
     expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
-    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as {
-      llm: { primary: Record<string, unknown> };
-    };
-    expect(saved.llm.primary['provider_id']).toBe('mistral');
-    expect(saved.llm.primary['preset']).toBeUndefined();
-    expect(saved.llm.primary['model']).toBe('codestral-latest');
-    expect(saved.llm.primary['api_key']).toBe('${MISTRAL_API_KEY}');
-    expect(JSON.stringify(saved)).not.toContain('sk-mistral-test');
+    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as Record<string, unknown>;
+    expect(saved.llm).toBeUndefined();
+    const committed = deps.llmConfiguration.store.commitExplicitProvider.mock.calls[0][1] as Record<string, unknown>;
+    expect(committed['provider_id']).toBe('mistral');
+    expect(committed['preset']).toBeUndefined();
+    expect(committed['model']).toBe('codestral-latest');
+    expect(committed['api_key']).toBe('${MISTRAL_API_KEY}');
+    expect(JSON.stringify(committed)).not.toContain('sk-mistral-test');
 
     // 缺 --model → code=2 零落盘（catalog provider 无默认 model）
     const deps2 = makeGateDeps(() => makeGlobal('claude-x'));

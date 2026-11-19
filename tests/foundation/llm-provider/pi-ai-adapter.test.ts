@@ -917,7 +917,9 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
     vi.stubGlobal('fetch', fetchMock);
     const config = toProviderConfig(llmProviderConfigSchema.parse({
-      preset: 'moonshot',
+      provider_id: 'moonshotai-cn',
+      api_format: 'openai',
+      auth_profile: 'api_key',
       model: 'kimi-k2.6',
       api_key: 'synthetic-key',
     }));
@@ -933,7 +935,9 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
     vi.stubGlobal('fetch', fetchMock);
     const config = toProviderConfig(llmProviderConfigSchema.parse({
-      preset: 'moonshot',
+      provider_id: 'moonshotai-cn',
+      api_format: 'openai',
+      auth_profile: 'api_key',
       model: 'kimi-k2.6',
       api_key: 'synthetic-key',
       base_url: 'https://proxy.example.com/v1',
@@ -946,27 +950,16 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     expect(JSON.parse(init.body as string).model).toBe('kimi-k2.6');
   });
 
-  it('catalog model api 权威于 apiFormat 映射（gpt-4o → openai-responses 端点）', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'x' } }, 400));
-    vi.stubGlobal('fetch', fetchMock);
+  it('catalog model api 与显式 apiFormat 不一致时 fail closed', async () => {
     const adapter = createLLMProvider(baseConfig({
       name: 'openai',
       model: 'gpt-4o',
       baseUrl: 'https://api.openai.com/v1',
       piAiProvider: 'openai',
-      apiFormat: 'openai', // 显式映射是 openai-completions；catalog 权威为 openai-responses
-    }), {
-      // pi-ai 1.4.0：openai 变为 OAuth-capable（inventory oauth=true）——缺注入 store 会 loud；
-      // 本用例只观测请求 URL，注入空 store 过装配门。
-      credentialStore: createPiAiCredentialStore({
-        read: () => Promise.resolve(undefined),
-        modify: (_ref, fn) => fn(undefined),
-      }),
-    });
-    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] })
-      .catch(() => { /* silent: 本用例只观测请求 URL（api 权威性），错误路径另案覆盖 */ });
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('https://api.openai.com/v1/responses');
+      apiFormat: 'openai',
+    }));
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toThrow(/explicit apiFormat resolves to "openai-completions"/);
   });
 
   it('catalog 未命中 + 无 baseUrl → loud LLMError（不做协议/地址猜测）', () => {

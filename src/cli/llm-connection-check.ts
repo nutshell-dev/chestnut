@@ -334,10 +334,11 @@ export async function promptReconfigure(
       // Phase 1984 Step B：env 同名已设置时，typed key 改用派生 ref 保存（不被 env
       // 遮蔽）；派生 ref 仍被遮蔽则 loud 失败，不静默回退为环境变量。
       const currentPrimary = deps.llmConfiguration.loadGlobal().llm.primary;
-      const currentPreset = currentPrimary.preset ? PRESETS[currentPrimary.preset] : undefined;
+      const currentPreset = Object.values(PRESETS).find(preset =>
+        preset.piAiProvider === currentPrimary.provider_id || preset.id === currentPrimary.provider_id);
       const envVar = currentPreset?.envVar;
       const envReady = Boolean(envVar && process.env[envVar]);
-      const seed = currentPrimary.label ?? currentPrimary.preset ?? 'primary';
+      const seed = currentPrimary.label ?? currentPrimary.provider_id;
       const stored = await storeKeyAsCredential(deps, raw, envReady
         ? { seed, onShadowedEnv: 'error' as const }
         : { envVar, seed, onShadowedEnv: 'error' as const });

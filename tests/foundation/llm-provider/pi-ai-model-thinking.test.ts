@@ -19,7 +19,18 @@ type ThinkingCompat = { forceAdaptiveThinking?: boolean };
 describe('resolvePiAiModel thinking metadata', () => {
   it('metadata-only（minimax）：保留 forceAdaptiveThinking / thinkingLevelMap，wire 不被接管', async () => {
     const runtime = await loadPiAiRuntime();
-    const config = parseProvider({ preset: 'minimax', api_key: '${MINIMAX_API_KEY}' });
+    const config = parseProvider({
+      provider_id: 'minimax',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
+      api_key: '${MINIMAX_API_KEY}',
+      model: 'MiniMax-M3.1-Flash',
+      base_url: 'https://api.minimax.io/anthropic',
+      catalog_provider: 'minimax',
+      catalog_model: 'MiniMax-M3.1-Flash',
+      thinking_mode: 'adaptive',
+      thinking_effort: 'max',
+    });
     const { model, fromCatalog } = resolvePiAiModel(runtime, config);
 
     expect(fromCatalog).toBe(false);
@@ -36,10 +47,13 @@ describe('resolvePiAiModel thinking metadata', () => {
   it('自建 Model：thinkingMode/thinkingEffort 使 reasoning=true', async () => {
     const runtime = await loadPiAiRuntime();
     const config = parseProvider({
-      preset: 'custom-openai',
+      provider_id: 'custom:openai',
+      api_format: 'openai',
+      auth_profile: 'api_key',
       api_key: '${CUSTOM_KEY}',
       model: 'my-model',
       base_url: 'https://gateway.example.com/v1',
+      thinking_mode: 'adaptive',
     });
     expect(config.thinkingMode).toBe('adaptive');
     const { model, fromCatalog } = resolvePiAiModel(runtime, config);
@@ -55,7 +69,9 @@ describe('resolvePiAiModel thinking metadata', () => {
       { thinking: true },
     ]) {
       const config = parseProvider({
-        preset: 'custom-openai',
+        provider_id: 'custom:openai',
+        api_format: 'openai',
+        auth_profile: 'api_key',
         api_key: '${CUSTOM_KEY}',
         model: 'my-model',
         base_url: 'https://gateway.example.com/v1',
@@ -68,7 +84,9 @@ describe('resolvePiAiModel thinking metadata', () => {
   it('自建 Model：显式 thinking:false 且无 mode/effort → reasoning=false', async () => {
     const runtime = await loadPiAiRuntime();
     const config = parseProvider({
-      preset: 'custom-openai',
+      provider_id: 'custom:openai',
+      api_format: 'openai',
+      auth_profile: 'api_key',
       api_key: '${CUSTOM_KEY}',
       model: 'my-model',
       base_url: 'https://gateway.example.com/v1',

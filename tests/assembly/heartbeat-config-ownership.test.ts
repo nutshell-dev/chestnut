@@ -16,6 +16,17 @@ import {
 import { runtimeMotionConfigSchema } from '../../src/core/runtime/index.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 
+const llm = {
+  primary: {
+    provider_id: 'custom:anthropic',
+    api_format: 'anthropic',
+    auth_profile: 'api_key',
+    api_key: 'test-key',
+    model: 'claude-test',
+    base_url: 'https://api.anthropic.com',
+  },
+} as const;
+
 describe('phase 1870: heartbeat 字段声明归属', () => {
   it('声明点唯一：heartbeat schema 持有该字段、runtime schema 不再持有', () => {
     expect(Object.keys(heartbeatConfigSchema.shape)).toContain('heartbeat_interval_ms');
@@ -23,12 +34,12 @@ describe('phase 1870: heartbeat 字段声明归属', () => {
   });
 
   it('motion.heartbeat_interval_ms 显式值经组合 schema 照常解析（YAML 路径不变）', () => {
-    const config = buildTestGlobalConfig({ motion: { heartbeat_interval_ms: 5000 } });
+    const config = buildTestGlobalConfig({ llm, motion: { heartbeat_interval_ms: 5000 } });
     expect(config.motion.heartbeat_interval_ms).toBe(5000);
   });
 
   it('省略 motion 段/字段 → 默认 0（schema 默认单源）', () => {
-    const config = buildTestGlobalConfig({});
+    const config = buildTestGlobalConfig({ llm });
     expect(config.motion.heartbeat_interval_ms).toBe(HEARTBEAT_DEFAULT_INTERVAL_MS);
     expect(HEARTBEAT_DEFAULT_INTERVAL_MS).toBe(0);
     // min(0) 约束随声明保留（负值拒绝）
@@ -36,7 +47,7 @@ describe('phase 1870: heartbeat 字段声明归属', () => {
   });
 
   it('组合后 motion 段仍含 runtime 其余字段（迁移只动 heartbeat 一行）', () => {
-    const config = buildTestGlobalConfig({});
+    const config = buildTestGlobalConfig({ llm });
     expect(config.motion.max_concurrent_tasks).toBeGreaterThan(0);
     expect(typeof config.motion.llm_idle_timeout_ms).toBe('number');
   });

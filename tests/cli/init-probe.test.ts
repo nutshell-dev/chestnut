@@ -13,9 +13,14 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
 import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
+const commandDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  llmConfiguration: createLLMConfiguration({ fsFactory }),
+};
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -138,7 +143,8 @@ describe('initCommand — probe success path', () => {
     await initCommand(commandDeps, true, { audit: mockAudit });
 
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.provider_id).toBe('custom:anthropic');
+    expect(config.llm.primary.preset).toBeUndefined();
 
     expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
     const eventTypes = auditCalls.entries.map(e => e[0]);
@@ -208,7 +214,8 @@ describe('initCommand — 失败后留在向导内修复', () => {
     await initCommand(commandDeps, true, { audit: mockAudit });
 
     expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(2);
-    expect(loadGlobalConfig({ fsFactory }).llm.primary.preset).toBe('anthropic');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.provider_id).toBe('custom:anthropic');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.preset).toBeUndefined();
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_succeeded');
     expect(eventTypes).toContain('cli_init_done');
@@ -322,10 +329,10 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
   afterEach(() => teardownTempDir());
 
   it('保存前端点选择：第二候选胜出 → winner baseUrl 进入 committed config', async () => {
-    connMock.checkLLMConnectionFor
+    connMock.probeLLMConnection
       .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: true, model: 'k3-256k' })
       .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
-    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'k3-256k' });
     rlAnswers.queue = ['2', 'sk-kimi-key', ''];
 
     const output: string[] = [];
@@ -343,38 +350,38 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
     expect(output.some((l) => l.includes('Selected: https://api.kimi.ai/coding'))).toBe(true);
 
     // 首胜即停：4 候选只 probe 2 个
-    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
-    expect(connMock.checkLLMConnectionFor.mock.calls.map(c => c[0].baseUrl)).toEqual([
+    expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(3);
+    expect(connMock.probeLLMConnection.mock.calls.map(c => c[0].config.primary.baseUrl)).toEqual([
       'https://api.kimi.com/coding',
       'https://api.kimi.ai/coding',
+      'https://api.kimi.ai/coding',
     ]);
-    for (const call of connMock.checkLLMConnectionFor.mock.calls) {
-      expect(call[0].authentication.kind).toBe('api_key');
-      expect(typeof call[0].authentication.value).toBe('string');
-      expect(call[0].authentication.value.length).toBeGreaterThan(0);
-      expect(call[0].model).toBe('k3-256k');
+    for (const call of connMock.probeLLMConnection.mock.calls) {
+      expect(call[0].config.primary.authentication.kind).toBe('api_key');
+      expect(typeof call[0].config.primary.authentication.value).toBe('string');
+      expect(call[0].config.primary.authentication.value.length).toBeGreaterThan(0);
+      expect(call[0].config.primary.model).toBe('k3-256k');
     }
 
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('kimi');
+    expect(config.llm.primary.provider_id).toBe('kimi');
+    expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.base_url).toBe('https://api.kimi.ai/coding');
     expect(config.llm.primary.model).toBe('k3-256k');
 
-    // 端点选择后仅一次身份 probe（probe-before-commit）
-    expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
+    // 两次候选 probe + 一次最终显式配置身份 probe。
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_succeeded');
   });
 
   it('全败不保存：候选全失败 → 修复菜单取消 → config 不存在、零身份 probe', async () => {
-    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
     rlAnswers.queue = ['2', 'sk-kimi-key', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
+    expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(4);
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
-    expect(connMock.probeLLMConnection).not.toHaveBeenCalled();
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_failed');
     expect(eventTypes).toContain('cli_init_probe_skipped');
@@ -390,7 +397,8 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
     expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
     expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('anthropic');
-    expect(config.llm.primary.base_url).toBeUndefined();
+    expect(config.llm.primary.provider_id).toBe('custom:anthropic');
+    expect(config.llm.primary.preset).toBeUndefined();
+    expect(config.llm.primary.base_url).toBe('https://api.anthropic.com');
   });
 });

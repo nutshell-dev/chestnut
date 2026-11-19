@@ -7,6 +7,8 @@ import { createRootConfig } from '../../src/assembly/index.js';
 import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import {
   llmConfigurationSourceDigest,
+  migrateLegacyLLMConfig,
+  LegacyPresetMigrationError,
   readLLMMigrationRecord,
   type SharedLLMInput,
 } from '../../src/core/llm-configuration/index.js';
@@ -37,7 +39,7 @@ function makeLegacyLLM(
   return {
     primary: { preset: 'anthropic', api_key: apiKey, model },
     retry_attempts: 2,
-  };
+  } as unknown as SharedLLMInput;
 }
 
 function writeYaml(filePath: string, value: unknown): void {
@@ -63,7 +65,7 @@ function writeLegacyRoot(llm: SharedLLMInput = makeLegacyLLM()): Record<string, 
 
 function writeTarget(source: SharedLLMInput, revision = 1): void {
   writeYaml(targetConfigPath(), {
-    ...source,
+    ...migrateLegacyLLMConfig(source).config,
     schema_version: 1,
     revision,
   });
@@ -102,7 +104,10 @@ describe('legacy root LLM migration', () => {
     });
     expect(readYaml(targetConfigPath())).toMatchObject({
       primary: {
-        preset: 'anthropic',
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
+        base_url: 'https://api.anthropic.com',
         model: 'claude-legacy',
         api_key: expect.stringMatching(/^\$\{CHESTNUT_/),
       },
@@ -116,7 +121,9 @@ describe('legacy root LLM migration', () => {
       schema_version: 1,
       migration_id: id,
       source_digest: sourceDigest,
-      target_digest: sourceDigest,
+      target_digest: llmConfigurationSourceDigest(migrateLegacyLLMConfig(legacy).config),
+      target_revision: 1,
+      preset_migration: true,
       target_write: 'durable',
       source_cleanup: 'durable',
     });
@@ -168,7 +175,60 @@ describe('legacy root LLM migration', () => {
     expect(fs.readFileSync(targetConfigPath(), 'utf8')).toBe(targetBefore);
     expect(readYaml(targetConfigPath())).toMatchObject({
       revision: 7,
-      primary: { api_key: 'sk-target', model: 'claude-target' },
+      primary: { provider_id: 'custom:anthropic', api_key: 'sk-target', model: 'claude-target' },
+    });
+  });
+
+  it('既有管理迁移入口在 root 搬迁后迁移 shared legacy 文档并推进 revision', async () => {
+    const legacy = makeLegacyLLM('${PHASE2204_SHARED_LEGACY_KEY}', 'claude-shared-legacy');
+    vi.stubEnv('PHASE2204_SHARED_LEGACY_KEY', 'sk-shared-resolved');
+    writeYaml(rootConfigPath(), { version: '1', default_max_steps: 37 });
+    writeYaml(targetConfigPath(), { ...legacy, schema_version: 1, revision: 5 });
+
+    const admin = createRootConfig(deps);
+    await admin.migrateLLMConfiguration();
+
+    expect(admin.loadGlobal().llm.primary.api_key).toBe('sk-shared-resolved');
+    expect(readYaml(targetConfigPath())).toMatchObject({
+      revision: 6,
+      primary: {
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
+        api_key: '${PHASE2204_SHARED_LEGACY_KEY}',
+      },
+    });
+    expect(readYaml(targetConfigPath()).primary).not.toHaveProperty('preset');
+    const id = `document-${llmConfigurationSourceDigest(legacy).slice(0, 24)}`;
+    expect(readLLMMigrationRecord(deps, id)).toMatchObject({
+      outcome: 'migrated',
+      source_revision: 5,
+      target_revision: 6,
+    });
+  });
+
+  it('root 与 shared 同为 legacy 时先迁移 shared，再搬迁 root，不由 strict target 读取崩溃', async () => {
+    const legacy = makeLegacyLLM('${PHASE2204_BOTH_LEGACY_KEY}', 'claude-both-legacy');
+    vi.stubEnv('PHASE2204_BOTH_LEGACY_KEY', 'sk-both-resolved');
+    writeLegacyRoot(legacy);
+    writeYaml(targetConfigPath(), { ...legacy, schema_version: 1, revision: 5 });
+
+    const admin = createRootConfig(deps);
+    await admin.migrateLLMConfiguration();
+
+    expect(readYaml(rootConfigPath()).llm).toBeUndefined();
+    expect(readYaml(targetConfigPath())).toMatchObject({
+      revision: 6,
+      primary: {
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        model: 'claude-both-legacy',
+      },
+    });
+    expect(admin.loadGlobal().llm.primary.api_key).toBe('sk-both-resolved');
+    expect(readLLMMigrationRecord(deps, migrationId(legacy))).toMatchObject({
+      target_revision: 6,
+      source_cleanup: 'durable',
     });
   });
 
@@ -233,6 +293,24 @@ describe('legacy root LLM migration', () => {
       source_cleanup: 'failed',
       cleanup_error: expect.stringContaining('injected root cleanup failure'),
     });
+  });
+
+  it('未知 preset 保留旧 root、不写目标并留下 typed 安全证据', () => {
+    const legacy = {
+      primary: { preset: 'not-a-preset', api_key: 'sk-root-secret' },
+    } as unknown as SharedLLMInput;
+    writeLegacyRoot(legacy);
+    const before = fs.readFileSync(rootConfigPath(), 'utf8');
+
+    expect(() => loadGlobalConfig(deps)).toThrow(LegacyPresetMigrationError);
+    expect(fs.readFileSync(rootConfigPath(), 'utf8')).toBe(before);
+    expect(fs.existsSync(targetConfigPath())).toBe(false);
+    const evidence = readLLMMigrationRecord(deps, migrationId(legacy));
+    expect(evidence).toMatchObject({
+      target_write: 'not_written',
+      migration_error: 'unknown_preset: primary',
+    });
+    expect(fs.readFileSync(rootConfigPath(), 'utf8')).toContain('sk-root-secret');
   });
 
   it('同内容目标下重复迁移与加载幂等，不重写目标或迁移证据', () => {

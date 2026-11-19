@@ -11,11 +11,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import * as yaml from 'js-yaml';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
+const commandDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  llmConfiguration: createLLMConfiguration({ fsFactory }),
+};
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -128,7 +134,8 @@ describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => 
     await first;
 
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('openai');
+    expect(config.llm.primary.provider_id).toBe('openai');
+    expect(config.llm.primary.preset).toBeUndefined();
 
     // 恰好一次完整 init（INIT_DONE 只有提交者写）
     const doneEvents = auditCalls.entries.filter(e => e[0] === 'cli_init_done');
@@ -150,6 +157,24 @@ describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => 
     await initCommand(commandDeps, true, { audit: mockAudit });
     expect(mockRl.question).not.toHaveBeenCalled();
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('model-winner');
+  });
+});
+
+describe('initCommand — root-only intent 恢复', () => {
+  it('root 非 LLM intent 已存在但 L4 缺席：重新 probe 后 initialize，不写 root.llm', async () => {
+    commandDeps.rootConfig.saveGlobalExclusive({ version: '1' });
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('in_progress');
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-resumed' });
+    rlAnswers.queue = ['8', '', 'claude-resumed'];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
+    expect(fs.readFileSync(configPath(), 'utf8')).not.toMatch(/^llm:/m);
+    const llm = loadGlobalConfig({ fsFactory }).llm;
+    expect(llm.primary.provider_id).toBe('custom:anthropic');
+    expect(llm.primary.model).toBe('claude-resumed');
+    expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
   });
 });
 
@@ -202,6 +227,29 @@ describe('initCommand — 完整 bootstrap 发布（Phase 1911 Step D）', () =>
 
     expect(mockRl.question).not.toHaveBeenCalled();
     expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
+  });
+
+  it('init 恢复时在状态诊断/store.read 前迁移同为 legacy 的 shared 与 root', async () => {
+    commandDeps.rootConfig.saveGlobalExclusive(winnerConfig);
+    const sharedPath = path.join(tempDir, '.chestnut', 'llm', 'config.yaml');
+    fs.mkdirSync(path.dirname(sharedPath), { recursive: true });
+    fs.writeFileSync(sharedPath, JSON.stringify({
+      ...winnerConfig.llm,
+      schema_version: 1,
+      revision: 4,
+    }));
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    expect(mockRl.question).not.toHaveBeenCalled();
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
+    const shared = yaml.load(fs.readFileSync(sharedPath, 'utf8')) as {
+      revision: number;
+      primary: Record<string, unknown>;
+    };
+    expect(shared.revision).toBe(5);
+    expect(shared.primary.preset).toBeUndefined();
+    expect(shared.primary.provider_id).toBe('custom:anthropic');
   });
 
   it('invalid（布局损坏）：fail-closed typed error，不覆盖、不发布 marker', async () => {

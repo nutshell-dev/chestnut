@@ -5,7 +5,7 @@
  * per interfaces/l1.md LLMProvider section: "本模块 own LLM 协议层 message、IO、tool definition type 单源"
  */
 
-import type { ApiFormat, AuthProfile } from './presets.js';
+import type { ApiFormat, AuthProfile } from './api-format.js';
 import type { ToolUseId } from './tool-use-id.js';
 import type { ThinkingLevel } from './thinking-levels.js';
 import type { ModelInputMeter } from './input-meter-types.js';
@@ -177,14 +177,14 @@ export interface ProviderConfig {
   dropThinkingBlocks?: boolean;
 
   /**
-   * API format, resolved from preset。catalog 命中（piAiProvider + model）时
-   * 不参与协议裁决（catalog model.api 权威）；自建 Model 路径必填。
+   * Explicit API format. Catalog resolution validates that the model uses the
+   * same protocol; the self-built Model path maps it directly to pi-ai.
    */
   apiFormat?: ApiFormat;
 
   /**
-   * Phase 1926 Step D：认证装配类别（由 preset 经 config-adapter 带入）。
-   * 缺席按 'api_key' 处理（back-compat）；ambient/oauth 时 apiKey 可缺席。
+   * Explicit authentication assembly category. Legacy manual ProviderConfig may
+   * omit it for api_key back-compat; ambient/oauth allow apiKey to be absent.
    */
   authProfile?: AuthProfile;
 

@@ -57,16 +57,26 @@ function writeConfig(body: string): void {
   fs.writeFileSync(configPath(), `schema_version: 1\nrevision: 7\n${body}`);
 }
 
-function writeSharedPresetConfig(): void {
+function writeSharedProviderConfig(): void {
   writeConfig(`primary:
   label: primary-label
-  preset: shared
+  provider_id: custom:shared
+  api_format: openai
+  auth_profile: ambient
+  model: primary-model
+  base_url: https://primary.test
 fallbacks:
   - label: one
-    preset: shared
+    provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
     model: model-one
-  - preset: shared
+    base_url: https://one.test
+  - provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
     model: model-two
+    base_url: https://two.test
 `);
 }
 
@@ -131,13 +141,13 @@ afterEach(() => {
 
 describe('provider mutation ambiguity safety', () => {
   it.each([
-    ['remove', ['provider', 'remove', 'shared']],
-    ['set-primary', ['provider', 'set-primary', 'shared']],
-    ['move', ['provider', 'move', 'shared', '1']],
-    ['login', ['provider', 'login', 'shared']],
-    ['logout', ['provider', 'logout', 'shared']],
-  ])('%s rejects shared preset without changing bytes, order or revision', async (_name, args) => {
-    writeSharedPresetConfig();
+    ['remove', ['provider', 'remove', 'custom:shared']],
+    ['set-primary', ['provider', 'set-primary', 'custom:shared']],
+    ['move', ['provider', 'move', 'custom:shared', '1']],
+    ['login', ['provider', 'login', 'custom:shared']],
+    ['logout', ['provider', 'logout', 'custom:shared']],
+  ])('%s rejects shared provider_id without changing bytes, order or revision', async (_name, args) => {
+    writeSharedProviderConfig();
     const before = snapshot();
 
     const errors = await runFailure(args);
@@ -156,24 +166,39 @@ describe('provider mutation ambiguity safety', () => {
   it('re-resolves fresh locked config when a unique fallback becomes ambiguous', async () => {
     writeConfig(`primary:
   label: main
-  preset: anthropic
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: ambient
+  model: claude-test
+  base_url: https://anthropic.test
 fallbacks:
   - label: only
-    preset: openai
+    provider_id: custom:openai
+    api_format: openai
+    auth_profile: ambient
+    model: gpt-test
+    base_url: https://openai.test
 `);
     const mutate = configDeps.llmConfiguration.mutateGlobalLocked;
     let afterDrift: ReturnType<typeof snapshot> | undefined;
     vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockImplementation(async mutator => {
       await mutate(fresh => {
         fresh.llm.fallbacks!.push({
-          label: 'other', preset: 'openai', temperature: 0.7, timeout_ms: 30_000,
+          label: 'other',
+          provider_id: 'custom:openai',
+          api_format: 'openai',
+          auth_profile: 'ambient',
+          model: 'gpt-other',
+          base_url: 'https://other.test',
+          temperature: 0.7,
+          timeout_ms: 30_000,
         });
       });
       afterDrift = snapshot();
       return mutate(mutator);
     });
 
-    const errors = await runFailure(['provider', 'remove', 'openai']);
+    const errors = await runFailure(['provider', 'remove', 'custom:openai']);
 
     expect(errors).toContain('ambiguous_provider_reference');
     expect(errors).toContain('label="only"');
@@ -185,60 +210,88 @@ fallbacks:
 });
 
 describe('provider actual-target output', () => {
-  it('remove uses an exact fallback label even when primary preset has the same text', async () => {
+  it('remove uses an exact fallback label even when primary provider_id has similar text', async () => {
     writeConfig(`primary:
   label: primary-label
-  preset: shared
+  provider_id: custom:shared
+  api_format: openai
+  auth_profile: ambient
+  model: primary-model
+  base_url: https://primary.test
 fallbacks:
   - label: shared
-    preset: other
+    provider_id: custom:other
+    api_format: openai
+    auth_profile: ambient
+    model: other-model
+    base_url: https://other.test
   - label: remaining
-    preset: openai
+    provider_id: custom:remaining
+    api_format: openai
+    auth_profile: ambient
+    model: remaining-model
+    base_url: https://remaining.test
 `);
 
     await runCommand(['provider', 'remove', 'shared']);
 
     const document = configDeps.llmConfiguration.store.read();
-    expect(document.primary).toMatchObject({ label: 'primary-label', preset: 'shared' });
+    expect(document.primary).toMatchObject({ label: 'primary-label', provider_id: 'custom:shared' });
     expect(document.fallbacks).toEqual([
-      expect.objectContaining({ label: 'remaining', preset: 'openai' }),
+      expect.objectContaining({ label: 'remaining', provider_id: 'custom:remaining' }),
     ]);
     expect(logLines.join('\n')).toContain(
       '✓ Removed provider (label="shared" role=fallback match=label) from fallbacks',
     );
   });
 
-  it('remove reports a unique no-label preset fallback without inventing an identity', async () => {
+  it('remove reports a unique no-label provider_id fallback without inventing an identity', async () => {
     writeConfig(`primary:
   label: main
-  preset: anthropic
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: ambient
+  model: claude-test
+  base_url: https://anthropic.test
 fallbacks:
-  - preset: openai
+  - provider_id: custom:openai
+    api_format: openai
+    auth_profile: ambient
+    model: gpt-test
+    base_url: https://openai.test
 `);
 
-    await runCommand(['provider', 'remove', 'openai']);
+    await runCommand(['provider', 'remove', 'custom:openai']);
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (label="(no label)" role=fallback match=preset) from fallbacks',
+      '✓ Removed provider (label="(no label)" role=fallback match=provider_id) from fallbacks',
     );
   });
 
-  it('set-primary reports the actual no-label target and compatibility match', async () => {
+  it('set-primary reports the actual no-label target and provider_id match', async () => {
     writeConfig(`primary:
   label: main
-  preset: anthropic
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: ambient
+  model: claude-test
+  base_url: https://anthropic.test
 fallbacks:
-  - preset: openai
+  - provider_id: custom:openai
+    api_format: openai
+    auth_profile: ambient
+    model: gpt-test
+    base_url: https://openai.test
 `);
     rlAnswers.queue = ['y'];
     connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-test' });
 
-    await runCommand(['provider', 'set-primary', 'openai']);
+    await runCommand(['provider', 'set-primary', 'custom:openai']);
 
-    expect(configDeps.llmConfiguration.store.read().primary).toMatchObject({ preset: 'openai' });
+    expect(configDeps.llmConfiguration.store.read().primary).toMatchObject({ provider_id: 'custom:openai' });
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" role=fallback match=preset) is now primary',
+      '✓ Provider (label="(no label)" role=fallback match=provider_id) is now primary',
     );
     expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
   });
@@ -246,31 +299,55 @@ fallbacks:
   it('move reports the actual target and preserves the resolved entry', async () => {
     writeConfig(`primary:
   label: main
-  preset: anthropic
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: ambient
+  model: claude-test
+  base_url: https://anthropic.test
 fallbacks:
-  - preset: openai
+  - provider_id: custom:openai
+    api_format: openai
+    auth_profile: ambient
+    model: gpt-test
+    base_url: https://openai.test
   - label: second
-    preset: other
+    provider_id: custom:other
+    api_format: openai
+    auth_profile: ambient
+    model: other-model
+    base_url: https://other.test
 `);
 
-    await runCommand(['provider', 'move', 'openai', '2']);
+    await runCommand(['provider', 'move', 'custom:openai', '2']);
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([
-      expect.objectContaining({ label: 'second', preset: 'other' }),
-      expect.objectContaining({ preset: 'openai' }),
+      expect.objectContaining({ label: 'second', provider_id: 'custom:other' }),
+      expect.objectContaining({ provider_id: 'custom:openai' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" role=fallback match=preset) moved to fallback #2',
+      '✓ Provider (label="(no label)" role=fallback match=provider_id) moved to fallback #2',
     );
   });
 
   it('list displays no-label facts for primary and fallback rows', async () => {
     writeConfig(`primary:
-  preset: anthropic
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: ambient
+  model: claude-test
+  base_url: https://anthropic.test
 fallbacks:
-  - preset: openai
+  - provider_id: custom:openai
+    api_format: openai
+    auth_profile: ambient
+    model: gpt-test
+    base_url: https://openai.test
   - label: named
-    preset: other
+    provider_id: custom:other
+    api_format: openai
+    auth_profile: ambient
+    model: other-model
+    base_url: https://other.test
 `);
 
     await runCommand(['provider', 'list']);

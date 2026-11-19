@@ -10,13 +10,13 @@ const RETRY_DELAY_FIXTURE_MS = 1234;
 const CIRCUIT_RESET_FIXTURE_MS = 120000;
 
 const primary = {
-  providerId: 'primary',
+  baseUrl: 'https://primary.example.test',
   authentication: { kind: 'api_key' as const, value: 'key', identity: 'key' },
   model: 'primary-model',
-  apiFormat: 'anthropic' as const,
+  protocol: 'anthropic' as const,
 };
-const fallbackA = { ...primary, providerId: 'fallback-a', model: 'fallback-a-model' };
-const fallbackB = { ...primary, providerId: 'fallback-b', model: 'fallback-b-model' };
+const fallbackA = { ...primary, baseUrl: 'https://fallback-a.example.test', model: 'fallback-a-model' };
+const fallbackB = { ...primary, baseUrl: 'https://fallback-b.example.test', model: 'fallback-b-model' };
 
 function deps(): OrchestratorAssemblyDeps {
   return {

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 import { LAUNCHER_SETUP_PROTOCOL, parseLauncherSetupRequest } from '../../src/cli-protocol/launcher-setup.js';
 
 const probe = vi.hoisted(() => ({ fn: vi.fn() }));
@@ -16,13 +17,20 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 }));
 
 const { executeLauncherSetup } = await import('../../src/cli/commands/launcher-setup.js');
-const { buildInitialConfig } = await import('../../src/cli/first-run-setup.js');
+const { buildInitialRootConfig } = await import('../../src/cli/first-run-setup.js');
+const { makeExplicitSetupProvider } = await import('../../src/cli/setup-provider-catalog.js');
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 let root: string;
 let deps: ReturnType<typeof makeDeps>;
 let requestCounter = 0;
 
-function makeDeps() { return { fsFactory, rootConfig: createRootConfig({ fsFactory }) }; }
+function makeDeps() {
+  return {
+    fsFactory,
+    rootConfig: createRootConfig({ fsFactory }),
+    llmConfiguration: createLLMConfiguration({ fsFactory }),
+  };
+}
 function request(action: 'status' | 'select_provider' | 'submit' | 'retry' | 'cancel', payload?: Record<string, unknown>) {
   return {
     protocolVersion: LAUNCHER_SETUP_PROTOCOL,
@@ -123,7 +131,13 @@ describe('launcher setup.v1', () => {
   it('keeps a concurrent winner instead of overwriting its verified config', async () => {
     await executeLauncherSetup(deps, request('select_provider', { providerId: 'openai' }));
     probe.fn.mockImplementationOnce(async (snapshot: { config: { primary: { model: string } } }) => {
-      deps.rootConfig.saveGlobalExclusive(buildInitialConfig({ presetId: 'openai', model: 'winner-model' }));
+      deps.rootConfig.saveGlobalExclusive(buildInitialRootConfig());
+      await deps.llmConfiguration.store.commitExplicitProvider(
+        { kind: 'initialize' },
+        makeExplicitSetupProvider({
+          presetId: 'openai', model: 'winner-model', apiKey: '${OPENAI_API_KEY}',
+        }),
+      );
       return { ok: true, model: snapshot.config.primary.model };
     });
     const response = await executeLauncherSetup(deps, request('submit', { model: 'loser-model', apiKey: 'sk-race' }));

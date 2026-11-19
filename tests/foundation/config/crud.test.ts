@@ -78,7 +78,12 @@ describe('assembly/config-load: loadClawConfig', () => {
 name: testclaw
 llm:
   primary:
+    provider_id: custom:anthropic
+    api_format: anthropic
+    auth_profile: api_key
     api_key: \${TEST_CLAW_KEY}
+    model: claude-test
+    base_url: https://api.anthropic.com
 `);
 
     const config = loadClawConfig({ fsFactory }, getClawConfigPath('testclaw'));
@@ -105,9 +110,12 @@ describe('assembly/config-load: resolveLLMConfig legacy circuit breaker compatib
 version: '1'
 llm:
   primary:
-    preset: anthropic
+    provider_id: custom:anthropic
+    api_format: anthropic
+    auth_profile: api_key
     api_key: \${CRUD_TEST_API_KEY}
     model: claude-test
+    base_url: https://api.anthropic.com
 ${extraLlmYaml}
 `);
   }
@@ -137,7 +145,7 @@ ${extraLlmYaml}
   });
 
   it('缺段 + primary+2 fallbacks 时不物化 breaker 配置', () => {
-    writeMinimalConfig(`  fallbacks:\n    - preset: openai\n      api_key: \${CRUD_TEST_API_KEY}\n      model: gpt-test\n    - preset: moonshot\n      api_key: \${CRUD_TEST_API_KEY}\n      model: kimi-test\n`);
+    writeMinimalConfig(`  fallbacks:\n    - provider_id: custom:openai\n      api_format: openai\n      auth_profile: api_key\n      api_key: \${CRUD_TEST_API_KEY}\n      model: gpt-test\n      base_url: https://api.openai.com/v1\n    - provider_id: custom:moonshot\n      api_format: openai\n      auth_profile: api_key\n      api_key: \${CRUD_TEST_API_KEY}\n      model: kimi-test\n      base_url: https://api.moonshot.cn/v1\n`);
     const globalConfig = loadGlobalConfig({ fsFactory });
     const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.fallbacks).toHaveLength(2);

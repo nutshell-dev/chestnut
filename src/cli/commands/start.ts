@@ -12,6 +12,10 @@ import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { runFirstRunSetup, runNonInteractiveFirstRun } from '../first-run-setup.js';
+import {
+  LLMConfigurationNotFoundError,
+  type LLMConfigurationAdmin,
+} from '../../core/llm-configuration/index.js';
 import { CliError } from '../errors.js';
 import {
   applyStartLLMOptions,
@@ -38,6 +42,7 @@ export {
 type StartCommandDeps = StartBootstrapDeps & {
   rootConfig: StartBootstrapDeps['rootConfig'] & Pick<RootConfigAdmin,
     'isInitialized' | 'saveGlobalExclusive' | 'completeInitialization'>;
+  llmConfiguration: StartBootstrapDeps['llmConfiguration'] & Pick<LLMConfigurationAdmin, 'store'>;
 };
 interface StartCommandRuntime {
   audit?: AuditLog;
@@ -92,10 +97,19 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
+  let needsSetup = snapshot.initialization === 'absent';
+  if (snapshot.initialization === 'in_progress') {
+    try {
+      deps.llmConfiguration.store.read();
+    } catch (error) {
+      if (!(error instanceof LLMConfigurationNotFoundError)) throw error;
+      needsSetup = true;
+    }
+  }
   const wasFirstRun = snapshot.initialization === 'absent';
   const interactive = !llmOptions.nonInteractive && process.stdin.isTTY !== false;
   let preVerified: VerifiedLLMConfig | undefined;
-  if (wasFirstRun) {
+  if (needsSetup) {
     const outcome = interactive
       ? await runFirstRunSetup(deps, { audit })
       : await runNonInteractiveFirstRun(deps, llmOptions, audit);
@@ -111,16 +125,16 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
       'is corrupted. Inspect .chestnut/ manually; start will not overwrite it.',
     );
   }
-  if (!wasFirstRun && llmOptions.nonInteractive) await applyStartLLMOptions(deps, llmOptions);
+  if (!needsSetup && llmOptions.nonInteractive) await applyStartLLMOptions(deps, llmOptions);
 
   const onboarding = snapshot.onboarding;
   await ensureStartBootstrap(deps, runtime, {
     interactive,
     languageMode: 'auto',
-    firstRun: wasFirstRun,
+    firstRun: wasFirstRun || needsSetup,
     onboarding,
     preVerified,
-    resolveLanguage: wasFirstRun && onboarding.state === 'not_found'
+    resolveLanguage: (wasFirstRun || needsSetup) && onboarding.state === 'not_found'
       ? async () => llmOptions.nonInteractive ? (llmOptions.language ?? 'auto') : pickLanguage()
       : undefined,
   });

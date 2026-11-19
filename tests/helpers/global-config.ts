@@ -14,7 +14,9 @@ import {
 export function buildTestGlobalConfig(partial: Partial<ClawGlobalConfigInput> = {}): ClawGlobalConfig {
   const llmDefault = {
     primary: {
-      provider: 'anthropic',
+      provider_id: 'anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
       model: 'claude-sonnet-4-5',
       api_key: 'test-key',
     },

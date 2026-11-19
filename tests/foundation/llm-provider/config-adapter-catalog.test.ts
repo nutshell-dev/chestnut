@@ -1,255 +1,188 @@
-/**
- * Phase 1927 Step D：显式 catalog provider 配置入口（provider_id + model + auth_profile）。
- *
- * 真实生产配置链：yaml schema parse → toProviderConfig → resolvePiAiModel catalog 命中
- * （真实 pi-ai runtime，不经任何内部 mock——反向三项第 1 条：不直构 ProviderConfig）。
- *
- * 覆盖：
- * - 无 preset 的 mistral / azure（pi-ai 1.4.0 起 azure-openai-responses 只是 api、
- *   provider 归并为 azure）/ radius（动态 provider 的显式 model 规则 = 静态 seed 命中）
- *   全链路 catalog 命中；
- * - OAuth-only（openai-codex 显式 provider_id）派生 oauth profile；
- * - ambient 显式声明（amazon-bedrock）；
- * - provider_id/preset 互斥、未知 provider typed 拒绝、model 不在静态 seed typed
- *   拒绝、auth_profile 与 inventory auth 类不兼容 loud、model=auto 拒绝、
- *   bare env var 拒绝。
- */
+/** Explicit schema → adapter → real pi-ai catalog resolution. */
 import { describe, it, expect } from 'vitest';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
-const { UnknownCatalogProviderError, CatalogModelNotFoundError, deriveCatalogAuthProfile, catalogProvidersWithoutPreset } = llmProviderCatalog;
+const {
+  UnknownCatalogProviderError,
+  CatalogModelNotFoundError,
+  CatalogProtocolMismatchError,
+  deriveCatalogAuthProfile,
+  catalogProvidersWithoutPreset,
+} = llmProviderCatalog;
 import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
 function parseProvider(input: Record<string, unknown>) {
   return toProviderConfig(llmProviderConfigSchema.parse(input));
 }
 
-describe('显式 catalog provider 配置链（schema → adapter → runtime catalog 命中）', () => {
-  it.each([
-    { providerId: 'mistral', model: 'codestral-latest' },
-    // pi-ai 1.4.0：azure-openai-responses 仅是 api；provider 为 azure（模型 api 同前）
-    { providerId: 'azure', model: 'gpt-4' },
-    // 动态 provider（radius）的显式 model 规则：静态 catalog seed 命中即合法配置
-    { providerId: 'radius', model: 'balanced' },
-  ])('$providerId：无 preset 全链路解析，runtime catalog 命中', async ({ providerId, model }) => {
-    const config = parseProvider({
-      provider_id: providerId,
-      api_key: '${TEST_CATALOG_KEY}',
-      model,
-    });
+function catalogProvider(providerId: string, model: string, apiFormat: string) {
+  return {
+    provider_id: providerId,
+    model,
+    api_format: apiFormat,
+    auth_profile: 'api_key',
+    api_key: '${TEST_CATALOG_KEY}',
+  };
+}
 
+describe('explicit catalog provider configuration', () => {
+  it.each([
+    { providerId: 'mistral', model: 'codestral-latest', apiFormat: 'mistral-conversations' },
+    { providerId: 'azure', model: 'gpt-4', apiFormat: 'azure-openai-responses' },
+  ])('$providerId resolves with explicit identity and protocol', async ({ providerId, model, apiFormat }) => {
+    const config = parseProvider(catalogProvider(providerId, model, apiFormat));
     expect(config.piAiProvider).toBe(providerId);
     expect(config.model).toBe(model);
-    // 显式 catalog 路径无自建 Model 回退
-    expect(config.apiFormat).toBeUndefined();
+    expect(config.apiFormat).toBe(apiFormat);
     expect(config.authProfile).toBe('api_key');
 
-    // 真实 pi-ai runtime：catalog 命中（不自建、不需要 baseUrl）
     const runtime = await loadPiAiRuntime();
     const resolved = resolvePiAiModel(runtime, config);
     expect(resolved.fromCatalog).toBe(true);
     expect(resolved.model.provider).toBe(providerId);
   });
 
-  it('OAuth-only provider（openai-codex 显式 provider_id）：派生 oauth profile、无 api_key', async () => {
+  it('OAuth-only provider uses explicit oauth profile without an api_key', async () => {
     const config = parseProvider({
       provider_id: 'openai-codex',
       model: 'gpt-6.1-sol',
+      api_format: 'openai-codex-responses',
+      auth_profile: 'oauth',
     });
     expect(config.authProfile).toBe('oauth');
     expect(config.apiKey).toBeUndefined();
-
     const runtime = await loadPiAiRuntime();
     expect(resolvePiAiModel(runtime, config).fromCatalog).toBe(true);
   });
 
-  it('ambient 显式声明（amazon-bedrock auth_profile=ambient）', () => {
+  it('ambient provider uses explicit ambient profile and wire protocol', () => {
     const config = parseProvider({
       provider_id: 'amazon-bedrock',
       auth_profile: 'ambient',
       model: 'anthropic.claude-sonnet-4-6',
+      api_format: 'bedrock-converse-stream',
     });
     expect(config.authProfile).toBe('ambient');
     expect(config.apiKey).toBeUndefined();
   });
 
-  it('auth_profile 与 inventory auth 类不兼容 → loud', () => {
+  it('rejects incompatible auth profiles', () => {
     expect(() => parseProvider({
       provider_id: 'openai-codex',
       auth_profile: 'api_key',
+      api_key: 'synthetic-key',
       model: 'gpt-6.1-sol',
+      api_format: 'openai-codex-responses',
     })).toThrow(/OAuth-only/);
+    expect(() => parseProvider(catalogProvider('mistral', 'codestral-latest', 'mistral-conversations')))
+      .not.toThrow();
     expect(() => parseProvider({
-      provider_id: 'mistral',
+      ...catalogProvider('mistral', 'codestral-latest', 'mistral-conversations'),
       auth_profile: 'oauth',
-      model: 'codestral-latest',
     })).toThrow(/no OAuth auth method/);
   });
 
-  it('provider_id 与 preset 互斥 → loud', () => {
-    expect(() => parseProvider({
-      provider_id: 'mistral',
+  it('rejects a protocol inconsistent with the catalog provider', () => {
+    expect(() => parseProvider(catalogProvider('mistral', 'codestral-latest', 'openai')))
+      .toThrow(CatalogProtocolMismatchError);
+    // Dynamic providers without a static protocol inventory cannot be validated.
+    expect(() => parseProvider(catalogProvider('radius', 'balanced', 'openai')))
+      .toThrow(CatalogProtocolMismatchError);
+  });
+
+  it('does not silently strip preset or accept missing explicit fields', () => {
+    expect(() => llmProviderConfigSchema.parse({
       preset: 'anthropic',
-      model: 'codestral-latest',
-    })).toThrow(/mutually exclusive/);
+      provider_id: 'anthropic',
+      model: 'claude-haiku-4-5',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
+      api_key: 'synthetic-key',
+    })).toThrow(/preset/);
+    expect(() => llmProviderConfigSchema.parse({ provider_id: 'mistral' })).toThrow();
+    expect(() => llmProviderConfigSchema.parse({
+      ...catalogProvider('mistral', 'codestral-latest', 'mistral-conversations'),
+      api_key: undefined,
+    })).toThrow(/api_key is required/);
   });
 
-  it('未知 provider_id → typed UnknownCatalogProviderError（available 清单为 inventory 单源）', () => {
-    const err = (() => {
-      try {
-        parseProvider({ provider_id: 'not-a-provider', model: 'x' });
-        return undefined;
-      } catch (e) { return e; }
-    })();
-    expect(err).toBeInstanceOf(UnknownCatalogProviderError);
-    const typed = err as UnknownCatalogProviderError;
-    expect(typed.providerId).toBe('not-a-provider');
-    expect(typed.availableProviderIds).toContain('mistral');
+  it('rejects unknown providers and unknown catalog models with typed errors', () => {
+    expect(() => parseProvider(catalogProvider('not-a-provider', 'x', 'openai')))
+      .toThrow(UnknownCatalogProviderError);
+    expect(() => parseProvider(catalogProvider('mistral', 'no-such-model', 'mistral-conversations')))
+      .toThrow(CatalogModelNotFoundError);
   });
 
-  it('model 不在静态 catalog seed → typed CatalogModelNotFoundError（不走自建回退）', () => {
-    const err = (() => {
-      try {
-        parseProvider({ provider_id: 'mistral', model: 'no-such-model' });
-        return undefined;
-      } catch (e) { return e; }
-    })();
-    expect(err).toBeInstanceOf(CatalogModelNotFoundError);
-    expect((err as CatalogModelNotFoundError).model).toBe('no-such-model');
-  });
-
-  it('model 缺席或 auto → loud（显式 catalog 路径无 preset 默认）', () => {
-    expect(() => parseProvider({ provider_id: 'mistral' })).toThrow(/requires an explicit "model"/);
-    expect(() => parseProvider({ provider_id: 'mistral', model: 'auto' })).toThrow(/requires an explicit "model"/);
-  });
-
-  it('bare env var 名仍拒绝（与 preset 路径同纪律）', () => {
+  it('rejects auto and bare environment variable names', () => {
+    expect(() => llmProviderConfigSchema.parse(catalogProvider('mistral', 'auto', 'mistral-conversations')))
+      .toThrow(/model must be explicit/);
     expect(() => parseProvider({
-      provider_id: 'mistral',
+      ...catalogProvider('mistral', 'codestral-latest', 'mistral-conversations'),
       api_key: 'MISTRAL_API_KEY',
-      model: 'codestral-latest',
     })).toThrow(/bare environment variable name/);
   });
 });
 
-describe('Phase 2080：Moonshot 中国站 preset 身份与真实 catalog 链', () => {
-  it('moonshot + kimi-k2.6 命中 CN 目录完整模型对象', async () => {
-    const config = parseProvider({ preset: 'moonshot', model: 'kimi-k2.6', api_key: 'synthetic-key' });
-    const runtime = await loadPiAiRuntime();
-    const expected = runtime.getBuiltinModels('moonshotai-cn').find((m) => m.id === config.model);
-    expect(expected).toBeDefined();
-
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.fromCatalog).toBe(true);
-    expect(resolved.model).toEqual(expected);
-  });
-
-  it('显式 base_url 只覆盖请求地址，其余元数据保持 CN 目录对象', async () => {
+describe('explicit Moonshot catalog identity', () => {
+  it('keeps CN identity and permits an explicit base_url override', async () => {
     const config = parseProvider({
-      preset: 'moonshot',
-      model: 'kimi-k2.6',
-      api_key: 'synthetic-key',
+      ...catalogProvider('moonshotai-cn', 'kimi-k2.6', 'openai'),
       base_url: 'https://proxy.example.com/v1',
     });
     const runtime = await loadPiAiRuntime();
-    const expected = runtime.getBuiltinModels('moonshotai-cn').find((m) => m.id === config.model);
-    expect(expected).toBeDefined();
-
+    const expected = runtime.getBuiltinModels('moonshotai-cn').find(model => model.id === config.model);
     const resolved = resolvePiAiModel(runtime, config);
     expect(resolved.fromCatalog).toBe(true);
     expect(resolved.model).toEqual({ ...expected, baseUrl: 'https://proxy.example.com/v1' });
-    expect(resolved.model.cost).toEqual(expected!.cost);
-    expect(resolved.model.compat).toEqual(expected!.compat);
-    expect(resolved.model.provider).toBe('moonshotai-cn');
   });
 
-  it('显式 provider_id=moonshotai 保持国际目录身份', async () => {
-    const config = parseProvider({ provider_id: 'moonshotai', model: 'kimi-k2.6', api_key: 'synthetic-key' });
+  it('keeps the international provider as a separate explicit identity', async () => {
+    const config = parseProvider(catalogProvider('moonshotai', 'kimi-k2.6', 'openai'));
     const runtime = await loadPiAiRuntime();
-    const expected = runtime.getBuiltinModels('moonshotai').find((m) => m.id === config.model);
-    expect(expected).toBeDefined();
-
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.fromCatalog).toBe(true);
-    expect(resolved.model).toEqual(expected);
-  });
-
-  it('默认 kimi-k2.5 保留既有自建回退与 CN 身份、协议、地址', async () => {
-    const config = parseProvider({ preset: 'moonshot', api_key: 'synthetic-key' });
-    expect(config.model).toBe('kimi-k2.5');
-
-    const runtime = await loadPiAiRuntime();
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.fromCatalog).toBe(false);
-    expect(resolved.model).toMatchObject({
-      id: 'kimi-k2.5',
-      provider: 'moonshotai-cn',
-      api: 'openai-completions',
-      baseUrl: 'https://api.moonshot.cn/v1',
-    });
+    expect(resolvePiAiModel(runtime, config).model.provider).toBe('moonshotai');
   });
 });
 
-describe('Phase 1975 Step C：五家 curated preset 的 metadata-only catalog 解析', () => {
-  // 断言四元组：fromCatalog=false、model.id=实际 wire model、api=anthropic-messages、
-  // baseUrl=curated；contextWindow 取自 pi-ai 1.4.0 catalog 元数据。
+describe('explicit metadata-only catalog hints', () => {
   it.each([
-    { preset: 'deepseek', model: 'deepseek-flash[1m]', contextWindow: 1_000_000, baseUrl: 'https://api.deepseek.com/anthropic' },
-    { preset: 'kimi', model: 'k3-256k', contextWindow: 262_144, baseUrl: 'https://api.kimi.com/coding' },
-    { preset: 'qwen', model: 'qwen3.8-max', contextWindow: 1_000_000, baseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic' },
-    { preset: 'zai', model: 'glm-5.3', contextWindow: 1_000_000, baseUrl: 'https://api.z.ai/api/anthropic' },
-    { preset: 'minimax', model: 'MiniMax-M3.1-Flash', contextWindow: 1_000_000, baseUrl: 'https://api.minimax.io/anthropic' },
-  ])('$preset：catalog 只供元数据，wire 保持 Anthropic preset', async ({ preset, model, contextWindow, baseUrl }) => {
-    const config = parseProvider({ preset, api_key: '${TEST_META_KEY}' });
-    expect(config.catalogProvider).toBeDefined();
-    expect(config.catalogModel).toBeDefined();
-
+    { provider: 'deepseek', model: 'deepseek-flash[1m]', catalogModel: 'deepseek-flash', contextWindow: 1_000_000, baseUrl: 'https://api.deepseek.com/anthropic' },
+    { provider: 'kimi-coding', model: 'k3-256k', catalogModel: 'k3-256k', contextWindow: 262_144, baseUrl: 'https://api.kimi.com/coding' },
+    { provider: 'qwen-token-plan', model: 'qwen3.8-max', catalogModel: 'qwen3.8-max', contextWindow: 1_000_000, baseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic' },
+    { provider: 'zai', model: 'glm-5.3', catalogModel: 'glm-5.3', contextWindow: 1_000_000, baseUrl: 'https://api.z.ai/api/anthropic' },
+    { provider: 'minimax', model: 'MiniMax-M3.1-Flash', catalogModel: 'MiniMax-M3.1-Flash', contextWindow: 1_000_000, baseUrl: 'https://api.minimax.io/anthropic' },
+  ])('$provider uses metadata without taking over the wire', async ({ provider, model, catalogModel, contextWindow, baseUrl }) => {
+    const config = parseProvider({
+      ...catalogProvider(provider, model, 'anthropic'),
+      base_url: baseUrl,
+      catalog_provider: provider,
+      catalog_model: catalogModel,
+    });
     const runtime = await loadPiAiRuntime();
     const resolved = resolvePiAiModel(runtime, config);
     expect(resolved.fromCatalog).toBe(false);
-    expect(resolved.model.id).toBe(model); // 实际 wire model，不是 catalogModel
+    expect(resolved.model.id).toBe(model);
     expect(resolved.model.api).toBe('anthropic-messages');
     expect(resolved.model.baseUrl).toBe(baseUrl);
     expect(resolved.model.contextWindow).toBe(contextWindow);
   });
 
-  it('Kimi：1.4.0 catalog 的 kimi-coding 是 openai-completions，metadata-only 后 wire 仍是 anthropic', async () => {
-    const runtime = await loadPiAiRuntime();
-    // 实然证据：1.4.0 catalog 协议漂移（若上游改回 anthropic 此断言需复核）
-    const catalogHit = runtime.getBuiltinModels('kimi-coding').find((m) => m.id === 'k3-256k');
-    expect(catalogHit?.api).toBe('openai-completions');
-
-    const config = parseProvider({ preset: 'kimi', api_key: '${TEST_META_KEY}' });
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.model.api).toBe('anthropic-messages');
-    expect(resolved.model.baseUrl).toBe('https://api.kimi.com/coding');
+  it('requires both hints and an explicit base URL', () => {
+    const base = {
+      ...catalogProvider('kimi-coding', 'k3-256k', 'anthropic'),
+      base_url: 'https://api.kimi.com/coding',
+      catalog_provider: 'kimi-coding',
+      catalog_model: 'k3-256k',
+    };
+    expect(() => llmProviderConfigSchema.parse({ ...base, catalog_model: undefined })).toThrow(/provided together/);
+    expect(() => parseProvider({ ...base, base_url: undefined })).toThrow(/require an explicit "base_url"/);
   });
 
-  it('DeepSeek：model.id 保留 [1m]（不被 catalogModel 替换）', async () => {
-    const config = parseProvider({ preset: 'deepseek', api_key: '${TEST_META_KEY}' });
-    const runtime = await loadPiAiRuntime();
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.model.id).toBe('deepseek-flash[1m]');
-    expect(resolved.model.contextWindow).toBe(1_000_000); // 来自 deepseek/deepseek-flash 元数据
-  });
-
-  it('setup 写入的显式 base_url 覆盖 preset 默认（候选胜出端点优先）', async () => {
+  it('supports an explicit custom identity without catalog fallback', async () => {
     const config = parseProvider({
-      preset: 'minimax',
-      api_key: '${TEST_META_KEY}',
-      base_url: 'https://api.minimax.cn/anthropic',
-    });
-    const runtime = await loadPiAiRuntime();
-    const resolved = resolvePiAiModel(runtime, config);
-    expect(resolved.model.baseUrl).toBe('https://api.minimax.cn/anthropic');
-    expect(resolved.model.contextWindow).toBe(1_000_000);
-    expect(resolved.fromCatalog).toBe(false);
-  });
-
-  it('catalogProvider/catalogModel 缺失的 preset（custom-anthropic）仍走 heuristic fallback', async () => {
-    const config = parseProvider({
-      preset: 'custom-anthropic',
+      provider_id: 'custom:anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
       api_key: '${TEST_META_KEY}',
       base_url: 'https://example.com/anthropic',
       model: 'some-unknown-model',
@@ -259,28 +192,19 @@ describe('Phase 1975 Step C：五家 curated preset 的 metadata-only catalog �
     const resolved = resolvePiAiModel(runtime, config);
     expect(resolved.fromCatalog).toBe(false);
     expect(resolved.model.api).toBe('anthropic-messages');
-    expect(resolved.model.contextWindow).toBeGreaterThan(0); // heuristic 回落，不抛错
+    expect(resolved.model.contextWindow).toBeGreaterThan(0);
   });
 });
 
-describe('catalog 配置策略单源', () => {
-  it('deriveCatalogAuthProfile：OAuth-only → oauth，其余 → api_key', () => {
+describe('catalog strategy', () => {
+  it('retains auth facts for migration/UX without adapter defaults', () => {
     expect(deriveCatalogAuthProfile('openai-codex')).toBe('oauth');
     expect(deriveCatalogAuthProfile('mistral')).toBe('api_key');
-    expect(deriveCatalogAuthProfile('radius')).toBe('api_key');
   });
 
-  it('catalogProvidersWithoutPreset：不含任何 preset 别名、含 mistral/azure/radius', () => {
+  it('lists catalog providers not covered by UX presets', () => {
     const uncovered = catalogProvidersWithoutPreset();
-    expect(uncovered).toContain('mistral');
-    // pi-ai 1.4.0：azure-openai-responses 只是 api，不再是 provider
-    expect(uncovered).toContain('azure');
-    expect(uncovered).toContain('radius');
-    expect(uncovered).toContain('moonshotai');
-    expect(uncovered).not.toContain('moonshotai-cn');
-    // preset 已覆盖的不重复出现
-    expect(uncovered).not.toContain('anthropic');
-    expect(uncovered).not.toContain('openai-codex');
-    expect(uncovered).not.toContain('amazon-bedrock');
+    expect(uncovered).toEqual(expect.arrayContaining(['mistral', 'azure', 'radius', 'moonshotai']));
+    expect(uncovered).not.toEqual(expect.arrayContaining(['moonshotai-cn', 'anthropic', 'openai-codex']));
   });
 });

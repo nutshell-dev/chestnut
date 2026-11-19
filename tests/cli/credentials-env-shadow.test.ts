@@ -73,10 +73,20 @@ function teardownTempDir() {
 
 function writeInitialConfig(apiKey = '${ANTHROPIC_API_KEY}') {
   const configDir = path.join(tempDir, '.chestnut');
-  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(path.join(configDir, 'llm'), { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.yaml'), '{}\n');
   fs.writeFileSync(
-    path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: anthropic\n    api_key: ${apiKey}\n    model: claude-test\n`,
+    path.join(configDir, 'llm', 'config.yaml'),
+    `schema_version: 1
+revision: 1
+primary:
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: api_key
+  api_key: ${apiKey}
+  model: claude-test
+  base_url: https://api.anthropic.com
+`,
   );
 }
 
@@ -174,20 +184,17 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
-    expect(rawYaml).toContain('${CHESTNUT_ANTHROPIC_API_KEY}');
+    expect(rawYaml).toContain('${CHESTNUT_CUSTOM_ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('typed-key');
     // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
     const authentication = createAuthenticationSetup({ fsFactory });
-    expect(authentication.resolveSync('CHESTNUT_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
+    expect(authentication.resolveSync('CHESTNUT_CUSTOM_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
   });
 
-  it('env 未设置 + typed key → 原 envVar ref（行为保持）', async () => {
-    // 初始配置用明文 key，避免 ${ANTHROPIC_API_KEY} 在 env 缺席时 loadGlobal 失败
-    fs.writeFileSync(
-      path.join(tempDir, '.chestnut', 'config.yaml'),
-      'llm:\n  primary:\n    preset: anthropic\n    api_key: sk-ant-old\n    model: claude-test\n',
-    );
+  it('env 未设置 + typed key → 显式 custom provider 派生 ref', async () => {
+    // 初始配置用明文 key，验证既有 legacy key 迁移后再走 reconfigure。
+    writeInitialConfig('sk-ant-old');
     rlAnswers.queue = ['1', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
@@ -195,18 +202,18 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
-    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    expect(rawYaml).toContain('${CHESTNUT_CUSTOM_ANTHROPIC_API_KEY}');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
   });
 
   it('派生 ref 也被 env 遮蔽 → loud CliError，不改配置', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    vi.stubEnv('CHESTNUT_ANTHROPIC_API_KEY', 'derived-env-key');
+    vi.stubEnv('CHESTNUT_CUSTOM_ANTHROPIC_API_KEY', 'derived-env-key');
     rlAnswers.queue = ['1', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
     await expect(promptReconfigure(await deps(), rl, 'auth')).rejects.toThrow(
-      /Unset CHESTNUT_ANTHROPIC_API_KEY/,
+      /Unset CHESTNUT_CUSTOM_ANTHROPIC_API_KEY/,
     );
     // 配置保持 ${ANTHROPIC_API_KEY} 不被改写
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');

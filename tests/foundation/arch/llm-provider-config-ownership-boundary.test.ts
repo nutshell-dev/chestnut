@@ -4,10 +4,14 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
 const providerConfigFacade = read('../../../src/foundation/llm-provider/capabilities/config-contract.ts');
+const providerConfigAdapter = read('../../../src/foundation/llm-provider/config-adapter.ts');
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
 const configurationSchema = read('../../../src/core/llm-configuration/config-schema.ts');
 const configurationBarrel = read('../../../src/core/llm-configuration/index.ts');
 const formatMap = read('../../../src/cli/provider-format-map.ts');
+const setupWorkflow = read('../../../src/core/llm-configuration/setup-workflow.ts');
+const firstRunSetup = read('../../../src/cli/first-run-setup.ts');
+const configCommand = read('../../../src/cli/commands/config.ts');
 const cliConsumers = [
   '../../../src/cli/llm-connection-check.ts',
   '../../../src/cli/commands/config.ts',
@@ -27,12 +31,29 @@ describe('LLM provider config ownership boundary', () => {
     expect(configurationSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/\.\.\/foundation\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
   });
 
+  it('keeps legacy preset resolution out of the active adapter', () => {
+    expect(providerConfigAdapter).not.toMatch(/resolvePreset|PRESETS|resolveThinkingDefaults|\bpreset\b/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderInput\s*\}/);
+  });
+
   it('retires the old Orchestrator files without compatibility facades', () => {
     expect(existsSync(new URL('../../../src/foundation/llm-provider/llm-provider-config-schema.ts', import.meta.url))).toBe(true);
     expect(existsSync(new URL('../../../src/foundation/llm-provider/config-adapter.ts', import.meta.url))).toBe(true);
     expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/llm-provider-config-schema.ts', import.meta.url))).toBe(false);
     expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/config-adapter.ts', import.meta.url))).toBe(false);
     expect(existsSync(new URL('../../../src/foundation/llm-orchestrator/config-schema.ts', import.meta.url))).toBe(false);
+  });
+
+  it('keeps one explicit setup workflow and one L4 business commit owner', () => {
+    expect(setupWorkflow).not.toMatch(/^import\s+.*readline|from\s+['"][^'"]*cli|PRESETS|resolvePreset/m);
+    expect(firstRunSetup).not.toMatch(/PRESETS|makeSetupCandidateProbe|probeSetupCandidates|mutateGlobalLocked|buildInitialConfig/);
+    expect(firstRunSetup).toMatch(/runLLMSetupWorkflow\(/);
+    expect(firstRunSetup).toMatch(/saveGlobalExclusive\(buildInitialRootConfig\(\)\)/);
+    const providerAdd = configCommand.match(/async function providerAdd[\s\S]*?(?=\nfunction formatApiKeyStatus)/)?.[0];
+    expect(providerAdd).toBeDefined();
+    expect(providerAdd).toMatch(/runLLMSetupWorkflow\(/);
+    expect(providerAdd).not.toMatch(/makeSetupCandidateProbe|probeSetupCandidates|mutateGlobalLocked|toProviderInput|checkLLMConnectionFor/);
+    expect(setupWorkflow.match(/commitExplicitProvider\(/g)).toHaveLength(1);
   });
 
   it('keeps the numeric format map as one CLI-owned source', () => {

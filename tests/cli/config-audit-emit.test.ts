@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
 import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
+import { emitLLMSetupWorkflowAudit } from '../../src/cli/setup-provider-probe.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const configDeps = {
@@ -122,5 +123,36 @@ describe('config provider remove/move — audit emit (phase 1452 Step B)', () =>
 
     expect(write).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith('Error:', expect.stringContaining('rename failed'));
+  });
+});
+
+describe('setup workflow audit redaction', () => {
+  it('不写原始 URL/userinfo/query，保留 candidate identity/kind/timing', () => {
+    const write = vi.fn();
+    const audit = {
+      write,
+      message: (value: string) => value,
+    } as unknown as import('../../src/foundation/audit/index.js').AuditLog;
+    const url = 'https://user:secret@example.test/v1?token=query-secret';
+
+    emitLLMSetupWorkflowAudit(audit, {
+      type: 'probe_attempted', identity: 'candidate-a', url, provider: 'custom:test', model: 'model',
+      startedAt: '2026-01-01T00:00:00.000Z', kind: 'candidate',
+    });
+    emitLLMSetupWorkflowAudit(audit, {
+      type: 'probe_finished', identity: 'candidate-a', url,
+      result: { ok: false, errorType: 'network' },
+      startedAt: '2026-01-01T00:00:00.000Z', completedAt: '2026-01-01T00:00:01.000Z',
+      winner: false, kind: 'candidate',
+    });
+
+    const serialized = JSON.stringify(write.mock.calls);
+    expect(serialized).not.toContain('url=');
+    expect(serialized).not.toContain('user:secret');
+    expect(serialized).not.toContain('query-secret');
+    expect(serialized).toContain('candidate=candidate-a');
+    expect(serialized).toContain('kind=candidate');
+    expect(serialized).toContain('started_at=2026-01-01T00:00:00.000Z');
+    expect(serialized).toContain('completed_at=2026-01-01T00:00:01.000Z');
   });
 });

@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as yaml from 'js-yaml';
 import {
   createLLMConfiguration,
   createLLMConfigurationDocumentStore,
   getLLMConfigurationPath,
   snapshotLLMConfig,
   LLMConfigurationMigrationError,
+  LLMConfigurationAlreadyExistsError,
+  LLMConfigurationRevisionConflictError,
+  LLMProviderLabelAlreadyExistsError,
   llmConfigurationSourceDigest,
+  migrateLegacyLLMConfig,
+  LegacyPresetMigrationError,
   readLLMMigrationRecord,
   type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
@@ -23,7 +29,9 @@ let projectDir: string;
 function referencedSource(): SharedLLMInput {
   return {
     primary: {
-      preset: 'anthropic',
+      provider_id: 'custom:anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
       api_key: '${LLM_DOCUMENT_TEST_KEY}',
       model: 'claude-document-test',
       label: 'primary-label',
@@ -31,9 +39,12 @@ function referencedSource(): SharedLLMInput {
       extra_headers: { 'X-Test-Secret': '${LLM_DOCUMENT_TEST_HEADER}' },
     },
     fallbacks: [{
-      preset: 'openai',
+      provider_id: 'custom:openai',
+      api_format: 'openai',
+      auth_profile: 'api_key',
       api_key: '${LLM_DOCUMENT_TEST_KEY}',
       model: 'gpt-document-test',
+      base_url: 'https://fallback.example.test/v1',
     }],
   };
 }
@@ -223,6 +234,296 @@ describe('LLM configuration document mutations', () => {
   });
 });
 
+describe('migrateLegacyDocument', () => {
+  function writeRawDocument(source: unknown, revision: number, schemaVersion = 1): void {
+    const configPath = getLLMConfigurationPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, yaml.dump({
+      ...(source as Record<string, unknown>),
+      schema_version: schemaVersion,
+      revision,
+    }));
+  }
+
+  function documentMigrationId(source: unknown): string {
+    return `document-${llmConfigurationSourceDigest(source as SharedLLMInput).slice(0, 24)}`;
+  }
+
+  it('锁内迁移 preset/不完整 provider_id，revision+1 并重读核验；重试与显式文档均 no-op', async () => {
+    const source = {
+      primary: {
+        preset: 'anthropic',
+        model: 'claude-document-legacy',
+        api_key: 'sk-document-migration-secret',
+        extra_headers: { Authorization: 'Bearer document-header-secret' },
+      },
+      fallbacks: [{
+        provider_id: 'amazon-bedrock',
+        auth_profile: 'ambient',
+        model: 'anthropic.claude-sonnet-4-6',
+      }],
+      retry_attempts: 2,
+    };
+    writeRawDocument(source, 7);
+    const store = makeStore();
+
+    const migrated = await store.migrateLegacyDocument();
+
+    expect(migrated).toMatchObject({
+      outcome: 'migrated',
+      sourceRevision: 7,
+      targetRevision: 8,
+      write: { kind: 'durable' },
+    });
+    expect(store.read()).toMatchObject({
+      schema_version: 1,
+      revision: 8,
+      primary: {
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
+        api_key: 'sk-document-migration-secret',
+      },
+      fallbacks: [{
+        provider_id: 'amazon-bedrock',
+        api_format: 'bedrock-converse-stream',
+        auth_profile: 'ambient',
+      }],
+    });
+    expect(store.read().primary).not.toHaveProperty('preset');
+    if (migrated.outcome !== 'migrated') throw new Error('expected migration');
+    const evidence = readLLMMigrationRecord(deps, migrated.migrationId);
+    expect(evidence).toMatchObject({
+      outcome: 'migrated',
+      source_revision: 7,
+      target_revision: 8,
+      source_digest: llmConfigurationSourceDigest(source as SharedLLMInput),
+      target_digest: llmConfigurationSourceDigest(migrateLegacyLLMConfig(source).config),
+      target_write: 'durable',
+    });
+    const evidencePath = path.join(
+      projectDir, '.chestnut', 'llm', 'migration', `${migrated.migrationId}.yaml`,
+    );
+    const targetBefore = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+    const evidenceBefore = fs.readFileSync(evidencePath, 'utf8');
+    expect(evidenceBefore).not.toContain('sk-document-migration-secret');
+    expect(evidenceBefore).not.toContain('document-header-secret');
+
+    await expect(store.migrateLegacyDocument()).resolves.toEqual({ outcome: 'noop' });
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(targetBefore);
+    expect(fs.readFileSync(evidencePath, 'utf8')).toBe(evidenceBefore);
+    expect(store.readRevision().revision).toBe(8);
+  });
+
+  it('覆盖前写 pending；目标已显式但成功证据缺失时按 digest/revision 补齐 migrated', async () => {
+    const source = {
+      primary: {
+        preset: 'anthropic',
+        model: 'claude-document-legacy',
+        api_key: 'sk-pending-document-secret',
+      },
+    };
+    writeRawDocument(source, 7);
+    const id = documentMigrationId(source);
+    const evidencePath = path.join(projectDir, '.chestnut', 'llm', 'migration', `${id}.yaml`);
+    let pending: ReturnType<typeof readLLMMigrationRecord> = undefined;
+    const crashingDeps = {
+      fsFactory: (baseDir: string) => new (class extends NodeFileSystem {
+        override writeAtomicSync(relativePath: string, content: string) {
+          if (this.resolve(relativePath) === getLLMConfigurationPath()) {
+            pending = readLLMMigrationRecord(deps, id);
+          }
+          if (this.resolve(relativePath) === evidencePath && content.includes('outcome: migrated')) {
+            throw new Error('injected post-target crash');
+          }
+          return super.writeAtomicSync(relativePath, content);
+        }
+      })({ baseDir }),
+    };
+
+    await expect(createLLMConfigurationDocumentStore(crashingDeps).migrateLegacyDocument())
+      .rejects.toThrow('injected post-target crash');
+    expect(pending).toMatchObject({
+      outcome: 'pending',
+      source_digest: llmConfigurationSourceDigest(source as SharedLLMInput),
+      target_digest: llmConfigurationSourceDigest(migrateLegacyLLMConfig(source).config),
+      source_revision: 7,
+      target_revision: 8,
+      target_write: 'not_written',
+    });
+    expect(makeStore().read().revision).toBe(8);
+
+    const recovered = await makeStore().migrateLegacyDocument();
+    expect(recovered).toMatchObject({
+      outcome: 'migrated',
+      migrationId: id,
+      sourceRevision: 7,
+      targetRevision: 8,
+      write: { kind: 'committed_durability_unknown' },
+    });
+    expect(readLLMMigrationRecord(deps, id)).toMatchObject({
+      outcome: 'migrated',
+      source_revision: 7,
+      target_revision: 8,
+      target_write: 'committed_durability_unknown',
+    });
+    expect(fs.readFileSync(evidencePath, 'utf8')).not.toContain('sk-pending-document-secret');
+  });
+
+  it('不存在的 shared 文档 no-op，不创建配置', async () => {
+    await expect(makeStore().migrateLegacyDocument()).resolves.toEqual({ outcome: 'noop' });
+    expect(fs.existsSync(getLLMConfigurationPath())).toBe(false);
+  });
+
+  it('未知 preset fail-closed，源 bytes/revision 不变且失败证据无 secret', async () => {
+    const source = {
+      primary: {
+        preset: 'unknown-document-preset',
+        model: 'secret-model-name',
+        api_key: 'sk-unknown-document-secret',
+        extra_headers: { 'X-Secret': 'unknown-header-secret' },
+      },
+    };
+    writeRawDocument(source, 11);
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+
+    await expect(makeStore().migrateLegacyDocument()).rejects.toBeInstanceOf(LegacyPresetMigrationError);
+
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+    expect(yaml.load(before)).toMatchObject({ revision: 11 });
+    const id = documentMigrationId(source);
+    expect(readLLMMigrationRecord(deps, id)).toMatchObject({
+      outcome: 'failed',
+      source_revision: 11,
+      source_digest: llmConfigurationSourceDigest(source as SharedLLMInput),
+      target_digest: '',
+      target_write: 'not_written',
+      migration_error: 'unknown_preset: primary',
+    });
+    const rawEvidence = fs.readFileSync(path.join(
+      projectDir, '.chestnut', 'llm', 'migration', `${id}.yaml`,
+    ), 'utf8');
+    for (const sensitive of [
+      'sk-unknown-document-secret',
+      'unknown-header-secret',
+      'secret-model-name',
+      'unknown-document-preset',
+    ]) {
+      expect(rawEvidence).not.toContain(sensitive);
+    }
+  });
+
+  it('损坏 metadata fail-closed，源不变并只记录安全错误分类', async () => {
+    const source = {
+      primary: {
+        preset: 'anthropic',
+        model: 'claude-document-legacy',
+        api_key: 'sk-corrupt-document-secret',
+      },
+    };
+    writeRawDocument(source, 9, 2);
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+
+    await expect(makeStore().migrateLegacyDocument()).rejects.toThrow();
+
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+    const id = documentMigrationId(source);
+    expect(readLLMMigrationRecord(deps, id)).toMatchObject({
+      outcome: 'failed',
+      source_revision: 9,
+      target_write: 'not_written',
+      migration_error: 'invalid_source: document',
+    });
+    expect(fs.readFileSync(path.join(
+      projectDir, '.chestnut', 'llm', 'migration', `${id}.yaml`,
+    ), 'utf8')).not.toContain('sk-corrupt-document-secret');
+  });
+});
+
+describe('commitExplicitProvider', () => {
+  function explicitProvider(label: string, model = label): SharedLLMInput['primary'] {
+    return {
+      provider_id: 'custom:anthropic',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
+      api_key: '${LLM_DOCUMENT_TEST_KEY}',
+      label,
+      model,
+      base_url: `https://${label}.example.test`,
+    };
+  }
+
+  it('initialize 独占创建 rev1；primary 降级旧 primary，fallback 按 fresh position 插入并返回同源 snapshot', async () => {
+    const store = makeStore();
+    const initialized = await store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('first'));
+    expect(initialized.revision).toEqual({ id: '1', revision: 1 });
+    expect(initialized.write.kind).toBe('durable');
+    expect(initialized.snapshot.raw).toMatchObject({ revision: 1, primary: { label: 'first' } });
+    expect(initialized.snapshot.resolved.primary.api_key).toBe('resolved-primary-secret');
+
+    await expect(store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('loser')))
+      .rejects.toBeInstanceOf(LLMConfigurationAlreadyExistsError);
+    expect(store.read().primary.label).toBe('first');
+
+    const primary = await store.commitExplicitProvider({ kind: 'primary' }, explicitProvider('new-primary'), 1);
+    expect(primary.revision.revision).toBe(2);
+    expect(primary.snapshot.raw.fallbacks?.[0]?.label).toBe('first');
+
+    const fallback = await store.commitExplicitProvider(
+      { kind: 'fallback', position: 1 },
+      explicitProvider('between'),
+      2,
+    );
+    expect(fallback.revision.revision).toBe(3);
+    expect(fallback.snapshot.raw.fallbacks?.map(entry => entry.label)).toEqual(['first', 'between']);
+    expect(store.read().primary.label).toBe('new-primary');
+  });
+
+  it.each(['.initialize.target', '.initialize.llm-dir'])(
+    'initialize 的 %s barrier 未确认时不伪报 durable，已提交文档仍可恢复',
+    async (barrierSuffix) => {
+      const uncertainDeps = {
+        fsFactory: (baseDir: string) => new (class extends NodeFileSystem {
+          override writeAtomicSync(relativePath: string, content: string) {
+            if (this.resolve(relativePath).endsWith(barrierSuffix)) {
+              return {
+                kind: 'committed_durability_unknown' as const,
+                error: Object.assign(new Error('injected initialize fsync uncertainty'), { code: 'EIO' }),
+              };
+            }
+            return super.writeAtomicSync(relativePath, content);
+          }
+        })({ baseDir }),
+      };
+      const store = createLLMConfigurationDocumentStore(uncertainDeps);
+
+      const result = await store.commitExplicitProvider(
+        { kind: 'initialize' }, explicitProvider('durability'),
+      );
+
+      expect(result.write.kind).toBe('committed_durability_unknown');
+      expect(store.read()).toMatchObject({ revision: 1, primary: { label: 'durability' } });
+    },
+  );
+
+  it('锁内 label/CAS 失败不写盘；legacy preset 不能绕过显式提交边界', async () => {
+    const store = makeStore();
+    await store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('first'));
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+
+    await expect(store.commitExplicitProvider({ kind: 'fallback' }, explicitProvider('first')))
+      .rejects.toBeInstanceOf(LLMProviderLabelAlreadyExistsError);
+    await expect(store.commitExplicitProvider({ kind: 'fallback' }, explicitProvider('other'), 99))
+      .rejects.toBeInstanceOf(LLMConfigurationRevisionConflictError);
+    await expect(store.commitExplicitProvider({ kind: 'fallback' }, {
+      preset: 'anthropic', model: 'claude', api_key: '${LLM_DOCUMENT_TEST_KEY}',
+    } as unknown as SharedLLMInput['primary'])).rejects.toThrow();
+
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+    expect(store.readRevision().revision).toBe(1);
+  });
+});
+
 describe('createFromSource migration', () => {
   it('同 source 与 migration id 重试幂等，不重写目标或 revision', () => {
     const store = makeStore();
@@ -286,20 +587,25 @@ describe('createFromSource migration', () => {
     store.createFromSource(source, migrationId);
 
     const digest = llmConfigurationSourceDigest(source);
+    const targetDigest = llmConfigurationSourceDigest(migrateLegacyLLMConfig(source).config);
     const evidence = readLLMMigrationRecord(deps, migrationId);
     expect(evidence).toMatchObject({
       schema_version: 1,
       migration_id: migrationId,
       source_digest: digest,
-      target_digest: digest,
+      target_digest: targetDigest,
+      target_revision: 1,
+      preset_migration: true,
       source_cleanup: 'pending',
     });
     expect(Object.keys(evidence ?? {}).sort()).toEqual([
       'migration_id',
+      'preset_migration',
       'schema_version',
       'source_cleanup',
       'source_digest',
       'target_digest',
+      'target_revision',
       'target_write',
     ]);
     const evidencePath = path.join(
@@ -314,5 +620,42 @@ describe('createFromSource migration', () => {
     ]) {
       expect(rawEvidence).not.toContain(sensitive);
     }
+  });
+
+  it('不完整 preset 映射同样不写目标并保留失败证据', () => {
+    const store = makeStore();
+    const source = {
+      primary: { preset: 'custom-openai', model: 'model', api_key: 'sk-incomplete-secret' },
+    } as unknown as SharedLLMInput;
+
+    expect(() => store.createFromSource(source, 'migration-incomplete-preset'))
+      .toThrow(LegacyPresetMigrationError);
+    expect(fs.existsSync(getLLMConfigurationPath())).toBe(false);
+    expect(readLLMMigrationRecord(deps, 'migration-incomplete-preset')).toMatchObject({
+      target_write: 'not_written',
+      migration_error: 'incomplete_mapping: primary',
+    });
+  });
+
+  it('未知 preset 不写目标，typed error 与安全失败证据保留源摘要', () => {
+    const store = makeStore();
+    const source = {
+      primary: { preset: 'unknown-preset', api_key: 'sk-must-not-leak' },
+    } as unknown as SharedLLMInput;
+
+    expect(() => store.createFromSource(source, 'migration-unknown-preset'))
+      .toThrow(LegacyPresetMigrationError);
+    expect(fs.existsSync(getLLMConfigurationPath())).toBe(false);
+    const evidence = readLLMMigrationRecord(deps, 'migration-unknown-preset');
+    expect(evidence).toMatchObject({
+      source_digest: llmConfigurationSourceDigest(source),
+      target_digest: '',
+      target_write: 'not_written',
+      migration_error: 'unknown_preset: primary',
+    });
+    const rawEvidence = fs.readFileSync(path.join(
+      projectDir, '.chestnut', 'llm', 'migration', 'migration-unknown-preset.yaml',
+    ), 'utf8');
+    expect(rawEvidence).not.toContain('sk-must-not-leak');
   });
 });

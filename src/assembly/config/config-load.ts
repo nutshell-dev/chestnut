@@ -134,7 +134,7 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
 
 /** 保留 root config 的公开形状，同时让 LLM snapshot 消费同次读取的 raw/revision。 */
 function withLLMView(
-  stored: Omit<ClawGlobalConfig, 'llm'> & { llm?: ClawGlobalConfig['llm'] },
+  stored: Omit<ClawGlobalConfig, 'llm'> & { llm?: unknown },
   view: LLMGlobalConfigView,
 ): ClawGlobalConfig {
   const result = { ...stored, llm: view.llm };
@@ -195,6 +195,10 @@ function migrateRootLLM(
 export async function migrateRootLLMConfigLocked(deps: {
   fsFactory: (baseDir: string) => FileSystem;
 }): Promise<void> {
+  // Root relocation and in-place shared-document migration are separate locks.
+  // Shared must become explicit first: createFromSource validates the existing
+  // target with the strict schema and cannot consume a legacy shared document.
+  await createLLMConfigurationDocumentStore(deps).migrateLegacyDocument();
   await withYamlConfigLock(deps, getGlobalConfigPath(), () => {
     const legacy = readRawRootLLM(deps);
     if (legacy !== undefined) migrateRootLLM(deps, legacy);
@@ -204,7 +208,7 @@ export async function migrateRootLLMConfigLocked(deps: {
 export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }): ClawGlobalConfig {
   const configPath = getGlobalConfigPath();
   try {
-    const stored = loadYamlConfig<Omit<ClawGlobalConfig, 'llm'> & { llm?: ClawGlobalConfig['llm'] }>(
+    const stored = loadYamlConfig<Omit<ClawGlobalConfig, 'llm'> & { llm?: unknown }>(
       { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
       configPath,
       createStoredGlobalConfigSchema(),
@@ -275,8 +279,20 @@ function checkWorkspaceBootstrap(deps: { fsFactory: (baseDir: string) => FileSys
  */
 export function getInitializationState(deps: { fsFactory: (baseDir: string) => FileSystem }): InitializationState {
   if (!isInitialized(deps)) return 'absent';
+  let hasLLMConfiguration = false;
   try {
-    loadGlobalConfig(deps);
+    hasLLMConfiguration = configExists(deps, getLLMConfigurationPath()) || readRawRootLLM(deps) !== undefined;
+    if (hasLLMConfiguration) {
+      loadGlobalConfig(deps);
+    } else {
+      // A root-only non-LLM intent is a valid recoverable bootstrap state. It
+      // must not be marked ready before the exclusive L4 initialize completes.
+      loadYamlConfig(
+        { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
+        getGlobalConfigPath(),
+        createStoredGlobalConfigSchema(),
+      );
+    }
   } catch {
     // silent: root YAML 存在但不可消费 —— 以 typed 'invalid' 状态上报（fail-closed）
     return 'invalid';
@@ -285,7 +301,8 @@ export function getInitializationState(deps: { fsFactory: (baseDir: string) => F
   const markerPresent = chestnutRootFs.existsSync(INITIALIZATION_MARKER);
   const bootstrap = checkWorkspaceBootstrap(deps);
   if (markerPresent) {
-    // marker 不得把损坏布局标 ready
+    // marker 不得把损坏布局或尚未提交的 root-only intent 标 ready。
+    if (!hasLLMConfiguration) return 'in_progress';
     return bootstrap === 'complete' ? 'ready' : 'invalid';
   }
   return bootstrap === 'broken' ? 'invalid' : 'in_progress';
@@ -330,7 +347,10 @@ export class GlobalConfigAlreadyExistsError extends Error {
   }
 }
 
-export function saveGlobalConfigExclusive(deps: { fsFactory: (baseDir: string) => FileSystem }, config: ClawGlobalConfigInput): void {
+export function saveGlobalConfigExclusive(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  config: Omit<ClawGlobalConfigInput, 'llm'> & { llm?: ClawGlobalConfigInput['llm'] },
+): void {
   const configPath = getGlobalConfigPath();
   try {
     writeYamlConfigExclusive(

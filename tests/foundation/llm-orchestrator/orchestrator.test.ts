@@ -152,20 +152,29 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
   it('缺段配置经 load/build 后由 owner providerStates 记录 primary+2 fallbacks 的恢复事实', async () => {
     const globalConfig = createGlobalConfigSchema().parse({
       llm: {
-        primary: { preset: 'anthropic', api_key: 'sk-p', model: 'claude-test' },
+        primary: {
+          provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
+          api_key: 'sk-p', model: 'claude-test', base_url: 'https://api.anthropic.com',
+        },
         fallbacks: [
-          { preset: 'openai', api_key: 'sk-f1', model: 'gpt-test' },
-          { preset: 'moonshot', api_key: 'sk-f2', model: 'kimi-test' },
+          {
+            provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key',
+            api_key: 'sk-f1', model: 'gpt-test', base_url: 'https://api.openai.com/v1',
+          },
+          {
+            provider_id: 'custom:moonshot', api_format: 'openai', auth_profile: 'api_key',
+            api_key: 'sk-f2', model: 'kimi-test', base_url: 'https://api.moonshot.cn/v1',
+          },
         ],
       },
     });
     const llmConfig = resolveLLMConfig(globalConfig);
 
-    const primary = createMockProvider('anthropic', {
-      callError: new LLMNetworkError('anthropic', new Error('primary down')),
+    const primary = createMockProvider('custom:anthropic', {
+      callError: new LLMNetworkError('custom:anthropic', new Error('primary down')),
     });
-    const fb1 = createMockProvider('openai');
-    const fb2 = createMockProvider('moonshot');
+    const fb1 = createMockProvider('custom:openai');
+    const fb2 = createMockProvider('custom:moonshot');
     const findAdapter = (cfg: ProviderConnection) => {
       if (cfg.providerId === primary.name) return primary;
       if (cfg.providerId === fb1.name) return fb1;
@@ -192,7 +201,7 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
       consecutiveFailures: 1,
       lastError: { class: 'transient', at: expect.any(Number), message: expect.stringContaining('primary down') },
     });
-    expect(emitted.some(e => e.type === 'fallback_switched' && e.from === 'anthropic' && e.to === 'openai')).toBe(true);
+    expect(emitted.some(e => e.type === 'fallback_switched' && e.from === 'custom:anthropic' && e.to === 'custom:openai')).toBe(true);
     await service.close();
   });
 });

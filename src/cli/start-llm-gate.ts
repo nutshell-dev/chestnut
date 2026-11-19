@@ -179,9 +179,9 @@ export async function applyStartLLMOptions(
       { code: START_USAGE_EXIT_CODE },
     );
   }
-  const presetId = setup?.target.preset ?? opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.preset;
+  const presetId = setup?.target.preset ?? opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.provider_id;
   if (!presetId) {
-    throw new CliError('--provider is required (no existing primary preset)', { code: START_USAGE_EXIT_CODE });
+    throw new CliError('--provider is required (no existing primary provider)', { code: START_USAGE_EXIT_CODE });
   }
   // Phase 1927 Step D：catalog provider id（非 preset）走显式 provider_id 配置入口
   const catalogProviderId = !PRESETS[presetId] && isCatalogProvider(presetId) ? presetId : undefined;

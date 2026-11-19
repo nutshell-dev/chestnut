@@ -1,18 +1,17 @@
 /**
- * Phase 10 Step B: LLM config adapters (迁自 foundation/config/adapters.ts)
- *
- * 业务归 LLM、本模块 own LLM yaml schema ↔ runtime ProviderConfig 转换。
- * Content 与 foundation/config/adapters.ts 等同（迁不改）、import path 改自家。
- * phase 298: buildLLMConfig 迁 assembly/config-load.ts (root config 装配业务归 L6 Assembly)。
+ * Explicit persisted LLM configuration → runtime provider projections.
+ * No legacy defaults or model/URL heuristics participate in this path.
  */
 import type { ProviderConfig } from './types.js';
-import { resolvePreset } from './presets.js';
 import {
-  deriveCatalogAuthProfile,
-  validateCatalogAuthProfile,
+  CatalogModelNotFoundError,
+  UnknownCatalogProviderError,
+  catalogModelKnown,
+  isCatalogProvider,
   resolveCatalogIdentity,
+  validateCatalogAuthProfile,
+  validateCatalogProtocol,
 } from './catalog-strategy.js';
-import { resolveThinkingDefaults } from './thinking-defaults.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
 import {
   providerConnectionFromResolvedConfig,
@@ -21,13 +20,10 @@ import {
   type ProviderInput,
 } from './provider-connection.js';
 
-/** 派生身份不参与配置持久化/身份哈希；只在本次 runtime config 对象上保留。 */
-function attachCatalogResolution(
-  config: ProviderConfig,
-  source?: 'provider_id' | 'preset_alias',
-): ProviderConfig {
+/** Derived identity is runtime-only and is never persisted or hashed as configuration. */
+function attachCatalogResolution(config: ProviderConfig): ProviderConfig {
   Object.defineProperty(config, 'catalogResolution', {
-    value: resolveCatalogIdentity(config, source),
+    value: resolveCatalogIdentity(config, config.catalogProvider ? undefined : 'provider_id'),
     enumerable: false,
     writable: false,
     configurable: false,
@@ -35,12 +31,11 @@ function attachCatalogResolution(
   return config;
 }
 
-/** bare env var 名（应写 ${...} 引用）检测——preset 与显式 catalog 路径共用。 */
 function assertNotBareEnvVar(apiKey: string | undefined, display: string): void {
   if (apiKey && /^[A-Z][A-Z0-9_]{3,}$/.test(apiKey)) {
     throw new Error(
       `Provider "${display}": api_key looks like a bare environment variable name ("${apiKey}"). ` +
-      `Use \${${apiKey}} to reference it.`
+      `Use \${${apiKey}} to reference it.`,
     );
   }
 }
@@ -55,97 +50,55 @@ export function toProviderConnection(p: LLMProviderConfig): ProviderConnection {
   return providerConnectionFromResolvedConfig(toProviderConfig(p));
 }
 
-// Convert snake_case to camelCase, resolve preset
+/** Project only explicit document fields; unknown or incomplete identities fail closed. */
 export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
-  // Phase 1927 Step D：显式 catalog provider 路径（provider_id 与 preset 互斥；
-  // provider 合法性 / model 静态 seed / auth_profile 兼容均由 catalog-strategy 裁决）。
-  if (p.provider_id) {
-    if (p.preset) {
-      throw new Error(
-        `Provider "${p.label ?? p.provider_id}": "provider_id" and "preset" are mutually exclusive ` +
-        `(provider_id=${p.provider_id}, preset=${p.preset}) — keep only one`,
-      );
+  const providerId = p.provider_id;
+  const display = p.label ?? providerId;
+  assertNotBareEnvVar(p.api_key, display);
+
+  const metadataOnly = p.catalog_provider !== undefined;
+  if (metadataOnly) {
+    // Deliberately do not compare protocols here: metadata-only exists precisely
+    // to retain a curated wire protocol different from the metadata provider.
+    validateCatalogAuthProfile(p.catalog_provider!, p.auth_profile);
+    if (!p.base_url) {
+      throw new Error(`Provider "${display}": metadata-only catalog hints require an explicit "base_url"`);
     }
-    const providerId = p.provider_id;
-    if (!p.model || p.model === 'auto') {
-      throw new Error(
-        `Provider "${p.label ?? providerId}": explicit catalog provider (provider_id) requires an explicit "model" ` +
-        `from the provider's static catalog (no "auto" default without a preset)`,
-      );
+  } else if (isCatalogProvider(providerId)) {
+    validateCatalogAuthProfile(providerId, p.auth_profile);
+    validateCatalogProtocol(providerId, p.api_format);
+    if (!catalogModelKnown(providerId, p.model)) {
+      throw new CatalogModelNotFoundError(providerId, p.model);
     }
-    const authProfile = p.auth_profile ?? deriveCatalogAuthProfile(providerId);
-    validateCatalogAuthProfile(providerId, authProfile);
-    assertNotBareEnvVar(p.api_key, p.label ?? providerId);
-
-    const config: ProviderConfig = {
-      name: p.label ?? providerId,
-      apiKey: p.api_key,
-      baseUrl: p.base_url,
-      model: p.model,
-      maxTokens: p.max_tokens,
-      temperature: p.temperature,
-      timeoutMs: p.timeout_ms,
-      thinking: p.thinking,
-      thinkingBudgetTokens: p.thinking_budget_tokens,
-      thinkingMode: p.thinking_mode,
-      thinkingEffort: p.thinking_effort,
-      extraHeaders: p.extra_headers,
-      dropThinkingBlocks: p.drop_thinking_blocks,
-      // 显式 catalog 路径无自建 Model 回退：apiFormat 缺席（model 已保证 catalog 命中）
-      authProfile,
-      reasoningEffort: p.reasoning_effort,
-      piAiProvider: providerId,
-    };
-    return attachCatalogResolution(config, 'provider_id');
+  } else {
+    if (!providerId.startsWith('custom:')) throw new UnknownCatalogProviderError(providerId);
+    if (!p.base_url) {
+      throw new Error(`Provider "${display}": custom provider identities require an explicit "base_url"`);
+    }
   }
-
-  const presetId = p.preset;
-  if (!presetId) {
-    throw new Error('Provider config must have "preset" field');
-  }
-
-  const preset = resolvePreset(presetId);
-
-  // Detect bare env var names that should be wrapped in ${...}
-  assertNotBareEnvVar(p.api_key, p.label ?? presetId);
-
-  // Phase 1979: preset = 完整参数包——仅当配置完全未显式给出 thinking 字段时
-  // 填充 preset 默认；任一显式字段（含 thinking:false）整体优先。
-  const thinkingExplicit =
-    p.thinking !== undefined ||
-    p.thinking_budget_tokens !== undefined ||
-    p.thinking_mode !== undefined ||
-    p.thinking_effort !== undefined ||
-    p.reasoning_effort !== undefined ||
-    p.drop_thinking_blocks !== undefined;
-  const resolvedModel = (!p.model || p.model === 'auto')
-    ? (preset.defaultModel ?? 'unknown')
-    : p.model;
-  const presetThinking = thinkingExplicit ? undefined : resolveThinkingDefaults(presetId, resolvedModel);
 
   const config: ProviderConfig = {
-    name: p.label ?? presetId,
+    name: display,
     apiKey: p.api_key,
-    baseUrl: p.base_url ?? preset.defaultBaseUrl,
-    model: resolvedModel,
+    baseUrl: p.base_url,
+    model: p.model,
     maxTokens: p.max_tokens,
     temperature: p.temperature,
     timeoutMs: p.timeout_ms,
-    thinking: p.thinking ?? presetThinking?.thinking,
-    thinkingBudgetTokens: p.thinking_budget_tokens ?? presetThinking?.thinking_budget_tokens,
-    thinkingMode: p.thinking_mode ?? presetThinking?.thinking_mode,
-    thinkingEffort: p.thinking_effort ?? presetThinking?.thinking_effort,
+    thinking: p.thinking,
+    thinkingBudgetTokens: p.thinking_budget_tokens,
+    thinkingMode: p.thinking_mode,
+    thinkingEffort: p.thinking_effort,
     extraHeaders: p.extra_headers,
-    dropThinkingBlocks: p.drop_thinking_blocks ?? presetThinking?.drop_thinking_blocks,
-    apiFormat: preset.apiFormat,
-    // Phase 1926 Step D：认证装配类别透传（ambient/oauth 时 apiKey 合法缺席）
-    authProfile: preset.authProfile,
-    reasoningEffort: p.reasoning_effort ?? presetThinking?.reasoning_effort,
-    // Phase 1925 Step C：pi-ai catalog provider id 显式映射（无对应者 undefined → 自建 Model）
-    piAiProvider: preset.piAiProvider,
-    // Phase 1975 Step C：metadata-only catalog 查询透传（wire 不被接管）
-    ...(preset.catalogProvider && { catalogProvider: preset.catalogProvider }),
-    ...(preset.catalogModel && { catalogModel: preset.catalogModel }),
+    dropThinkingBlocks: p.drop_thinking_blocks,
+    apiFormat: p.api_format,
+    authProfile: p.auth_profile,
+    reasoningEffort: p.reasoning_effort,
+    // A metadata-only provider id is the explicit wire identity. A custom:* id
+    // stays local to the self-built model rather than becoming a catalog alias.
+    ...((metadataOnly || isCatalogProvider(providerId)) && { piAiProvider: providerId }),
+    ...(p.catalog_provider && { catalogProvider: p.catalog_provider }),
+    ...(p.catalog_model && { catalogModel: p.catalog_model }),
   };
-  return attachCatalogResolution(config, config.catalogProvider ? undefined : 'preset_alias');
+  return attachCatalogResolution(config);
 }

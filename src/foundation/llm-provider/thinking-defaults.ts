@@ -3,8 +3,8 @@
  *
  * Phase 1979: preset 自带的 thinking/effort 默认 → snake_case 配置字段。
  *
- * preset = 完整参数包：用户配置未显式给出任何 thinking 字段时，由
- * config-adapter 用本 helper 填充 resolved config；不写入 YAML、不做存量迁移。
+ * 仅供 legacy preset migration 与 UX 预览；migration 将结果写成显式 YAML 字段。
+ * 正常 config-adapter 不调用本 helper。
  * catalog 明确 `reasoning: false` 的模型不应用默认（如 openai/gpt-4o）；
  * catalog 缺失时信任 preset（不做模型名启发式）。
  */

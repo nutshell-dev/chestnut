@@ -46,6 +46,15 @@ export {
   ApiKeyConfigError,
 } from './key-input.js';
 export type { StoredCredentialInput, ApiKeyConfigValue } from './key-input.js';
+export {
+  LegacyPresetMigrationError,
+  migrateLegacyLLMConfig,
+  migrateLegacyProviderConfig,
+} from './preset-migration.js';
+export type {
+  LegacyLLMMigrationResult,
+  LegacyPresetMigrationErrorCode,
+} from './preset-migration.js';
 export { migrateLegacyApiKeysAtPath } from './api-key-migration.js';
 export type { ApiKeyMigrationAudit, ApiKeyMigrationOutcome } from './api-key-migration.js';
 export {
@@ -59,6 +68,9 @@ export {
   recordLLMMigrationSourceCleanupFailure,
   LLMConfigurationNotFoundError,
   LLMConfigurationMigrationError,
+  LLMConfigurationAlreadyExistsError,
+  LLMConfigurationRevisionConflictError,
+  LLMProviderLabelAlreadyExistsError,
 } from './document-store.js';
 export {
   createLLMApplicationStore,
@@ -78,4 +90,26 @@ export type {
   LLMConfigurationDocumentStore,
   LLMConfigurationRevision,
   LLMConfigurationWriteResult,
+  LLMConfigurationDocumentMigrationResult,
+  LLMConfigurationCommitResult,
+  ExplicitLLMProviderConfig,
 } from './document-store.js';
+export {
+  executeLLMSetupAttempt,
+  runLLMSetupWorkflow,
+  LLMSetupIdentityChangedError,
+} from './setup-workflow.js';
+export type {
+  LLMSetupCommitTarget,
+  LLMSetupCandidateDraft,
+  LLMSetupDraft,
+  LLMSetupErrorType,
+  LLMSetupProbeResult,
+  LLMSetupCandidateRecord,
+  LLMSetupWorkflowEvent,
+  LLMSetupVerified,
+  LLMSetupAttemptOutcome,
+  LLMSetupFailureDisposition,
+  LLMSetupWorkflowOutcome,
+  LLMSetupWorkflowDeps,
+} from './setup-workflow.js';

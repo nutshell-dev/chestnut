@@ -1,5 +1,5 @@
 import type { ModelCatalogEntry } from './model-catalog.generated.js';
-import type { ApiFormat } from './presets.js';
+import type { ApiFormat } from './api-format.js';
 
 export interface ContextWindowResolution {
   readonly contextWindow: number;

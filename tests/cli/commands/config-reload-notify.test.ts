@@ -118,6 +118,11 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     expect(listInbox(tmpDir, 'claws/dead').length).toBe(0);
   });
 
+  it('provider add 使用 commit result revision，而不是通知前的二次读取', async () => {
+    await notifyRunningDaemons(deps, 'add', { id: 'commit-9' });
+    expect(notification.record).toHaveBeenCalledWith(expect.objectContaining({ revision: 'commit-9' }));
+  });
+
   it.each([
     { kind: 'committed_platform_limited' as const },
     { kind: 'committed_durability_unknown' as const },

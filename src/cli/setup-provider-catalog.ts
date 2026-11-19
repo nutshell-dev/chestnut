@@ -6,8 +6,21 @@
  * 模型时走 OpenRouter + 高级模型输入。
  */
 
-import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
-const { PRESETS, resolveThinkingDefaults } = llmProviderCatalog;
+import { llmProviderCatalog, llmProviderConfigContract } from '../foundation/llm-provider/index.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
+import {
+  migrateLegacyProviderConfig,
+  type LLMSetupDraft,
+} from '../core/llm-configuration/index.js';
+const {
+  PRESETS,
+  resolveThinkingDefaults,
+  isCatalogProvider,
+  presetAuthProfile,
+  presetRequiresBaseUrl,
+  deriveCatalogAuthProfile,
+} = llmProviderCatalog;
+const { llmProviderConfigSchema } = llmProviderConfigContract;
 
 /**
  * Phase 1979: 条件确认预览的 effective thinking 描述（preset 默认 + model）。
@@ -166,6 +179,97 @@ export const SETUP_PROVIDER_ORDER: readonly SetupProviderId[] =
 
 export function findSetupProvider(id: string): SetupProviderChoice | undefined {
   return SETUP_PROVIDER_CATALOG.find(choice => choice.id === id);
+}
+
+export function resolveExplicitSetupTarget(id: string): SetupProviderTarget | undefined {
+  const setup = findSetupProvider(id);
+  if (setup) return setup.target;
+  if (PRESETS[id]) return { preset: id };
+  if (isCatalogProvider(id)) return { providerId: id };
+  return undefined;
+}
+
+export function describeExplicitSetupTarget(target: SetupProviderTarget): {
+  defaultModel?: string;
+  defaultBaseUrl?: string;
+  envVar?: string;
+  authProfile: 'api_key' | 'local' | 'oauth' | 'ambient';
+} {
+  const preset = target.preset ? PRESETS[target.preset] : undefined;
+  if (preset) {
+    return {
+      ...(preset.defaultModel !== undefined && { defaultModel: preset.defaultModel }),
+      ...(preset.defaultBaseUrl !== undefined && { defaultBaseUrl: preset.defaultBaseUrl }),
+      ...(preset.envVar !== undefined && { envVar: preset.envVar }),
+      authProfile: presetAuthProfile(preset),
+    };
+  }
+  if (target.providerId) {
+    return { authProfile: deriveCatalogAuthProfile(target.providerId) };
+  }
+  throw new Error('Setup provider target is missing');
+}
+
+export function explicitSetupTargetRequiresBaseUrl(target: SetupProviderTarget): boolean {
+  const preset = target.preset ? PRESETS[target.preset] : undefined;
+  return preset ? presetRequiresBaseUrl(preset) : false;
+}
+
+export interface ExplicitSetupProviderInput {
+  presetId?: string;
+  providerId?: string;
+  label?: string;
+  apiKey?: string;
+  model: string;
+  baseUrl?: string;
+  defaultBaseUrl?: string;
+  local?: boolean;
+}
+
+/** Compatibility catalog mapping ends here: workflow drafts contain explicit fields only. */
+export function makeExplicitSetupProvider(input: ExplicitSetupProviderInput) {
+  if (input.local) {
+    const providerId = input.providerId ?? `custom:${input.presetId ?? 'local'}`;
+    return llmProviderConfigSchema.parse({
+      provider_id: providerId,
+      api_format: 'openai',
+      auth_profile: 'ambient',
+      ...(input.label !== undefined && { label: input.label }),
+      model: input.model,
+      base_url: input.baseUrl ?? input.defaultBaseUrl,
+      temperature: 0.7,
+      timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
+    });
+  }
+  return llmProviderConfigSchema.parse(migrateLegacyProviderConfig({
+    ...(input.providerId !== undefined ? { provider_id: input.providerId } : { preset: input.presetId }),
+    ...(input.label !== undefined && { label: input.label }),
+    ...(input.apiKey !== undefined && { api_key: input.apiKey }),
+    model: input.model,
+    temperature: 0.7,
+    timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
+    ...(input.baseUrl !== undefined && { base_url: input.baseUrl }),
+  }));
+}
+
+export function makeExplicitSetupDraft(
+  input: ExplicitSetupProviderInput,
+  candidates?: readonly SetupProbeCandidate[],
+): LLMSetupDraft {
+  const provider = makeExplicitSetupProvider(input);
+  if (candidates === undefined || candidates.length === 0) return { provider };
+  return {
+    provider,
+    candidates: candidates.map((candidate, index) => {
+      const config = makeExplicitSetupProvider({
+        ...input,
+        presetId: candidate.presetId,
+        providerId: undefined,
+        baseUrl: candidate.baseUrl,
+      });
+      return { identity: `${config.provider_id}#${index + 1}`, config };
+    }),
+  };
 }
 
 export function isSetupProviderId(value: string): value is SetupProviderId {

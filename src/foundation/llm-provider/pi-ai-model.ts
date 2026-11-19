@@ -5,7 +5,7 @@
  * pi-ai-support.ts 拆出）。
  *
  * 协议显式：chestnut `apiFormat` → pi-ai api 映射是自建 Model 路径的唯一协议裁决；
- * catalog 命中时以 catalog model 的 api 为权威；绝不按 model/baseUrl 猜协议。
+ * catalog 命中时核验 catalog model.api 与显式 apiFormat 一致；绝不按 model/baseUrl 猜协议。
  * 自建 Model 路径（ollama/custom-*）保留窄表三族（anthropic/openai/gemini）
  * HTTP 协议。
  */
@@ -113,6 +113,14 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
         `Provider "${config.name}": SDK catalog lost resolved identity ` +
         `(kind=${identity.kind}, source=${identity.source}, provider=${identity.providerId}, model=${identity.modelId})`,
         { provider: config.name, field: 'catalogModel' },
+      );
+    }
+    const explicitApi = config.apiFormat ? API_FORMAT_TO_PI_AI_API[config.apiFormat] : undefined;
+    if (explicitApi && hit.api !== explicitApi) {
+      throw new LLMError(
+        `Provider "${config.name}": explicit apiFormat resolves to "${explicitApi}" but catalog model ` +
+        `"${identity.providerId}/${identity.modelId}" uses "${String(hit.api)}"`,
+        { provider: config.name, field: 'apiFormat' },
       );
     }
     const model = {

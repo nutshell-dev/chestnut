@@ -19,7 +19,8 @@ import {
   MODEL_CATALOG,
   MODEL_CATALOG_PI_AI_VERSION,
 } from './model-catalog.generated.js';
-import { PRESETS, type ApiFormat, type AuthProfile } from './presets.js';
+import { PRESETS } from './presets.js';
+import type { ApiFormat, AuthProfile } from './api-format.js';
 import { resolveContextWindowForIdentity } from './model-context-windows.js';
 import type {
   CatalogIdentityConfig,
@@ -39,6 +40,21 @@ export const API_FORMAT_TO_PI_AI_API: Readonly<Record<ApiFormat, string>> = {
   anthropic: 'anthropic-messages',
   openai: 'openai-completions',
   gemini: 'google-generative-ai',
+  'anthropic-messages': 'anthropic-messages',
+  'azure-openai-responses': 'azure-openai-responses',
+  'bedrock-converse-stream': 'bedrock-converse-stream',
+  'cloudflare-workers-ai-system-one': 'cloudflare-workers-ai-system-one',
+  'google-generative-ai': 'google-generative-ai',
+  'google-vertex': 'google-vertex',
+  'llama-cpp-classify': 'llama-cpp-classify',
+  'mistral-conversations': 'mistral-conversations',
+  'openai-codex-responses': 'openai-codex-responses',
+  'openai-completions': 'openai-completions',
+  'openai-decisions': 'openai-decisions',
+  'openai-responses': 'openai-responses',
+  'openrouter-images': 'openrouter-images',
+  'pi-messages': 'pi-messages',
+  'typesafe-system-one': 'typesafe-system-one',
 };
 
 /** 显式 catalog 配置的 provider id 不在 inventory（typed；available 清单由快照单源派生）。 */
@@ -110,6 +126,29 @@ export function validateCatalogAuthProfile(providerId: string, profile: AuthProf
       `Catalog provider "${providerId}" is OAuth-only; auth_profile "${profile}" is not supported ` +
       `(use "oauth" and complete the interactive provider login first)`,
     );
+  }
+}
+
+export class CatalogProtocolMismatchError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly apiFormat: ApiFormat,
+    readonly supportedApis: readonly string[],
+  ) {
+    super(
+      `Catalog provider "${providerId}" does not support api_format "${apiFormat}" ` +
+      `(resolved protocol "${API_FORMAT_TO_PI_AI_API[apiFormat]}"; supported: ${supportedApis.join(', ') || 'none'})`,
+    );
+    this.name = 'CatalogProtocolMismatchError';
+  }
+}
+
+/** Validate the explicit protocol against the static provider inventory. */
+export function validateCatalogProtocol(providerId: string, apiFormat: ApiFormat): void {
+  const entry = catalogProviderEntry(providerId);
+  const protocol = API_FORMAT_TO_PI_AI_API[apiFormat];
+  if (!entry.apis.includes(protocol)) {
+    throw new CatalogProtocolMismatchError(providerId, apiFormat, Object.freeze([...entry.apis]));
   }
 }
 

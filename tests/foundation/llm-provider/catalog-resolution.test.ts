@@ -15,7 +15,7 @@ function parseProvider(input: Record<string, unknown>): ProviderConfig {
 describe('catalog identity facade', () => {
   it('resolves explicit provider identity with source, revision and catalog window', () => {
     const resolution = parseProvider({
-      provider_id: 'openai', model: 'gpt-5', api_key: 'secret-not-in-resolution',
+      provider_id: 'openai', model: 'gpt-5', api_format: 'openai-responses', auth_profile: 'api_key', api_key: 'secret-not-in-resolution',
     }).catalogResolution;
     expect(resolution).toMatchObject({
       kind: 'catalog_model', source: 'provider_id', providerId: 'openai', modelId: 'gpt-5',
@@ -27,17 +27,21 @@ describe('catalog identity facade', () => {
     expect(Object.isFrozen(resolution?.window)).toBe(true);
   });
 
-  it('resolves a preset alias once to the same provider-qualified identity', () => {
+  it('resolves an explicit aliased provider without a preset source', () => {
     const resolution = parseProvider({
-      preset: 'moonshot', model: 'kimi-k2.6', api_key: 'synthetic-key',
+      provider_id: 'moonshotai-cn', model: 'kimi-k2.6', api_format: 'openai', auth_profile: 'api_key', api_key: 'synthetic-key',
     }).catalogResolution;
     expect(resolution).toMatchObject({
-      kind: 'catalog_model', source: 'preset_alias', providerId: 'moonshotai-cn', modelId: 'kimi-k2.6',
+      kind: 'catalog_model', source: 'provider_id', providerId: 'moonshotai-cn', modelId: 'kimi-k2.6',
     });
   });
 
   it('keeps metadata-only catalog identity separate from wire identity', () => {
-    const resolution = parseProvider({ preset: 'deepseek', api_key: 'synthetic-key' }).catalogResolution;
+    const resolution = parseProvider({
+      provider_id: 'deepseek', api_format: 'anthropic', auth_profile: 'api_key', api_key: 'synthetic-key',
+      model: 'deepseek-flash[1m]', base_url: 'https://api.deepseek.com/anthropic',
+      catalog_provider: 'deepseek', catalog_model: 'deepseek-flash',
+    }).catalogResolution;
     expect(resolution).toMatchObject({
       kind: 'metadata_only', source: 'metadata_only', providerId: 'deepseek', modelId: 'deepseek-flash',
       wire: { model: 'deepseek-flash[1m]', api: 'anthropic-messages' },
@@ -59,7 +63,7 @@ describe('catalog identity facade', () => {
 
   it('uses provider-qualified duplicate resolution instead of another provider window', () => {
     const resolution = parseProvider({
-      provider_id: 'cloudflare-ai-gateway', model: 'gpt-5', api_key: 'synthetic-key',
+      provider_id: 'cloudflare-ai-gateway', model: 'gpt-5', api_format: 'openai-responses', auth_profile: 'api_key', api_key: 'synthetic-key',
     }).catalogResolution;
     expect(resolution?.window).toMatchObject({ contextWindow: 128_000, source: 'catalog' });
     expect(resolution?.providerId).toBe('cloudflare-ai-gateway');

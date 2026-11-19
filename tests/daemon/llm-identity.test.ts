@@ -12,6 +12,7 @@ import {
   llmConfigIdentity,
   resolveLLMConfig,
   LLMConfigIdentityMismatchError,
+  migrateLegacyProviderConfig,
 } from '../../src/core/llm-configuration/index.js';
 import { verifyExpectedLLMIdentity } from '../../src/daemon/daemon.js';
 
@@ -19,9 +20,12 @@ function makeGlobal(model: string, apiKey = '${ANTHROPIC_API_KEY}') {
   return {
     llm: {
       primary: {
-        preset: 'anthropic',
+        provider_id: 'custom:anthropic',
+        api_format: 'anthropic',
+        auth_profile: 'api_key',
         api_key: apiKey,
         model,
+        base_url: 'https://api.anthropic.com',
         temperature: 0.7,
         timeout_ms: 30000,
       },
@@ -57,9 +61,17 @@ describe('llmConfigIdentity / snapshotLLMConfig (Phase 1926 Step C)', () => {
       .not.toBe(snapshotLLMConfig(makeGlobal('claude-x', '${KEY_B}')).identity);
   });
 
-  it('stable/operational 同源消费 resolved config（model=auto 解析为默认模型）', () => {
-    const autoSnap = snapshotLLMConfig(makeGlobal('auto'));
-    const resolved = resolveLLMConfig(makeGlobal('auto'));
+  it('legacy model=auto 迁移后 stable/operational 同源消费 resolved config', () => {
+    const autoGlobal = makeGlobal('claude-x');
+    autoGlobal.llm.primary = migrateLegacyProviderConfig({
+      preset: 'anthropic',
+      api_key: '${ANTHROPIC_API_KEY}',
+      model: 'auto',
+      temperature: 0.7,
+      timeout_ms: 30000,
+    });
+    const autoSnap = snapshotLLMConfig(autoGlobal);
+    const resolved = resolveLLMConfig(autoGlobal);
     expect(autoSnap.operationalIdentity).toBe(llmConfigIdentity(resolved));
     expect(autoSnap.config.primary.model).not.toBe('auto');
   });

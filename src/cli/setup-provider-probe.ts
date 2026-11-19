@@ -10,11 +10,24 @@
 import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
-const { toProviderInput } = llmProviderConfigContract;
+const { toProviderInput, llmProviderConfigSchema } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 import type { AuthenticationSetupCapability } from '../core/llm-configuration/setup.js';
 import {
+  createAuthenticationCapability,
+  isCredentialReference,
+  migrateLegacyProviderConfig,
+  resolveCredentialReference,
+  snapshotLLMConfigInput,
+  type LLMSetupDraft,
+  type LLMSetupProbeResult,
+  type LLMSetupVerified,
+  type LLMSetupWorkflowEvent,
+} from '../core/llm-configuration/index.js';
+import {
   checkLLMConnectionFor,
+  probeLLMConnection,
+  classifyLLMErrorForDisplay,
   LLM_ERROR_HINTS,
   LLM_ERROR_LABELS,
   type LLMErrorType,
@@ -22,6 +35,11 @@ import {
 import type { SetupProbeCandidate } from './setup-provider-catalog.js';
 import { stripOrchestratorWrapper, truncateLLMMessage } from './utils/text.js';
 import { SETUP_MULTI_ENDPOINT_HINT } from '../templates/messages/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from './audit-events.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 
 /**
  * 单候选 probe 的 bounded timeout：不把用户生产 timeout 拉满。
@@ -145,15 +163,15 @@ export function makeSetupCandidateProbe(
   },
 ): (candidate: SetupProbeCandidate) => Promise<SetupProbeResult> {
   return async (candidate) => {
-    const candidateConfig: LLMProviderConfig = {
+    const candidateConfig: LLMProviderConfig = llmProviderConfigSchema.parse(migrateLegacyProviderConfig({
       preset: candidate.presetId,
       label: input.label,
       ...(input.apiKey !== undefined && { api_key: input.apiKey }),
       model: input.model,
-      base_url: candidate.baseUrl, // 显式覆盖 preset 默认
+      base_url: candidate.baseUrl,
       temperature: 0.7,
       timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-    };
+    }));
     if (candidateConfig.api_key !== undefined) {
       const resolved = deps.resolveKey(candidateConfig.api_key);
       if (resolved === undefined) {
@@ -169,4 +187,142 @@ export function makeSetupCandidateProbe(
       ...(deps.authentication !== undefined && { authentication: deps.authentication }),
     });
   };
+}
+
+
+interface SetupWorkflowProbeDeps {
+  fsFactory(baseDir: string): FileSystem;
+}
+
+function setupDraftSnapshot(
+  deps: SetupWorkflowProbeDeps,
+  draft: LLMSetupDraft,
+  probeCandidate: boolean,
+) {
+  const resolvedProvider = { ...draft.provider };
+  if (resolvedProvider.api_key !== undefined && isCredentialReference(resolvedProvider.api_key)) {
+    const resolved = resolveCredentialReference(createAuthenticationSetup(deps), resolvedProvider.api_key);
+    if (resolved === undefined) {
+      throw new CliError(
+        `API key reference ${resolvedProvider.api_key} is not set ` +
+        '(not in process env, credentials file, or .env fallbacks)',
+      );
+    }
+    resolvedProvider.api_key = resolved;
+  }
+  if (probeCandidate) {
+    resolvedProvider.timeout_ms = Math.min(
+      resolvedProvider.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS,
+      SETUP_PROBE_TIMEOUT_MS,
+    );
+  }
+  return snapshotLLMConfigInput(
+    { llm: {
+      primary: draft.provider,
+      circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
+    } },
+    {
+      resolvedInput: { llm: {
+        primary: resolvedProvider,
+        circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
+      } },
+      credentials: createAuthenticationCapability(deps),
+    },
+  );
+}
+
+/** The single CLI probe adapter used by initialize/primary/fallback workflows. */
+export function makeLLMSetupWorkflowProbe(
+  deps: SetupWorkflowProbeDeps,
+  audit?: AuditLog,
+): (draft: LLMSetupDraft, candidate: { kind: 'candidate' | 'direct' }) => Promise<LLMSetupProbeResult> {
+  return async (draft, candidate) => {
+    let snapshot: ReturnType<typeof setupDraftSnapshot>;
+    try {
+      snapshot = setupDraftSnapshot(deps, draft, candidate.kind === 'candidate');
+    } catch (error) {
+      const failure = {
+        ok: false as const,
+        errorType: classifyLLMErrorForDisplay(error),
+        message: formatErr(error),
+        provider: draft.provider.provider_id,
+      };
+      audit?.write(
+        CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
+        `error_type=${failure.errorType}`,
+        `message=${audit.message(failure.message)}`,
+      );
+      return failure;
+    }
+    const result = await probeLLMConnection(snapshot, {
+      authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),
+    });
+    if (result.ok) return { ok: true, model: result.model, snapshot };
+    const failure = {
+      ok: false as const,
+      errorType: result.errorType,
+      message: result.message,
+      provider: result.provider,
+    };
+    audit?.write(
+      CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
+      `error_type=${failure.errorType}`,
+      `message=${audit.message(failure.message)}`,
+    );
+    return failure;
+  };
+}
+
+export async function recheckLLMSetupIdentity(
+  deps: SetupWorkflowProbeDeps,
+  draft: LLMSetupDraft,
+  verified: LLMSetupVerified,
+): Promise<boolean> {
+  return setupDraftSnapshot(deps, draft, false).operationalIdentity === verified.snapshot.operationalIdentity;
+}
+
+/** Audit projection excludes config, credential refs, raw URLs and failure messages. */
+export function emitLLMSetupWorkflowAudit(audit: AuditLog | undefined, event: LLMSetupWorkflowEvent): void {
+  if (!audit) return;
+  switch (event.type) {
+    case 'probe_attempted':
+      audit.write(
+        CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED,
+        `provider=${event.provider}`,
+        `model=${event.model}`,
+        `candidate=${event.identity}`,
+        `kind=${event.kind}`,
+        `started_at=${event.startedAt}`,
+      );
+      return;
+    case 'probe_finished':
+      // Failure details are emitted separately by the probe adapter through
+      // audit.message; this record carries only non-secret result/timing/winner.
+      audit.write(
+        event.result.ok ? CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED : CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
+        `candidate=${event.identity}`,
+        `kind=${event.kind}`,
+        ...(event.result.model !== undefined ? [`model=${event.result.model}`] : []),
+        ...(event.result.errorType !== undefined ? [`error_type=${event.result.errorType}`] : []),
+        `started_at=${event.startedAt}`,
+        `completed_at=${event.completedAt}`,
+        `winner=${event.winner}`,
+      );
+      return;
+    case 'repair':
+      audit.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `action=${event.action}`);
+      return;
+    case 'cancelled':
+      audit.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `reason=${audit.message(event.reason)}`);
+      return;
+    case 'committed':
+      audit.write(
+        CLI_AUDIT_EVENTS.CONFIG_SAVED,
+        'command=setup_workflow',
+        `target=${event.target}`,
+        `revision=${event.revision}`,
+        `identity=${event.identity}`,
+      );
+      return;
+  }
 }

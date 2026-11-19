@@ -40,7 +40,9 @@ export function createGlobalConfigSchema() {
 
 /** 根文档磁盘 schema：共享 LLM 已迁出，legacy llm 仅用于一次性迁移。 */
 export function createStoredGlobalConfigSchema() {
-  return createGlobalConfigSchema().extend({ llm: llmOrchestratorConfigSchema.optional() });
+  // Legacy llm is raw migration input; normal validation happens after the L4
+  // preset migration and before the shared document is written.
+  return createGlobalConfigSchema().extend({ llm: z.unknown().optional() });
 }
 
 export function getClawConfigSchema() {

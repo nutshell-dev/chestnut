@@ -85,10 +85,27 @@ function teardownTempDir() {
 
 function writeInitialConfig() {
   const configDir = path.join(tempDir, '.chestnut');
-  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(path.join(configDir, 'llm'), { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.yaml'), '{}\n');
   fs.writeFileSync(
-    path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: anthropic\n    api_key: sk-ant-old\n  fallbacks:\n    - preset: openai\n      label: my-openai\n      api_key: sk-openai\n`,
+    path.join(configDir, 'llm', 'config.yaml'),
+    `schema_version: 1
+revision: 1
+primary:
+  provider_id: custom:anthropic
+  api_format: anthropic
+  auth_profile: api_key
+  api_key: sk-ant-old
+  model: claude-test
+  base_url: https://api.anthropic.com
+fallbacks:
+  - provider_id: openai
+    api_format: openai-responses
+    auth_profile: api_key
+    api_key: sk-openai
+    model: gpt-4o
+    label: my-openai
+`,
   );
 }
 
@@ -115,9 +132,12 @@ describe('config provider set-primary — probe', () => {
     expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
 
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('openai');
+    expect(config.llm.primary.provider_id).toBe('openai');
+    expect(config.llm.primary.api_format).toBe('openai-responses');
+    expect(config.llm.primary).not.toHaveProperty('preset');
     expect(config.llm.fallbacks).toHaveLength(1);
-    expect(config.llm.fallbacks![0].preset).toBe('anthropic');
+    expect(config.llm.fallbacks![0].provider_id).toBe('custom:anthropic');
+    expect(config.llm.fallbacks![0]).not.toHaveProperty('preset');
 
     // phase 1452 Step B: saveGlobal 成功侧 emit cli_config_saved
     const auditContent = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf-8');

@@ -66,7 +66,7 @@ function makeClawConfig(name = 'testclaw'): ClawConfig {
     name,
     tool_profile: 'full',
     max_concurrent_tasks: 3,
-    llm: { primary: { preset: 'openai', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', temperature: 0.7, timeout_ms: 120000 } },
+    llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
   };
 }
 
@@ -154,7 +154,7 @@ describe('RootConfigReader/Admin: claw load/save', () => {
       name: 'testclaw',
       tool_profile: 'full',
       max_concurrent_tasks: 3,
-      llm: { primary: { preset: 'openai', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', temperature: 0.7, timeout_ms: 120000 } },
+      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
     });
     const claw = admin.loadClaw(clawPath);
     expect(claw?.name).toBe('testclaw');
@@ -272,7 +272,7 @@ describe('resolveLLMConfig resolver', () => {
       name: 'overrideclaw',
       tool_profile: 'full',
       max_concurrent_tasks: 3,
-      llm: { primary: { preset: 'openai', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-ovr', temperature: 0.7, timeout_ms: 120000 } },
+      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-ovr', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
     });
     const clawCfg = admin.loadClaw(clawPath);
     const withClaw = resolveLLMConfig(globalCfg, clawCfg);

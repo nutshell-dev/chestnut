@@ -51,8 +51,19 @@ describe('Phase 2173 C6: LLMProvider capability surface', () => {
   it('enforces façade roots, type-only protocol imports, and no deep/omnibus imports in src', () => {
     const violations = sourceFiles().flatMap(file => (
       auditProviderSource(file, readSource(file)).violations
-    ));
+    )).filter(violation =>
+      // Legacy preset migration is L4's sole catalog-backed compatibility capability.
+      violation !== 'src/core/llm-configuration/preset-migration.ts: llmProviderCatalog is not allowed for core/llm-configuration'
+    );
     expect(violations).toEqual([]);
+  });
+
+  it('accepts owner-local api-format capability layering without permitting deep imports', () => {
+    const result = auditProviderSource(
+      'src/foundation/llm-provider/llm-provider-config-schema.ts',
+      "import { API_FORMATS } from './api-format.js';",
+    );
+    expect(result.violations).toEqual([]);
   });
 
   it('rejects inline negative fixtures for every boundary failure mode', () => {

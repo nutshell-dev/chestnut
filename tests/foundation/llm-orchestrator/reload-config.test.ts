@@ -176,7 +176,10 @@ describe('phase 320 Step A: reloadConfig', () => {
     const { sink } = createSink();
     const cfgA = createGlobalConfigSchema().parse({
       llm: {
-        primary: { preset: 'anthropic', api_key: 'kA', model: 'mA' },
+        primary: {
+          provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
+          api_key: 'kA', model: 'mA', base_url: 'https://api.anthropic.com',
+        },
       },
     });
     const orch = new LLMOrchestratorImpl(toOrchestratorConfig(resolveLLMConfig(cfgA), {
@@ -190,9 +193,15 @@ describe('phase 320 Step A: reloadConfig', () => {
 
     const cfgB = createGlobalConfigSchema().parse({
       llm: {
-        primary: { preset: 'openai', api_key: 'kB', model: 'mB' },
+        primary: {
+          provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key',
+          api_key: 'kB', model: 'mB', base_url: 'https://api.openai.com/v1',
+        },
         fallbacks: [
-          { preset: 'anthropic', api_key: 'kA', model: 'mA' },
+          {
+            provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
+            api_key: 'kA', model: 'mA', base_url: 'https://api.anthropic.com',
+          },
         ],
       },
     });

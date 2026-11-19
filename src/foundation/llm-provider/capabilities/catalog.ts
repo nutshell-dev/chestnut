@@ -21,7 +21,7 @@ export interface ProviderChoiceCatalogCapability {
 }
 
 export { PRESETS, resolvePreset, presetAuthProfile, presetRequiresBaseUrl } from '../presets.js';
-export type { AuthProfile, PresetThinkingDefaults } from '../presets.js';
+export type { AuthProfile, ApiFormat, PresetThinkingDefaults } from '../presets.js';
 export { resolveThinkingDefaults } from '../thinking-defaults.js';
 export type { ResolvedThinkingDefaults } from '../thinking-defaults.js';
 export {
@@ -31,6 +31,8 @@ export {
   isCatalogProvider,
   deriveCatalogAuthProfile,
   validateCatalogAuthProfile,
+  validateCatalogProtocol,
+  CatalogProtocolMismatchError,
   catalogModelKnown,
   catalogProvidersWithoutPreset,
   resolveCatalogIdentity,
