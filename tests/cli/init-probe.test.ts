@@ -107,7 +107,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-init-probe-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
 function teardownTempDir() {
@@ -174,7 +173,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
 
     const failEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_failed');
     expect(failEntry?.some(s => s.includes('auth'))).toBe(true);
-    // 配置只存 ${REF}，load 时展开为用户级凭据值
+    // 配置只存 ${REF}，load 时展开为workspace 凭据值
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('sk-ant-good');
@@ -278,7 +277,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('env-key');
     // 空输入不写凭据文件
-    expect(fs.existsSync(path.join(tempDir, 'cred-home', 'credentials.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'))).toBe(false);
     // 提示同样说明两种行为
     expect(
       questionPrompts().some(

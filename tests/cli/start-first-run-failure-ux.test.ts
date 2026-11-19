@@ -122,7 +122,6 @@ const { loadGlobalConfig } = await import('../../src/assembly/config/config-load
 
 let tmpDir: string;
 let savedRoot: string | undefined;
-let savedHome: string | undefined;
 let output: string[];
 const originalIsTTY = process.stdin.isTTY;
 
@@ -161,9 +160,7 @@ beforeEach(() => {
   resetRun();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1976-first-run-'));
   savedRoot = process.env.CHESTNUT_ROOT;
-  savedHome = process.env.CHESTNUT_HOME;
   process.env.CHESTNUT_ROOT = tmpDir;
-  process.env.CHESTNUT_HOME = path.join(tmpDir, 'cred-home');
   Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
     output.push(args.map(String).join(' '));
@@ -180,8 +177,6 @@ beforeEach(() => {
 afterEach(() => {
   if (savedRoot === undefined) delete process.env.CHESTNUT_ROOT;
   else process.env.CHESTNUT_ROOT = savedRoot;
-  if (savedHome === undefined) delete process.env.CHESTNUT_HOME;
-  else process.env.CHESTNUT_HOME = savedHome;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.CHESTNUT_LLM_API_KEY;
@@ -316,7 +311,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
 
     expect(outcome.kind).toBe('verified');
     expect(conn.probeCalls).toBe(2);
-    // 配置只存 ${REF}；load 时展开为用户级凭据值
+    // 配置只存 ${REF}；load 时展开为workspace 凭据值
     const rawYaml = fs.readFileSync(path.join(tmpDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('sk-good-key');

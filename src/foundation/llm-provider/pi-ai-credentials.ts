@@ -59,7 +59,7 @@ function parseCredential(providerId: string, raw: string): PiAi.Credential {
   } catch (err) {
     throw new LLMError(
       `Stored credential for provider "${providerId}" is corrupted (not JSON); ` +
-      `remove ref ${piAiCredentialRef(providerId)} from the user credentials file and login again.`,
+      `remove ref ${piAiCredentialRef(providerId)} from the workspace credentials file and login again.`,
       { provider: providerId, cause: err },
     );
   }
@@ -67,7 +67,7 @@ function parseCredential(providerId: string, raw: string): PiAi.Credential {
   if (type !== 'api_key' && type !== 'oauth') {
     throw new LLMError(
       `Stored credential for provider "${providerId}" has unknown type ${JSON.stringify(type)}; ` +
-      `remove ref ${piAiCredentialRef(providerId)} from the user credentials file and login again.`,
+      `remove ref ${piAiCredentialRef(providerId)} from the workspace credentials file and login again.`,
       { provider: providerId },
     );
   }

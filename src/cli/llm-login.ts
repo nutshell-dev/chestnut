@@ -3,7 +3,7 @@
  *
  * `Models.login` 是 pi-ai 唯一受支持的登录入口（OAuth device_code / auth_url /
  * manual_code 与 api_key 交互流）；凭证由 pi-ai 自动经 CredentialStore 持久化——
- * 本仓桥接到用户级 Credentials owner（见 pi-ai-credentials.ts），secret 不进
+ * 本仓桥接到workspace Credentials owner（见 pi-ai-credentials.ts），secret 不进
  * YAML/audit/log。调用方只传显式 AuthenticationSetupCapability；本函数内部
  * 组合固定 raw store，不持任何全局状态。
  *
@@ -87,7 +87,7 @@ function createReadlineInteraction(rl: readline.Interface): PiAi.AuthInteraction
 }
 
 /**
- * 交互登录并把凭证持久化到用户级 Credentials owner。
+ * 交互登录并把凭证持久化到workspace Credentials owner。
  * 成功打印来源标签（不含 secret）；失败 loud 上抛（CliError / pi-ai ModelsError）。
  */
 export async function runProviderLogin(opts: {
@@ -119,7 +119,7 @@ export async function runProviderLogin(opts: {
     const models = runtime.createModels({ credentials });
     models.setProvider(provider);
     await models.login(opts.piAiProvider, opts.type, createReadlineInteraction(ownRl));
-    console.log(`✓ Logged in to ${provider.name} (${opts.type}); credential stored in user credentials file`);
+    console.log(`✓ Logged in to ${provider.name} (${opts.type}); credential stored in workspace credentials file`);
   } finally {
     if (!opts.rl) ownRl.close();
   }

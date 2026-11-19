@@ -7,7 +7,7 @@
  * - catalog 命中走 pi-ai `builtinProviders()` —— 每个内建 provider 自带完整
  *   auth（api_key env/ambient AWS 链/ADC/OAuth refresh）与 lazy api 绑定，
  *   chestnut 不自建 provider 不伪造 auth；stored credential 经
- *   pi-ai-credentials.ts 的 CredentialStore 桥接用户级 Credentials owner。
+ *   pi-ai-credentials.ts 的 CredentialStore 桥接workspace Credentials owner。
  * - 自建 Model 路径（ollama/custom-*）：单 apiKey auth 的自定义 provider。
  */
 
@@ -43,7 +43,7 @@ export interface PiAiEndpointOptions {
  * catalog 命中（Phase 1926 Step D）：复用 pi-ai `builtinProviders()` 的内建
  * provider —— 完整 auth（api_key env / ambient AWS 链 / ADC / OAuth refresh）
  * 与 lazy api 绑定由 pi-ai 原生装配；stored credential 经 CredentialStore 桥接
- * 用户级 Credentials owner；config.apiKey 仍经 per-request override 注入（${REF}
+ * workspace Credentials owner；config.apiKey 仍经 per-request override 注入（${REF}
  * 解析链不变）。OAuth-only provider 收到 config.apiKey → loud 拒绝（pi-ai 会静默
  * 忽略该 override，不得让用户误以为生效）。
  *

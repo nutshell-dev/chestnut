@@ -79,7 +79,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-init-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
 function teardownTempDir() {

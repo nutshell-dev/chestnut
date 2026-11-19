@@ -59,7 +59,7 @@ import {
   setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
-// Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
+// Phase 2206 Step C：明文 key 不落 root config —— 经 Credentials owner 落 workspace 凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from '../credentials-prompt.js';
 import {
   SETUP_PROVIDER_CATALOG,

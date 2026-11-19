@@ -27,7 +27,7 @@ export interface PresetThinkingDefaults {
  * - ambient：pi-ai builtin provider 原生环境解析（AWS profile/default chain、
  *   Google ADC、provider env）——配置无需 api_key，请求期由 pi-ai auth.resolve 判定；
  * - oauth：pi-ai OAuth 凭证（access/refresh），经 `config provider login` 交互登录、
- *   由用户级 Credentials owner 持久化（pi-ai CredentialStore 桥接）。
+ *   由 workspace Credentials owner 持久化（pi-ai CredentialStore 桥接）。
  */
 export type AuthProfile = 'api_key' | 'ambient' | 'oauth';
 

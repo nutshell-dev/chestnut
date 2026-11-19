@@ -62,8 +62,9 @@ function migrationError(
 }
 
 /**
- * Explicit async migration for any YAML document containing provider api_key fields.
- * The synchronous loader only classifies/rejects; this owner performs all writes.
+ * Explicit async migration for plaintext already present in a workspace YAML document.
+ * The synchronous loader only classifies/rejects; this owner writes only to the
+ * canonical workspace credential file. It never probes or cleans a user-level file.
  */
 export async function migrateLegacyApiKeysAtPath(
   deps: { fsFactory(baseDir: string): FileSystem },

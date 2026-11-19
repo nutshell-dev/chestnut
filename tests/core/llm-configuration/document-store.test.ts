@@ -17,7 +17,6 @@ import { cleanupTempDirSync, createTrackedTempDirSync } from '../../utils/temp.j
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = { fsFactory };
 
-let homeDir: string;
 let projectDir: string;
 
 function referencedSource(): SharedLLMInput {
@@ -43,9 +42,7 @@ function makeStore() {
 }
 
 beforeEach(() => {
-  homeDir = createTrackedTempDirSync('chestnut-llm-document-home-');
   projectDir = createTrackedTempDirSync('chestnut-llm-document-project-');
-  vi.stubEnv('CHESTNUT_HOME', homeDir);
   vi.stubEnv('CHESTNUT_ROOT', projectDir);
   vi.stubEnv('LLM_DOCUMENT_TEST_KEY', 'resolved-primary-secret');
   vi.stubEnv('LLM_DOCUMENT_TEST_HEADER', 'resolved-header-secret');
@@ -53,7 +50,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  cleanupTempDirSync(homeDir);
   cleanupTempDirSync(projectDir);
 });
 

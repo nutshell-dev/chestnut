@@ -36,7 +36,6 @@ function sessionPath() { return path.join(root, '.chestnut', 'launcher-setup-ses
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2011-setup-'));
   process.env.CHESTNUT_ROOT = root;
-  process.env.CHESTNUT_HOME = path.join(root, 'home');
   delete process.env.OPENAI_API_KEY;
   deps = makeDeps();
   probe.fn.mockReset();
@@ -98,7 +97,7 @@ describe('launcher setup.v1', () => {
     expect(response.payload.phase).toBe('needs_provider');
     expect(fs.existsSync(sessionPath())).toBe(false);
     expect(fs.existsSync(path.join(root, '.chestnut', 'llm', 'config.yaml'))).toBe(false);
-    const credentials = path.join(process.env.CHESTNUT_HOME!, '.chestnut', 'credentials.json');
+    const credentials = path.join(root, '.chestnut', 'llm', 'credentials.yaml');
     if (fs.existsSync(credentials)) expect(fs.readFileSync(credentials, 'utf8')).not.toContain('sk-cancel-secret');
   });
 

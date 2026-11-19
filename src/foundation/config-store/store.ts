@@ -78,7 +78,7 @@ function expandEnvVars(obj: unknown, resolveEnvVar: (name: string) => string | u
 interface LoaderDeps {
   fsFactory: (baseDir: string) => FileSystem;
   /**
-   * Phase 1925 Step B：`${VAR}` 解析注入点（如用户级 Credentials owner）。
+   * Phase 2206 Step C：`${VAR}` 解析注入点（如 workspace Credentials owner）。
    * 缺省 = 现状 process.env 查找；返回 undefined → 'missing_env' typed failure。
    * resolver 自身抛出的错误原样传播，不包装为 missing_env。
    */

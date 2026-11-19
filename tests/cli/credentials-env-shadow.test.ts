@@ -64,7 +64,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-cred-env-shadow-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
 function teardownTempDir() {
@@ -127,7 +126,7 @@ describe('storeKeyAsCredential — onShadowedEnv 双语义', () => {
       ),
     ).rejects.toThrow(/Unset CHESTNUT_ANTHROPIC_API_KEY/);
     // 不写凭据文件
-    expect(fs.existsSync(path.join(tempDir, 'cred-home', 'credentials.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'))).toBe(false);
   });
 
   it('派生 ref 未被遮蔽时正常落凭据文件', async () => {

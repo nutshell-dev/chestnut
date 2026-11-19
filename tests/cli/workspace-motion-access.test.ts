@@ -28,7 +28,7 @@ describe('workspace CLI caller access', () => {
       const result = spawnSync(process.execPath, [path.resolve('dist/cli.js'), ...args], {
         cwd: root,
         env: {
-          ...process.env, CHESTNUT_ROOT: root, CHESTNUT_HOME: path.join(root, 'credentials'),
+          ...process.env, CHESTNUT_ROOT: root,
           CHESTNUT_CALLER_AGENT_ID: 'alice',
         },
         input: '{}\n', encoding: 'utf8', timeout: CLI_ACCESS_PROCESS_TIMEOUT_MS,

@@ -2,7 +2,7 @@
  * credentials-prompt - 交互输入 API key 的呈现外壳。
  *
  * 引用与存储决策归 L4 LLMConfiguration；本模块只保留 console、hooks 与
- * CliError 映射。配置只保存 `${REF}`，secret 仍由兼容用户级 owner 管理。
+ * CliError 映射。配置只保存 `${REF}`，secret 仍由 workspace owner 管理。
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -49,7 +49,7 @@ export async function storeKeyAsCredential(
     );
     if (result.kind === 'reference') return result.reference;
     if (result.kind === 'stored') {
-      if (!hooks?.silent) console.log(`✓ Stored key as credential reference \${${ref}} (user credentials file)`);
+      if (!hooks?.silent) console.log(`✓ Stored key as credential reference \${${ref}} (workspace credentials file)`);
       hooks?.onStored?.(ref, { created: result.created, value: trimmed });
     } else {
       if (!hooks?.silent) console.log(`✓ Will read ${ref} from the process environment at runtime`);

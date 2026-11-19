@@ -105,7 +105,6 @@ async function runFailure(args: string[]): Promise<string> {
 beforeEach(() => {
   tempDir = createTrackedTempDirSync('chestnut-provider-ambiguity-');
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
   fs.mkdirSync(path.join(tempDir, '.chestnut'), { recursive: true });
   fs.writeFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), '{}\n');
   logLines = [];

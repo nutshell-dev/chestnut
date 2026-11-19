@@ -13,7 +13,6 @@ import * as path from 'node:path';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = { fsFactory };
-let homeDir: string;
 let projectDir: string;
 
 function plaintextSource(): SharedLLMInput {
@@ -24,15 +23,12 @@ function plaintextSource(): SharedLLMInput {
 }
 
 beforeEach(() => {
-  homeDir = createTrackedTempDirSync('chestnut-api-key-home-');
   projectDir = createTrackedTempDirSync('chestnut-api-key-project-');
-  vi.stubEnv('CHESTNUT_HOME', homeDir);
   vi.stubEnv('CHESTNUT_ROOT', projectDir);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  cleanupTempDirSync(homeDir);
   cleanupTempDirSync(projectDir);
 });
 
@@ -60,6 +56,7 @@ describe('legacy API key migration', () => {
     expect(raw.fallbacks?.[0]?.api_key).toMatch(/^\$\{CHESTNUT_/);
     expect(store.readResolved().primary.api_key).toBe('primary-secret');
     expect(store.readResolved().fallbacks?.[0]?.api_key).toBe('fallback-secret');
+    expect(getCredentialsFilePath()).toBe(path.join(projectDir, '.chestnut', 'llm', 'credentials.yaml'));
     expect(fs.statSync(getCredentialsFilePath()).mode & 0o777).toBe(0o600);
     expect(events).toHaveLength(2);
     expect(events.join('\n')).not.toContain('primary-secret');
@@ -86,5 +83,6 @@ describe('legacy API key migration', () => {
     const text = fs.readFileSync(configPath, 'utf8');
     expect(text).toContain('${CHESTNUT_');
     expect(text).not.toContain('claw-secret');
+    expect(fs.readFileSync(getCredentialsFilePath(), 'utf8')).toContain('claw-secret');
   });
 });

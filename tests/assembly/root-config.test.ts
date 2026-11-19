@@ -103,7 +103,6 @@ beforeEach(() => {
   tempDir = path.join(tmpdir(), `chestnut-root-config-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'credential-home'));
   vi.stubEnv('ROOT_CONFIG_TEST_API_KEY', 'sk-test');
   admin = createRootConfig({ fsFactory });
   llmAdmin = createLLMConfiguration({ fsFactory });

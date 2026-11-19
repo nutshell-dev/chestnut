@@ -8,7 +8,6 @@ import { createTrackedTempDirSync } from '../../utils/temp.js';
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 beforeEach(() => {
-  vi.stubEnv('CHESTNUT_HOME', createTrackedTempDirSync('chestnut-auth-store-'));
   vi.stubEnv('CHESTNUT_ROOT', createTrackedTempDirSync('chestnut-auth-project-'));
 });
 
@@ -48,7 +47,7 @@ describe('createAuthenticationCapability', () => {
 });
 
 describe('createAuthenticationSetup + L1 createStore', () => {
-  it('固定使用兼容用户级后端，read/modify 复用同一凭据文件', async () => {
+  it('固定使用同一 workspace 后端，read/modify 复用同一凭据文件', async () => {
     const setup = createAuthenticationSetup({ fsFactory, env: {} });
     const store = llmProviderCredentialRuntime.createStore(setup);
     await store.modify('xai', async (current) => {

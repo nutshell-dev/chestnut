@@ -21,7 +21,6 @@ const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 const deps = { fsFactory };
 
 let projectDir: string;
-let homeDir: string;
 
 function rootConfigPath(): string {
   return path.join(projectDir, '.chestnut', 'config.yaml');
@@ -76,15 +75,12 @@ function migrationId(source: SharedLLMInput): string {
 
 beforeEach(() => {
   projectDir = createTrackedTempDirSync('chestnut-llm-migration-project-');
-  homeDir = createTrackedTempDirSync('chestnut-llm-migration-home-');
   vi.stubEnv('CHESTNUT_ROOT', projectDir);
-  vi.stubEnv('CHESTNUT_HOME', homeDir);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
   cleanupTempDirSync(projectDir);
-  cleanupTempDirSync(homeDir);
 });
 
 describe('legacy root LLM migration', () => {

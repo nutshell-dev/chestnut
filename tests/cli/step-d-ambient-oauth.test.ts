@@ -107,8 +107,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-step-d-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  // Phase 1925 Step B：凭据层隔离 —— 绝不触碰真实 home
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
   processExitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null | undefined) => {
     throw new Error(`process.exit(${code})`);
   });

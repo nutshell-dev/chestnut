@@ -22,7 +22,7 @@ export type {
   ProviderAuthenticationDescription,
 } from './authentication-types.js';
 
-/** 创建固定绑定兼容用户级 owner 的窄认证 capability；不暴露可写或 raw store 面。 */
+/** 创建固定绑定同一 workspace owner 的窄认证 capability；不暴露可写或 raw store 面。 */
 export function createAuthenticationCapability(
   deps: AuthenticationCapabilityDeps,
 ): ProviderAuthenticationCapability {

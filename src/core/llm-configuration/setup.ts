@@ -34,7 +34,7 @@ export interface AuthenticationSetupCapability {
   ): Promise<string | undefined>;
 }
 
-/** 每次构造固定绑定同一个兼容 owner；不注册全局 backend，不引入 singleton。 */
+/** 每次构造固定绑定同一个 workspace owner；不注册全局 backend，不引入 singleton。 */
 export function createAuthenticationSetup(
   deps: AuthenticationCapabilityDeps,
 ): AuthenticationSetupCapability {

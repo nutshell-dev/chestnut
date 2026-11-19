@@ -109,8 +109,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-config-add-probe-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  // Phase 1925 Step B：凭据层隔离 —— 明文 key 落用户级凭据文件，测试中绝不触碰真实 home
-  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
 function teardownTempDir() {
@@ -343,7 +341,7 @@ describe('config provider add — API Key 输入矩阵（Phase 1984 Step C）', 
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'env-anthropic');
     expect(added?.api_key).toBe('env-key');
-    const credentials = fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8');
+    const credentials = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'), 'utf8');
     expect(credentials).toContain('sk-ant-old');
     expect(credentials).not.toContain('env-key');
   });
