@@ -237,6 +237,48 @@ describe('Phase 2189 Step C: display commit coalescing', () => {
 });
 
 
+describe('Phase 2200 Step B: clear descriptor display commit', () => {
+  it('flush commits the empty body once and invalidates the queued callback', async () => {
+    setSize(COLS, 24);
+    const h = makeHarness();
+    h.display.appendOutput('', 'old body');
+    h.display.flushDisplay();
+    const rendersBeforeClear = h.renders;
+
+    h.display.descriptorSink.emit({ kind: 'clear-lines' });
+    h.display.descriptorSink.emit({ kind: 'invalidate-cache' });
+    expect(h.display.outputLines).toHaveLength(0);
+    expect(h.renders).toBe(rendersBeforeClear);
+
+    h.display.flushDisplay();
+    expect(h.renders).toBe(rendersBeforeClear + 1);
+    expect(h.rendered).toBe('');
+
+    await new Promise<void>(resolve => process.nextTick(resolve));
+    expect(h.renders).toBe(rendersBeforeClear + 1);
+  });
+
+  it('commits only the temporary status/preview suffix on the next tick', async () => {
+    setSize(COLS, 24);
+    const h = makeHarness();
+    h.display.appendOutput('', 'old body');
+    h.display.flushDisplay();
+    const rendersBeforeClear = h.renders;
+    h.setStatus('⠋ Thinking...');
+    h.setPreviewText('preview tail');
+
+    h.display.descriptorSink.emit({ kind: 'clear-lines' });
+    h.display.descriptorSink.emit({ kind: 'invalidate-cache' });
+    expect(h.renders).toBe(rendersBeforeClear);
+
+    await new Promise<void>(resolve => process.nextTick(resolve));
+    expect(h.renders).toBe(rendersBeforeClear + 1);
+    expect(h.rendered).toBe('⠋ Thinking...\npreview tail');
+    expect(h.rendered).not.toContain('old body');
+  });
+});
+
+
 describe('Phase 2079: migrated exec resize with the real task status bar', () => {
   it('re-renders the complete command tail after narrowing and widening', () => {
     const bar = createTaskStatusBar({ updateRender: () => { /* noop */ } });

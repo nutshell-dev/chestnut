@@ -52,4 +52,5 @@ export const CLI_AUDIT_EVENTS = {
   SUPERVISION_RESULT: 'cli_supervision_result',
   SUPERVISION_UNAVAILABLE: 'cli_supervision_unavailable',
   WATCHDOG_ENSURE: 'cli_watchdog_ensure',
+  WATCHDOG_RECOVERY_REQUIRED: 'cli_watchdog_recovery_required',
 } as const;

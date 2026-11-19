@@ -7,8 +7,14 @@ import { _captureProcessRefForTest } from '../../src/foundation/process-exec/ind
 import { ensureWatchdog, WatchdogOrphanInspectionError } from '../../src/watchdog/ensure.js';
 import { inspectOrphanWatchdogs } from '../../src/watchdog/orphan-sweep.js';
 import { newWatchdogAttempt } from '../../src/watchdog/watchdog-ownership.js';
+import { spawnWatchdogCandidate } from '../../src/watchdog/spawn.js';
 import { _resetWatchdogContextForTest, setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
+
+vi.mock('../../src/watchdog/spawn.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/spawn.js')>();
+  return { ...actual, spawnWatchdogCandidate: vi.fn() };
+});
 
 const aliveObservation = () => ({
   kind: 'alive' as const,
@@ -23,6 +29,7 @@ describe('Phase 2189 Step E: read-only watchdog orphan inspection', () => {
 
   beforeEach(async () => {
     _resetWatchdogContextForTest();
+    vi.mocked(spawnWatchdogCandidate).mockReset().mockResolvedValue(21999);
     tempDir = await createTrackedTempDir('wd-inspect-');
     chestnutDir = path.join(tempDir, '.chestnut');
     nodeFs.mkdirSync(chestnutDir, { recursive: true });
@@ -86,7 +93,7 @@ describe('Phase 2189 Step E: read-only watchdog orphan inspection', () => {
     expect(processDeps.kill).not.toHaveBeenCalled();
   });
 
-  it('keeps foreign and in-flight candidates out of recovery', async () => {
+  it('keeps foreign and in-flight candidates fail-closed without spawning or terminating', async () => {
     const foreign = owner(21002);
     foreign.workspace_root = '/foreign/workspace';
     writeOwner('retired', foreign);
@@ -100,33 +107,87 @@ describe('Phase 2189 Step E: read-only watchdog orphan inspection', () => {
       expect.objectContaining({ kind: 'blocked', pid: foreign.pid, reason: 'foreign_workspace' }),
       expect.objectContaining({ kind: 'blocked', pid: candidate.pid, reason: 'candidate_in_flight' }),
     ]));
+
+    const processDeps = deps([foreign.pid, candidate.pid]);
+    await expect(ensureWatchdog(factory, processDeps))
+      .rejects.toBeInstanceOf(WatchdogOrphanInspectionError);
+    expect(spawnWatchdogCandidate).not.toHaveBeenCalled();
+    expect(processDeps.kill).not.toHaveBeenCalled();
   });
 
   it('fails closed when argv has no unique generation evidence', async () => {
-    const report = await inspectOrphanWatchdogs(factory, deps([21004]));
+    const processDeps = deps([21004]);
+    const report = await inspectOrphanWatchdogs(factory, processDeps);
     expect(report.kind).toBe('blocked');
+
+    await expect(ensureWatchdog(factory, processDeps))
+      .rejects.toBeInstanceOf(WatchdogOrphanInspectionError);
+    expect(spawnWatchdogCandidate).not.toHaveBeenCalled();
+    expect(processDeps.kill).not.toHaveBeenCalled();
   });
 
   it('blocks startup instead of spawning over an orphan that needs explicit recovery', async () => {
     const record = owner(21005);
     writeOwner('retired', record);
 
-    await expect(ensureWatchdog(factory, deps([record.pid])))
+    const processDeps = deps([record.pid]);
+    await expect(ensureWatchdog(factory, processDeps))
       .rejects.toBeInstanceOf(WatchdogOrphanInspectionError);
+    expect(spawnWatchdogCandidate).not.toHaveBeenCalled();
+    expect(processDeps.kill).not.toHaveBeenCalled();
   });
 
-  it('reuses a live active owner while exposing separate recovery evidence', async () => {
+  it('keeps a clean active owner explicitly clean', async () => {
+    const active = owner(21008);
+    writeOwner('active', active);
+    const processDeps = deps([active.pid]);
+
+    const result = await ensureWatchdog(factory, processDeps);
+
+    expect(result).toMatchObject({
+      kind: 'already_running_clean',
+      pid: active.pid,
+      startupInspection: { kind: 'clear', decisions: [] },
+    });
+    expect(spawnWatchdogCandidate).not.toHaveBeenCalled();
+    expect(processDeps.kill).not.toHaveBeenCalled();
+  });
+
+  it('reuses a live active owner with a typed recovery-required result and full evidence', async () => {
     const active = owner(21006);
     const retired = owner(21007);
     writeOwner('active', active);
     writeOwner('retired', retired);
+    const processDeps = deps([active.pid, retired.pid]);
 
-    const result = await ensureWatchdog(factory, deps([active.pid, retired.pid]));
+    const result = await ensureWatchdog(factory, processDeps);
 
-    expect(result.kind).toBe('already_running');
+    expect(result.kind).toBe('already_running_recovery_required');
     expect(result.startupInspection?.kind).toBe('recovery_required');
     expect(result.startupInspection?.decisions).toEqual([
-      expect.objectContaining({ kind: 'recovery', pid: retired.pid }),
+      expect.objectContaining({
+        kind: 'recovery',
+        pid: retired.pid,
+        evidence: expect.objectContaining({
+          generation: expect.objectContaining({ kind: 'retired', attemptId: retired.attempt_id }),
+        }),
+      }),
     ]);
+    const audit = nodeFs.readFileSync(path.join(chestnutDir, 'audit.tsv'), 'utf8');
+    expect(audit).toContain('watchdog_orphan_inspection_recovery');
+    expect(audit).toContain('watchdog_orphan_recovery_required');
+    expect(audit).toContain(retired.attempt_id);
+    expect(spawnWatchdogCandidate).not.toHaveBeenCalled();
+    expect(processDeps.kill).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds a fresh instance only after a clear inspection', async () => {
+    const processDeps = deps([]);
+
+    const result = await ensureWatchdog(factory, processDeps);
+
+    expect(result).toMatchObject({ kind: 'candidate_spawned', pid: 21999 });
+    expect(spawnWatchdogCandidate).toHaveBeenCalledTimes(1);
+    expect(processDeps.kill).not.toHaveBeenCalled();
   });
 });

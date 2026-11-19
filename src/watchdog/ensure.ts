@@ -14,7 +14,8 @@ import {
   WatchdogOwnerInspectionError,
 } from './watchdog-pid.js';
 import { spawnWatchdogCandidate } from './spawn.js';
-import { createWatchdogActionAudit } from './audit-wiring.js';
+import { createWatchdogActionAudit, type WatchdogActionAudit } from './audit-wiring.js';
+import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { admitWatchdogCandidate } from './candidate-recovery.js';
 import { getChestnutFs } from './watchdog-context.js';
 import { writeCandidateOutcome } from './watchdog-ownership.js';
@@ -25,16 +26,55 @@ import {
   type WatchdogOrphanInspectionReport,
 } from './orphan-sweep.js';
 
-export type EnsureWatchdogResult = (
-  | { kind: 'already_running'; pid: number }
-  | { kind: 'candidate_spawned'; pid: number; attemptId: string; windowId: string }
+type WatchdogCompletedInspection = Omit<WatchdogOrphanInspectionReport, 'kind'> & {
+  kind: 'clear' | 'recovery_required';
+};
+
+export type EnsureWatchdogResult =
   | {
-      kind: 'rejected';
-      reason: 'budget_exhausted' | 'window_closed';
-      attemptId: string;
-      windowId: string;
+      kind: 'already_running_clean';
+      pid: number;
+      startupInspection: WatchdogCompletedInspection & { kind: 'clear' };
     }
-) & { startupInspection?: WatchdogOrphanInspectionReport };
+  | {
+      kind: 'already_running_recovery_required';
+      pid: number;
+      startupInspection: WatchdogCompletedInspection & { kind: 'recovery_required' };
+    }
+  | ((
+      | { kind: 'candidate_spawned'; pid: number; attemptId: string; windowId: string }
+      | {
+          kind: 'rejected';
+          reason: 'budget_exhausted' | 'window_closed';
+          attemptId: string;
+          windowId: string;
+        }
+    ) & { startupInspection?: WatchdogOrphanInspectionReport });
+
+function alreadyRunningResult(
+  actionAudit: WatchdogActionAudit,
+  pid: number,
+  startupInspection: WatchdogCompletedInspection,
+): EnsureWatchdogResult {
+  if (startupInspection.kind === 'recovery_required') {
+    actionAudit.audit?.write(
+      WATCHDOG_AUDIT_EVENTS.ORPHAN_RECOVERY_REQUIRED,
+      `pid=${pid}`,
+      'status=recovery_required',
+      `evidence=${JSON.stringify(startupInspection)}`,
+    );
+    return {
+      kind: 'already_running_recovery_required',
+      pid,
+      startupInspection: { ...startupInspection, kind: 'recovery_required' },
+    };
+  }
+  return {
+    kind: 'already_running_clean',
+    pid,
+    startupInspection: { ...startupInspection, kind: 'clear' },
+  };
+}
 
 export class WatchdogOrphanInspectionError extends Error {
   constructor(readonly report: WatchdogOrphanInspectionReport) {
@@ -65,15 +105,22 @@ export async function ensureWatchdog(
     }
     if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
     const startupInspection = await inspectOrphanWatchdogs(fsFactory, deps);
-    if (startupInspection.kind === 'blocked') throw new WatchdogOrphanInspectionError(startupInspection);
+    if (startupInspection.kind === 'blocked'
+        || startupInspection.decisions.some(decision => decision.kind === 'blocked')) {
+      throw new WatchdogOrphanInspectionError(startupInspection);
+    }
     if (startupInspection.kind === 'recovery_required' && inspection.kind !== 'alive') {
       throw new WatchdogOrphanInspectionError(startupInspection);
     }
+    const completedStartupInspection: WatchdogCompletedInspection = {
+      ...startupInspection,
+      kind: startupInspection.kind,
+    };
     const inspectionEvidence = startupInspection.decisions.length > 0
       ? { startupInspection }
       : {};
     if (inspection.kind === 'alive') {
-      return { kind: 'already_running', pid: inspection.pid, ...inspectionEvidence };
+      return alreadyRunningResult(actionAudit, inspection.pid, completedStartupInspection);
     }
 
     const staleOwner = inspection.kind !== 'none' && inspection.source === 'active' && inspection.owner
@@ -85,7 +132,7 @@ export async function ensureWatchdog(
       // admission. Prefer that durable owner over surfacing a stale rejection.
       const current = inspectWatchdogOwner(fsFactory);
       if (current.kind === 'alive') {
-        return { kind: 'already_running', pid: current.pid, ...inspectionEvidence };
+        return alreadyRunningResult(actionAudit, current.pid, completedStartupInspection);
       }
       return {
         kind: 'rejected',

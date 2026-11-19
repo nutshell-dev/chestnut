@@ -44,6 +44,12 @@ export interface SupervisorOwner {
   mechanism: string;
 }
 
+/** Optional additive recovery state; legacy receipts omit it and remain decodable. */
+export interface SupervisorRecovery {
+  status: 'clean' | 'required';
+  evidence: unknown;
+}
+
 export type SupervisorResult =
   | 'started'
   | 'already_running'
@@ -58,6 +64,7 @@ export interface SupervisorReceipt {
   owner: SupervisorOwner | null;
   result: SupervisorResult;
   evidence: unknown;
+  recovery?: SupervisorRecovery;
   retryAtMs?: number;
 }
 

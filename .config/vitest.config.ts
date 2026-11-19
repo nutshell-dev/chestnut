@@ -258,6 +258,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-lifecycle-ownership.test.ts',  // phase 1203 Step B: vi.mock claw-instance-paths/config-load/timers/process-manager factories
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
   'tests/watchdog/orphan-sweep.test.ts',
+  'tests/watchdog/orphan-inspection.test.ts',  // phase 2200: vi.mock spawn must not share fast module state
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
   'tests/cli/claw-router-root-config.test.ts',  // phase 1301 Step C: vi.mock claw/stop/ps/ensure/pid/audit factories

@@ -189,6 +189,37 @@ describe('host-supervisor decision contract', () => {
     expect(decision.evidence).toMatchObject({ health: { reason } });
   });
 
+  it('legacy receipt JSON stays decodable and optional recovery evidence round-trips', () => {
+    const legacyJson = JSON.stringify({
+      request: { reason: 'cli_action', correlationId: 'legacy-correlation' },
+      attempt: 'attempt-legacy',
+      owner: { ownerId: 'host-legacy', mechanism: 'fixture' },
+      result: 'already_running',
+      evidence: { adapter: 'legacy' },
+    });
+    const legacy = JSON.parse(legacyJson) as SupervisorReceipt;
+    expect(legacy.recovery).toBeUndefined();
+
+    const withRecovery: SupervisorReceipt = {
+      ...legacy,
+      recovery: {
+        status: 'required',
+        evidence: {
+          kind: 'recovery_required',
+          decisions: [{ kind: 'recovery', pid: 321, evidence: { generation: 'retired' } }],
+        },
+      },
+    };
+    const decoded = JSON.parse(JSON.stringify(withRecovery)) as SupervisorReceipt;
+    expect(decoded).toMatchObject({
+      result: 'already_running',
+      recovery: {
+        status: 'required',
+        evidence: { kind: 'recovery_required', decisions: [{ pid: 321 }] },
+      },
+    });
+  });
+
   it('receipt schema carries request, attempt, owner and raw failure evidence', () => {
     const evidence = { code: 'EACCES', stderr: 'denied' };
     const receipt: SupervisorReceipt = {

@@ -5,10 +5,13 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createViewportAudit } from '../../src/viewport/viewport-audit-events.js';
 import {
   clearViewportDraft,
+  createDraftCheckpointReporter,
+  createDraftEditorChangeHandler,
   createDraftPersistenceScheduler,
   loadViewportDraft,
   persistViewportDraft,
   VIEWPORT_DRAFT_FILE,
+  type DraftRevisionOutcome,
 } from '../../src/viewport/chat-viewport-draft.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
 
@@ -116,6 +119,114 @@ describe('chat viewport durable draft', () => {
     expect(auditText).not.toContain('viewport_draft_persisted');
   });
 
+  it('allocates revisions by text state and deduplicates repeated editor notifications', () => {
+    const { fs, audit } = context();
+    const scheduler = createDraftPersistenceScheduler(fs, audit);
+    const submit = vi.spyOn(scheduler, 'submit');
+    const write = vi.spyOn(fs, 'writeAtomicSync');
+    const outcomes: DraftRevisionOutcome[] = [];
+    let now = 100;
+    const onChange = createDraftEditorChangeHandler(
+      scheduler,
+      '',
+      outcome => outcomes.push(outcome),
+      () => now,
+    );
+
+    onChange('a');
+    onChange('a');
+    now = 101;
+    onChange('ab');
+
+    expect(submit.mock.calls.map(call => call[0])).toEqual([
+      { revision: 1, text: 'a', changedAtMs: 100 },
+      { revision: 1, text: 'a', changedAtMs: 100 },
+      { revision: 2, text: 'ab', changedAtMs: 101 },
+    ]);
+    expect(outcomes.map(outcome => outcome.deduplicated)).toEqual([false, true, false]);
+    expect(outcomes.every(outcome => outcome.checkpoint.kind === 'durable')).toBe(true);
+    expect(outcomes.every(outcome => Number.isFinite(outcome.latencyMs))).toBe(true);
+    expect(write).toHaveBeenCalledTimes(2);
+    const viewportAudit = fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8');
+    expect(viewportAudit).toContain('viewport_draft_checkpoint');
+    expect(viewportAudit).toContain('outcome=durable');
+    expect(viewportAudit).toContain('latency_ms=');
+  });
+
+  it('retries a non-durable repeat under the same revision until it recovers', () => {
+    const { fs, audit } = context();
+    const error = Object.assign(new Error('directory fsync unsupported'), { code: 'ENOTSUP' });
+    const write = vi.spyOn(fs, 'writeAtomicSync').mockImplementationOnce(() => ({
+      kind: 'committed_platform_limited',
+      error,
+    }));
+    const scheduler = createDraftPersistenceScheduler(fs, audit);
+
+    const limited = scheduler.submit({ revision: 1, text: 'retry me', changedAtMs: 100 });
+    const recovered = scheduler.submit({ revision: 1, text: 'retry me', changedAtMs: 100 });
+
+    expect(limited.checkpoint.kind).toBe('committed_platform_limited');
+    expect(recovered).toMatchObject({
+      revision: 1,
+      deduplicated: false,
+      checkpoint: { kind: 'durable', operation: 'persist' },
+    });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(loadViewportDraft(fs, audit)).toEqual({ kind: 'restored', text: 'retry me' });
+  });
+
+  it('keeps a durable commit fact and the original error when audit sync fails', () => {
+    const { fs, audit } = context();
+    const error = new Error('audit sync failed');
+    vi.spyOn(audit, 'write').mockImplementation(() => { throw error; });
+    const scheduler = createDraftPersistenceScheduler(fs, audit);
+
+    const result = scheduler.submit({ revision: 1, text: 'still durable', changedAtMs: 100 });
+
+    expect(result.checkpoint.kind).toBe('durable');
+    expect(result.checkpoint.auditError).toBe(error);
+    expect(fs.readSync(VIEWPORT_DRAFT_FILE)).toContain('still durable');
+  });
+
+  it('makes checkpoint failure visible and reports durable recovery without clearing text', () => {
+    const { audit } = context();
+    const appendOutput = vi.fn();
+    const requestRender = vi.fn();
+    const report = createDraftCheckpointReporter({ audit, appendOutput, requestRender });
+    const error = new Error('disk full');
+
+    report({
+      revision: 3,
+      deduplicated: false,
+      latencyMs: 4,
+      checkpoint: { kind: 'failed', operation: 'persist', error },
+    });
+
+    expect(appendOutput).toHaveBeenCalledWith(
+      '\x1b[31m',
+      expect.stringContaining('editor text retained; retry or edit to recover'),
+      true,
+    );
+    expect(fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8'))
+      .toContain('viewport_draft_failure_visible');
+
+    report({
+      revision: 3,
+      deduplicated: false,
+      latencyMs: 2,
+      checkpoint: { kind: 'durable', operation: 'persist' },
+    });
+
+    expect(appendOutput).toHaveBeenLastCalledWith(
+      '\x1b[32m',
+      '[draft checkpoint recovered: revision=3]',
+      true,
+    );
+    expect(requestRender).toHaveBeenCalledTimes(2);
+    expect(fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8'))
+      .toContain('viewport_draft_recovered');
+  });
+
   it('flush is synchronous, explicit and auditable without inventing pending revisions', () => {
     const { fs, audit } = context();
     const scheduler = createDraftPersistenceScheduler(fs, audit);
@@ -126,6 +237,7 @@ describe('chat viewport durable draft', () => {
       expect(result.reason).toBe(reason);
       expect(result.latest?.revision).toBe(7);
       expect(result.latest?.checkpoint.kind).toBe('durable');
+      expect(Number.isFinite(result.latencyMs)).toBe(true);
     }
     const viewportAudit = fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8');
     expect(viewportAudit).toContain('viewport_draft_flush');

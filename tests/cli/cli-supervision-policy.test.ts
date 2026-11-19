@@ -232,6 +232,23 @@ describe('cliDeferredRequiredAction (phase 1280)', () => {
 });
 
 
+const recoveryInspection = {
+  kind: 'recovery_required',
+  decisions: [{
+    kind: 'recovery',
+    pid: 321,
+    evidence: {
+      pid: 321,
+      observedAt: '2026-11-18T00:00:00.000Z',
+      workspace: { kind: 'local', root: '/workspace' },
+      argv: { kind: 'match' },
+      generation: { kind: 'retired', attemptId: 'attempt-old', ownerToken: 'owner-old' },
+      ppid: { kind: 'unknown', reason: 'capability_unavailable' },
+      processEvidence: { alive: true },
+    },
+  }],
+} as const;
+
 function supervisorReceipt(
   request: SupervisorRequest,
   result: SupervisorReceipt['result'],
@@ -273,6 +290,7 @@ describe('Phase 2184 host-supervisor policy boundary', () => {
       via: 'host_supervisor_ensure',
       supervisorReceipt: { result: 'started' },
     });
+    expect((receipts[0] as { recovery?: unknown }).recovery).toBeUndefined();
   });
 
   it.each(['not_installed', 'permission_denied', 'unsupported'] as const)(
@@ -339,7 +357,11 @@ describe('Phase 2184 host-supervisor policy boundary', () => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = path.join(os.tmpdir(), `cli-supervision-${randomUUID()}`);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(ensureWatchdog).mockResolvedValue({ kind: 'already_running', pid: 123 });
+    vi.mocked(ensureWatchdog).mockResolvedValue({
+      kind: 'already_running_clean',
+      pid: 123,
+      startupInspection: { kind: 'clear', decisions: [] },
+    });
     try {
       process.env.CHESTNUT_ROOT = tmpDir;
       const realFsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
@@ -353,13 +375,86 @@ describe('Phase 2184 host-supervisor policy boundary', () => {
       const audit = fs.readFileSync(path.join(tmpDir, '.chestnut', 'audit', 'audit.tsv'), 'utf8');
 
       expect(receipt.via).toBe('watchdog_ensure');
+      expect(receipt.recovery).toMatchObject({
+        status: 'clean', evidence: { kind: 'clear', decisions: [] },
+      });
       expect(audit).toContain('cli_supervision_unavailable');
       expect(audit).toContain('cli_watchdog_ensure');
       expect(audit).toContain('trigger=cli_manual');
+      expect(audit).toContain('result=already_running_clean');
+      expect(audit).toContain('recovery=clean');
       expect(audit).toContain(`correlation_id=${receipt.correlationId}`);
+      expect(audit).not.toContain('cli_watchdog_recovery_required');
       expect(audit).not.toContain('supervision_takeover');
     } finally {
       consoleSpy.mockRestore();
+      if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
+      else process.env.CHESTNUT_ROOT = previousRoot;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('manual active+retired ensure exposes recovery evidence in receipt and audit', async () => {
+    const previousRoot = process.env.CHESTNUT_ROOT;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const tmpDir = path.join(os.tmpdir(), `cli-supervision-${randomUUID()}`);
+    vi.mocked(ensureWatchdog).mockResolvedValue({
+      kind: 'already_running_recovery_required',
+      pid: 123,
+      startupInspection: recoveryInspection,
+    });
+    try {
+      process.env.CHESTNUT_ROOT = tmpDir;
+      const realFsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
+      const receipt = await makeEnsureSupervision(realFsFactory)();
+      const audit = fs.readFileSync(path.join(tmpDir, '.chestnut', 'audit', 'audit.tsv'), 'utf8');
+
+      expect(receipt).toMatchObject({
+        via: 'watchdog_ensure',
+        recovery: { status: 'required', evidence: recoveryInspection },
+      });
+      expect(audit).toContain('result=already_running_recovery_required');
+      expect(audit).toContain('cli_watchdog_recovery_required');
+      expect(audit).toContain('via=watchdog_ensure');
+      expect(audit).toContain('status=recovery_required');
+      expect(audit).toContain('attempt-old');
+    } finally {
+      if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
+      else process.env.CHESTNUT_ROOT = previousRoot;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('available host recovery evidence is propagated without a competing manual ensure', async () => {
+    const previousRoot = process.env.CHESTNUT_ROOT;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const tmpDir = path.join(os.tmpdir(), `cli-supervision-${randomUUID()}`);
+    const supervisor: HostSupervisor = {
+      inspectAvailability: vi.fn().mockResolvedValue({
+        kind: 'available', ownerId: 'host-1', mechanism: 'fixture',
+      }),
+      ensureWatchdog: vi.fn().mockImplementation(async (request) => ({
+        ...supervisorReceipt(request, 'already_running'),
+        recovery: { status: 'required' as const, evidence: recoveryInspection },
+      })),
+    };
+    try {
+      process.env.CHESTNUT_ROOT = tmpDir;
+      const realFsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
+      const receipt = await makeEnsureSupervision(realFsFactory, supervisor)();
+      const audit = fs.readFileSync(path.join(tmpDir, '.chestnut', 'audit', 'audit.tsv'), 'utf8');
+
+      expect(receipt).toMatchObject({
+        via: 'host_supervisor_ensure',
+        recovery: { status: 'required', evidence: recoveryInspection },
+      });
+      expect(audit).toContain('cli_supervision_result');
+      expect(audit).toContain('recovery=required');
+      expect(audit).toContain('cli_watchdog_recovery_required');
+      expect(audit).toContain('via=host_supervisor_ensure');
+      expect(audit).toContain('attempt-old');
+      expect(ensureWatchdog).not.toHaveBeenCalled();
+    } finally {
       if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
       else process.env.CHESTNUT_ROOT = previousRoot;
       fs.rmSync(tmpDir, { recursive: true, force: true });

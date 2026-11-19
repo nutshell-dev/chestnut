@@ -21,7 +21,7 @@
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { newUuid } from '../foundation/node-utils/index.js';
-import type { HostSupervisor, SupervisorReceipt } from '../foundation/supervision/index.js';
+import type { HostSupervisor, SupervisorReceipt, SupervisorRecovery } from '../foundation/supervision/index.js';
 import { ensureWatchdog, inspectWatchdogLivenessForCli, createWatchdogActionAudit, type WatchdogActionAudit } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
 import { createCliActionScope, setCurrentActionScope, registerActionResource, type CliActionScope } from './action-scope.js';
@@ -53,6 +53,29 @@ function writeActionAudit(actionAudit: WatchdogActionAudit, event: string, ...co
   } catch (err) {
     console.error(`[cli] audit write failed: ${event}: ${String(err)}`);
   }
+}
+
+function reportRecoveryRequired(
+  actionAudit: WatchdogActionAudit,
+  correlationId: string,
+  via: SupervisionReceipt['via'],
+  evidence: unknown,
+): void {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(evidence) ?? 'null';
+  } catch {
+    // silent: unserializable evidence is explicitly represented in the audit column
+    serialized = '[unserializable]';
+  }
+  writeActionAudit(
+    actionAudit,
+    CLI_AUDIT_EVENTS.WATCHDOG_RECOVERY_REQUIRED,
+    `correlation_id=${correlationId}`,
+    `via=${via}`,
+    'status=recovery_required',
+    `evidence=${serialized}`,
+  );
 }
 
 function reportUnavailable(
@@ -109,9 +132,20 @@ async function performEnsure(
           `result=${supervisorReceipt.result}`,
           `attempt=${supervisorReceipt.attempt ?? 'none'}`,
           `owner_id=${supervisorReceipt.owner?.ownerId ?? availability.ownerId}`,
+          `recovery=${supervisorReceipt.recovery?.status ?? 'unspecified'}`,
         );
         if (supervisorReceipt.result === 'started' || supervisorReceipt.result === 'already_running') {
-          return { grantedAt: Date.now(), via: 'host_supervisor_ensure', correlationId, supervisorReceipt };
+          const recovery = supervisorReceipt.recovery;
+          if (recovery?.status === 'required') {
+            reportRecoveryRequired(actionAudit, correlationId, 'host_supervisor_ensure', recovery.evidence);
+          }
+          return {
+            grantedAt: Date.now(),
+            via: 'host_supervisor_ensure',
+            correlationId,
+            supervisorReceipt,
+            ...(recovery ? { recovery } : {}),
+          };
         }
         if (supervisorReceipt.result !== 'unavailable') throw new HostSupervisionError(supervisorReceipt);
         reportUnavailable(actionAudit, correlationId, 'capability_changed');
@@ -125,14 +159,22 @@ async function performEnsure(
     // Only an explicitly unavailable capability may fall back to the historical
     // human/CLI ensure. A failed available supervisor must not cause a second start.
     const result = await ensureWatchdog(ctx.fsFactory);
+    const recovery: SupervisorRecovery = {
+      status: result?.kind === 'already_running_recovery_required' ? 'required' : 'clean',
+      evidence: result?.startupInspection ?? null,
+    };
     writeActionAudit(
       actionAudit,
       CLI_AUDIT_EVENTS.WATCHDOG_ENSURE,
       `correlation_id=${correlationId}`,
       `trigger=cli_manual`,
       `result=${result?.kind ?? 'unknown'}`,
+      `recovery=${recovery.status}`,
     );
-    return { grantedAt: Date.now(), via: 'watchdog_ensure', correlationId };
+    if (recovery.status === 'required') {
+      reportRecoveryRequired(actionAudit, correlationId, 'watchdog_ensure', recovery.evidence);
+    }
+    return { grantedAt: Date.now(), via: 'watchdog_ensure', correlationId, recovery };
   } finally {
     if (!scoped) actionAudit.dispose();
   }
@@ -267,6 +309,8 @@ export interface SupervisionReceipt {
   readonly via: 'watchdog_ensure' | 'host_supervisor_ensure';
   readonly correlationId: string;
   readonly supervisorReceipt?: SupervisorReceipt;
+  /** Manual ensure always reports clean/required; old host receipts may omit it. */
+  readonly recovery?: SupervisorRecovery;
 }
 
 /**

@@ -108,8 +108,8 @@ export function createDisplay(deps: DisplayDeps) {
       lastSuffixBody = suffixBody;
     }
 
-    const full = suffixBody ? bodyCache + '\n' + suffixBody : bodyCache;
-    deps.outputText.setText(full ?? '');
+    const full = [bodyCache, suffixBody].filter(Boolean).join('\n');
+    deps.outputText.setText(full);
     deps.tui.requestRender();
     // phase 1942 Step B: 记录稳定状态指纹（重复渲染请求证据；不含正文）
     deps.observability.recordRenderRequest({
@@ -172,6 +172,8 @@ export function createDisplay(deps: DisplayDeps) {
           return;
         case 'clear-lines':
           clearOutputLines();
+          invalidateBodyCache();
+          requestDisplayUpdate();
           return;
         case 'invalidate-cache':
           invalidateBodyCache();

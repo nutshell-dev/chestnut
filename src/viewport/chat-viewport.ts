@@ -44,7 +44,12 @@ import { createTaskStatusBar } from './chat-viewport-task-status-bar.js';
 import { createClawManager } from './chat-viewport-claw-manager.js';
 import { createViewportCommands, type ViewportCommand, type ThinkingMode } from './chat-viewport-commands.js';
 import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-input.js';
-import { createDraftPersistenceScheduler, loadViewportDraft } from './chat-viewport-draft.js';
+import {
+  createDraftCheckpointReporter,
+  createDraftEditorChangeHandler,
+  createDraftPersistenceScheduler,
+  loadViewportDraft,
+} from './chat-viewport-draft.js';
 
 import { createTurnTracker } from './chat-viewport-turn-tracker.js';
 import { recoverMotionTurnState } from './chat-viewport-turn-recovery.js';
@@ -274,10 +279,16 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     );
   }
   const draftScheduler = createDraftPersistenceScheduler(fs, options.audit);
-  let draftRevision = 0;
-  editor.onChange = (text: string) => {
-    draftScheduler.submit({ revision: ++draftRevision, text, changedAtMs: Date.now() });
-  };
+  const reportDraftCheckpoint = createDraftCheckpointReporter({
+    audit: options.audit,
+    appendOutput: displayWithHolder.appendOutput,
+    requestRender: () => tui.requestRender(),
+  });
+  editor.onChange = createDraftEditorChangeHandler(
+    draftScheduler,
+    draftLoad.kind === 'restored' ? draftLoad.text : '',
+    reportDraftCheckpoint,
+  );
 
   // Single turn tracker instance shared across the viewport
   const turnTracker = createTurnTracker({ mainUI, INTERRUPT_CLEANUP_TIMEOUT_MS });

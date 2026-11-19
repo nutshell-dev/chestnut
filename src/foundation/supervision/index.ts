@@ -5,6 +5,7 @@ export type {
   SupervisorDecision,
   SupervisorOwner,
   SupervisorReceipt,
+  SupervisorRecovery,
   SupervisorRequest,
   SupervisorResult,
   WatchdogHealth,
