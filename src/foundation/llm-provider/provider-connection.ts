@@ -10,10 +10,14 @@ export type ProviderAuthenticationInput =
       readonly kind: 'api_key';
       readonly value: string;
       readonly identity?: string;
+      /** Neutral, non-secret authentication assembly category. */
+      readonly profile?: 'api_key' | 'ambient' | 'oauth';
     }
   | {
       readonly kind: 'capability';
       readonly identity: string;
+      /** Neutral, non-secret authentication assembly category. */
+      readonly profile?: 'api_key' | 'ambient' | 'oauth';
       readonly resolve: () => Promise<{ readonly accessToken: string }>;
     };
 
@@ -110,8 +114,18 @@ export function providerInputFromResolvedConfig(config: ProviderConfig): Provide
     model: config.model,
     protocol: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'unknown',
     authentication: authentication.kind === 'api_key'
-      ? { kind: 'api_key', value: authentication.value, identity: authentication.identity }
-      : { kind: 'capability', identity: authentication.identity, resolve: authentication.resolve },
+      ? {
+          kind: 'api_key',
+          value: authentication.value,
+          identity: authentication.identity,
+          profile: authentication.profile,
+        }
+      : {
+          kind: 'capability',
+          identity: authentication.identity,
+          profile: authentication.profile,
+          resolve: authentication.resolve,
+        },
   };
   resolvedInputProjections.set(input, config);
   return input;

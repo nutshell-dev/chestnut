@@ -5,11 +5,9 @@
  * scope、auth 或稳定身份；旧哈希仅保留给 adapter/reload 的 operational 判定。
  */
 import { llmOrchestratorConfigSchema } from './config-schema.js';
-import { llmProviderCall } from '../../foundation/llm-provider/index.js';
-type ProviderInput = llmProviderCall.ProviderInput;
-const { describeProviderInput } = llmProviderCall;
-import { llmProviderCredentialRuntime } from '../../foundation/llm-provider/index.js';
-const { piAiCredentialRef } = llmProviderCredentialRuntime;
+import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+type ProviderInput = llmProviderConfigContract.ProviderInput;
+const { providerInputIdentity } = llmProviderConfigContract;
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 import type { CredentialSource, CredentialsOwner } from './legacy-credentials/index.js';
 import { classifyApiKeyConfigValue } from './key-input.js';
@@ -85,20 +83,18 @@ function stableIdentityStringify(value: unknown): string {
   return `{${entries.join(',')}}`;
 }
 
-/** Operational 投影只携 L1 descriptor 给出的非 secret 运行事实。 */
+/** Operational 投影只携中性输入与 L1 给出的 opaque 非 secret 运行身份。 */
 function providerOperationalProjection(p: ProviderInput): Record<string, unknown> {
-  const descriptor = describeProviderInput(p);
   return {
-    providerId: descriptor.providerId,
-    model: descriptor.model,
+    model: p.model,
     baseUrl: p.baseUrl,
-    apiFormat: descriptor.protocol,
+    protocol: p.protocol,
     authentication: {
       kind: p.authentication.kind,
       identity: p.authentication.identity,
-      profile: descriptor.authProfile,
+      profile: p.authentication.profile ?? 'api_key',
     },
-    cacheKey: descriptor.cacheKey,
+    operationalIdentity: providerInputIdentity.operationalIdentity(p),
   };
 }
 
@@ -116,18 +112,16 @@ export function llmConfigIdentity(config: LLMResolvedConfiguration): string {
 type RawProvider = SharedLLMInput['primary'];
 
 function providerStableProjection(p: ProviderInput): Record<string, unknown> {
-  const descriptor = describeProviderInput(p);
   return {
-    providerId: descriptor.providerId,
-    model: descriptor.model,
+    model: p.model,
     baseUrl: p.baseUrl,
-    apiFormat: descriptor.protocol,
+    protocol: p.protocol,
     authentication: {
       kind: p.authentication.kind,
-      profile: descriptor.authProfile,
+      profile: p.authentication.profile ?? 'api_key',
       ...(p.authentication.kind === 'capability' ? { identity: p.authentication.identity } : {}),
     },
-    stableIdentity: descriptor.stableIdentity,
+    stableIdentity: providerInputIdentity.stableIdentity(p),
   };
 }
 
@@ -151,12 +145,16 @@ function describeRef(
 function credentialForProvider(
   role: string,
   raw: RawProvider,
+  effective: RawProvider,
   resolved: ProviderInput,
   credentials: CredentialsOwner | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
 ): { provenance: CredentialProvenance; auth: LLMAuthIdentity } {
-  const descriptor = describeProviderInput(resolved);
-  const authProfile = descriptor.authProfile;
+  const provider = effective.label ?? raw.label
+    ?? effective.provider_id ?? raw.provider_id
+    ?? effective.preset ?? raw.preset
+    ?? 'unknown';
+  const authProfile = resolved.authentication.profile ?? raw.auth_profile ?? effective.auth_profile ?? 'api_key';
   const classified = classifyApiKeyConfigValue(raw.api_key);
   let ref: string;
   let legacy = false;
@@ -172,10 +170,11 @@ function credentialForProvider(
     status = 'legacy';
     described = { source: 'unresolved', identityRef: ref, configured: true, writable: false };
   } else if (authProfile === 'oauth') {
-    ref = piAiCredentialRef(raw.provider_id ?? raw.preset ?? descriptor.providerId);
+    const oauthProvider = raw.provider_id ?? raw.preset ?? provider;
+    ref = `PI_AI_CREDENTIAL_${oauthProvider.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`;
     described = describeRef(credentials, ref, false);
   } else if (authProfile === 'ambient') {
-    ref = `ambient:${descriptor.providerId}`;
+    ref = `ambient:${provider}`;
     described = { source: 'unresolved', identityRef: ref, configured: true, writable: false };
   } else {
     ref = `unresolved:${role}`;
@@ -186,7 +185,7 @@ function credentialForProvider(
   const accountId = described.accountId;
   const identityVersion = described.identityVersion ?? 1;
   const fingerprint = sha256Hex(stableIdentityStringify({
-    provider: descriptor.providerId,
+    provider,
     authProfile,
     credentialRef: described.identityRef,
     accountId,
@@ -207,7 +206,7 @@ function credentialForProvider(
     },
     auth: {
       role,
-      provider: descriptor.providerId,
+      provider,
       credentialRef: described.identityRef,
       authProfile,
       ...(accountId !== undefined ? { accountId } : {}),
@@ -221,7 +220,7 @@ function credentialForProvider(
 function headerCredentialProvenance(
   role: string,
   raw: RawProvider,
-  resolved: ProviderInput,
+  effective: RawProvider,
   credentials: CredentialsOwner | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
 ): CredentialProvenance[] {
@@ -232,7 +231,7 @@ function headerCredentialProvenance(
     const described = describeRef(
       credentials,
       classified.ref,
-      describeProviderInput(resolved).extraHeaderNames.includes(header),
+      Object.prototype.hasOwnProperty.call(effective.extra_headers ?? {}, header),
       credentialSources[classified.ref],
     );
     result.push({
@@ -259,26 +258,37 @@ export function snapshotLLMConfig(
   const config = resolveLLMConfig(globalConfig, clawConfig);
   const rawGlobal = globalConfig.raw ?? globalConfig.llm;
   const hasOverride = clawConfig?.llm?.primary !== undefined;
-  const rawProviders: Array<{ role: string; raw: RawProvider; resolved: ProviderInput }> = [
+  const rawProviders: Array<{
+    role: string;
+    raw: RawProvider;
+    effective: RawProvider;
+    resolved: ProviderInput;
+  }> = [
     {
       role: 'primary',
       raw: hasOverride ? clawConfig!.raw?.primary ?? clawConfig!.llm!.primary! : rawGlobal.primary,
+      effective: hasOverride ? clawConfig!.llm!.primary! : globalConfig.llm.primary,
       resolved: config.primary,
     },
     ...config.fallbacks.map((resolved, index) => {
       const raw = rawGlobal.fallbacks?.[index];
       if (raw === undefined) throw new Error(`Incomplete raw LLM credential evidence: fallbacks[${index}]`);
-      return { role: `fallbacks[${index}]`, raw, resolved };
+      return {
+        role: `fallbacks[${index}]`,
+        raw,
+        effective: globalConfig.llm.fallbacks![index]!,
+        resolved,
+      };
     }),
   ];
   const credentialSources = options.credentialSources ?? {
     ...globalConfig.credentialSources,
     ...clawConfig?.credentialSources,
   };
-  const projected = rawProviders.map(({ role, raw, resolved }) =>
-    credentialForProvider(role, raw, resolved, options.credentials, credentialSources));
-  const headerCredentials = rawProviders.flatMap(({ role, raw, resolved }) =>
-    headerCredentialProvenance(role, raw, resolved, options.credentials, credentialSources));
+  const projected = rawProviders.map(({ role, raw, effective, resolved }) =>
+    credentialForProvider(role, raw, effective, resolved, options.credentials, credentialSources));
+  const headerCredentials = rawProviders.flatMap(({ role, raw, effective }) =>
+    headerCredentialProvenance(role, raw, effective, options.credentials, credentialSources));
   const credentials = [...projected.map(entry => entry.provenance), ...headerCredentials];
   const auth = projected.map(entry => entry.auth);
   const revision = options.revision ?? globalConfig.revision;

@@ -6,10 +6,9 @@
 import type { z } from 'zod';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
 const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
-type ProviderInput = llmProviderCall.ProviderInput;
+type ProviderInput = llmProviderConfigContract.ProviderInput;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
 export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;

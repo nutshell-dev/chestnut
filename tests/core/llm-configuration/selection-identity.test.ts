@@ -6,6 +6,7 @@ import {
   llmConfigIdentity,
   LLMConfigIdentityMismatchError,
   type CredentialsOwner,
+  type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
@@ -26,6 +27,10 @@ const input = {
 const override = {
   llm: { primary: { preset: 'openai', api_key: '${OVERRIDE_KEY}', model: 'gpt-override' } },
 } as const;
+
+function snapshotWithPrimary(primary: SharedLLMInput['primary']) {
+  return snapshotLLMConfigInput({ llm: { primary } });
+}
 
 function credentialsWith(
   entries: Record<string, { source: 'env' | 'file'; accountId?: string }>,
@@ -123,6 +128,56 @@ describe('LLMConfiguration selection / identity', () => {
     expect(serialized).not.toContain('sk-second-secret-value');
   });
 
+  it('model/baseUrl/protocol/behavior 与 extra header 名改变 stable 和 operational identity', () => {
+    const base = {
+      preset: 'anthropic',
+      label: 'provider-fixed',
+      api_key: '${PRIMARY_KEY}',
+      model: 'claude-fixed',
+      base_url: 'https://provider.example.test',
+      temperature: 0.4,
+      extra_headers: { 'X-Account': '${HEADER_A}' },
+    } as const;
+    const first = snapshotWithPrimary(base);
+    const changes: Array<readonly [string, SharedLLMInput['primary']]> = [
+      ['model', { ...base, model: 'claude-other' }],
+      ['baseUrl', { ...base, base_url: 'https://other.example.test' }],
+      ['protocol', { ...base, preset: 'openai' }],
+      ['behavior', { ...base, temperature: 0.8 }],
+      ['extra header name', { ...base, extra_headers: { 'X-Other': '${HEADER_A}' } }],
+    ];
+
+    for (const [field, primary] of changes) {
+      const changed = snapshotWithPrimary(primary);
+      expect(changed.identity, field).not.toBe(first.identity);
+      expect(changed.operationalIdentity, field).not.toBe(first.operationalIdentity);
+    }
+  });
+
+  it('extra header secret 值只改变 operational identity，稳定投影不泄露该值', () => {
+    const base = {
+      preset: 'anthropic',
+      api_key: '${PRIMARY_KEY}',
+      model: 'claude-fixed',
+      extra_headers: { 'X-Account': 'header-first-secret' },
+    } as const;
+    const first = snapshotWithPrimary(base);
+    const rotated = snapshotWithPrimary({
+      ...base,
+      extra_headers: { 'X-Account': 'header-second-secret' },
+    });
+
+    expect(rotated.identity).toBe(first.identity);
+    expect(rotated.operationalIdentity).not.toBe(first.operationalIdentity);
+    const stableEvidence = JSON.stringify({
+      identity: rotated.identity,
+      credentials: rotated.credentials,
+      auth: rotated.auth,
+    });
+    expect(stableEvidence).not.toContain('header-first-secret');
+    expect(stableEvidence).not.toContain('header-second-secret');
+  });
+
   it('不同 credentialRef/accountId 改变 auth identity，来源变化只改变 provenance', () => {
     const first = snapshotLLMConfigInput(input, {
       credentials: credentialsWith({
@@ -183,14 +238,78 @@ describe('LLMConfiguration selection / identity', () => {
     expect(sourceChanged.identity).toBe(first.identity);
   });
 
+  it('header provenance 保留 raw ref，并以 effective header key 判定 configured fallback', () => {
+    const source = {
+      llm: {
+        primary: {
+          preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed',
+          extra_headers: { 'X-Account': '${HEADER_A}' },
+        },
+      },
+    } as const;
+    const parsed = createGlobalConfigSchema().parse(source);
+    const configured = snapshotLLMConfig({ ...parsed, raw: source.llm });
+    expect(configured.credentials).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'primary.extra_headers.X-Account', ref: 'HEADER_A', configured: true,
+      }),
+    ]));
+
+    const missingEffectiveHeader = snapshotLLMConfig({
+      ...parsed,
+      llm: {
+        ...parsed.llm,
+        primary: { ...parsed.llm.primary, extra_headers: undefined },
+      },
+      raw: source.llm,
+    });
+    expect(missingEffectiveHeader.credentials).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'primary.extra_headers.X-Account', ref: 'HEADER_A', configured: false,
+      }),
+    ]));
+  });
+
   it('oauth/ambient 使用稳定命名空间，缺失 api_key 显式 unresolved', () => {
     const oauth = snapshotLLMConfigInput({ llm: { primary: { preset: 'openai-codex' } } });
+    const labeledOauth = snapshotWithPrimary({ preset: 'openai-codex', label: 'labeled-codex' });
     const ambient = snapshotLLMConfigInput({ llm: { primary: { preset: 'amazon-bedrock' } } });
     const unresolved = snapshotLLMConfigInput({ llm: { primary: { preset: 'anthropic', auth_profile: 'api_key' } } });
-    expect(oauth.auth[0]).toMatchObject({ credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX', status: 'stable' });
+    expect(oauth.auth[0]).toMatchObject({
+      provider: 'openai-codex', credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX', status: 'stable',
+    });
+    expect(oauth.credentials[0]).toMatchObject({
+      ref: 'PI_AI_CREDENTIAL_OPENAI_CODEX', source: 'unresolved', configured: false,
+    });
+    expect(labeledOauth.auth[0]).toMatchObject({
+      provider: 'labeled-codex', credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX',
+    });
     expect(ambient.auth[0]).toMatchObject({ credentialRef: 'ambient:amazon-bedrock', status: 'stable' });
+    expect(ambient.credentials[0]).toMatchObject({ ref: 'ambient:amazon-bedrock', configured: true });
     expect(unresolved.auth[0]).toMatchObject({ credentialRef: 'unresolved:primary', status: 'unresolved' });
     expect(unresolved.credentials[0]?.configured).toBe(false);
+  });
+
+  it('api_key reference 与 oauth/ambient profile 组合仍优先保留显式 credential provenance', () => {
+    const oauth = snapshotWithPrimary({ preset: 'openai-codex', api_key: '${CODEX_KEY}' });
+    const ambient = snapshotWithPrimary({ preset: 'amazon-bedrock', api_key: '${BEDROCK_KEY}' });
+
+    expect(oauth.auth[0]).toMatchObject({
+      provider: 'openai-codex', authProfile: 'oauth', credentialRef: 'CODEX_KEY', status: 'stable',
+    });
+    expect(oauth.credentials[0]).toMatchObject({ ref: 'CODEX_KEY', configured: true });
+    expect(ambient.auth[0]).toMatchObject({
+      provider: 'amazon-bedrock', authProfile: 'ambient', credentialRef: 'BEDROCK_KEY', status: 'stable',
+    });
+    expect(ambient.credentials[0]).toMatchObject({ ref: 'BEDROCK_KEY', configured: true });
+  });
+
+  it('raw fallback evidence 缺失仍 fail closed', () => {
+    const parsed = createGlobalConfigSchema().parse(input);
+    expect(() => snapshotLLMConfig({
+      ...parsed,
+      raw: { ...input.llm, fallbacks: undefined },
+    })).toThrow('Incomplete raw LLM credential evidence: fallbacks[0]');
   });
 
   it('legacy plaintext 不进入稳定 auth projection，mismatch 保留 typed 摘要证据', () => {

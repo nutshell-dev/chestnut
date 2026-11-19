@@ -5,6 +5,7 @@ import { auditProviderSource } from './llm-provider-capability-surface-helpers.j
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
 const providerConfigFacade = read('../../../src/foundation/llm-provider/capabilities/config-contract.ts');
+const identitySource = read('../../../src/core/llm-configuration/identity.ts');
 const orchestratorTypes = read('../../../src/foundation/llm-orchestrator/types.ts');
 const orchestratorRuntime = read('../../../src/foundation/llm-orchestrator/provider-runtime.ts');
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
@@ -28,6 +29,14 @@ describe('ProviderInput owner boundary', () => {
     expect(sdkBarrel).toMatch(/\bProviderFactory\b/);
     expect(sdkBarrel).toMatch(/@deprecated[\s\S]*ProviderConnection/);
     expect(orchestratorBarrel).not.toMatch(/\bProviderConfig\b/);
+  });
+
+  it('keeps L1 descriptors and credential helpers out of L4 identity projection', () => {
+    expect(providerConfigFacade).toMatch(/providerInputIdentity/);
+    expect(identitySource).toMatch(/llmProviderConfigContract\.ProviderInput/);
+    expect(identitySource).not.toMatch(
+      /\bllmProviderCall\b|\bdescribeProviderInput\b|\bpiAiCredentialRef\b|\bProviderDescriptor\b|\bcacheKey\b/,
+    );
   });
 
   it('keeps legacy config and credential runtime out of the L2 public config', () => {
