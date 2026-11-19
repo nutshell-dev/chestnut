@@ -295,7 +295,7 @@ describe('config provider add — primary probe', () => {
     }
 
     expect(loadGlobalConfig({ fsFactory }).llm.fallbacks?.some(f => f.label === 'post-write-add')).toBe(true);
-    expect(fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8'))
+    expect(fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'), 'utf8'))
       .toContain('sk-post-write-add');
   });
 
@@ -314,7 +314,7 @@ describe('config provider add — primary probe', () => {
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-old');
     expect(config.llm.fallbacks ?? []).toHaveLength(0);
-    const credentials = fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8');
+    const credentials = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'), 'utf8');
     expect(credentials).not.toContain('sk-cancel-secret');
     expect(consoleLines.join('\n')).toContain('Cancelled');
   });
