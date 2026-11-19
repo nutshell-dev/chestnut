@@ -11,6 +11,7 @@ import {
   readLLMMigrationRecord,
   type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
+import { createAuthenticationSetup } from '../../../src/core/llm-configuration/setup.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { cleanupTempDirSync, createTrackedTempDirSync } from '../../utils/temp.js';
 
@@ -87,15 +88,60 @@ describe('LLM configuration document reads', () => {
     const explicit = firstAdmin.loadSnapshot();
     expect(explicit.raw.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
     expect(explicit.revision.revision).toBe(1);
+    expect(explicit.credentialFacts.LLM_DOCUMENT_TEST_KEY).toMatchObject({
+      source: 'env', identityRef: 'LLM_DOCUMENT_TEST_KEY',
+    });
+    expect(explicit.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(explicit.credentialFacts)).not.toContain('resolved-primary-secret');
+    expect(JSON.stringify(explicit.credentialFacts)).not.toContain('resolved-header-secret');
 
     vi.stubEnv('LLM_DOCUMENT_TEST_KEY', 'rotated-primary-secret');
     const restarted = snapshotLLMConfig(createLLMConfiguration(deps).loadGlobal());
     expect(restarted.identity).toBe(first.identity);
     expect(restarted.operationalIdentity).not.toBe(first.operationalIdentity);
+    expect(restarted.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision)
+      .not.toBe(first.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision);
+    expect(restarted.credentials.find(entry => entry.role === 'primary')?.credentialRevision)
+      .toBe(restarted.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision);
     expect(restarted.config.primary.authentication).toMatchObject({
       kind: 'api_key',
       value: 'rotated-primary-secret',
     });
+  });
+
+  it('workspace 文件轮换在 config revision 不变时产生新 credential fact 与 operational identity', async () => {
+    vi.stubEnv('LLM_DOCUMENT_TEST_KEY', undefined);
+    vi.stubEnv('LLM_DOCUMENT_TEST_HEADER', undefined);
+    const setup = createAuthenticationSetup({ fsFactory, env: {} });
+    await setup.set('LLM_DOCUMENT_TEST_KEY', 'file-secret-one');
+    makeStore().createFromSource({
+      primary: {
+        preset: 'anthropic', api_key: '${LLM_DOCUMENT_TEST_KEY}', model: 'claude-document-test',
+      },
+    }, 'file-fact-seed');
+
+    const first = createLLMConfiguration(deps).loadSnapshot();
+    const firstSnapshot = snapshotLLMConfig(first);
+    await setup.set('LLM_DOCUMENT_TEST_KEY', 'file-secret-two');
+    const rotated = createLLMConfiguration(deps).loadSnapshot();
+    const rotatedSnapshot = snapshotLLMConfig(rotated);
+
+    expect(rotated.revision.revision).toBe(first.revision.revision);
+    expect(rotated.credentialFacts.LLM_DOCUMENT_TEST_KEY).toMatchObject({
+      source: 'file', identityRef: 'LLM_DOCUMENT_TEST_KEY',
+    });
+    expect(rotated.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision)
+      .not.toBe(first.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision);
+    expect(rotatedSnapshot.identity).toBe(firstSnapshot.identity);
+    expect(rotatedSnapshot.operationalIdentity).not.toBe(firstSnapshot.operationalIdentity);
+    const evidence = JSON.stringify({
+      facts: rotated.credentialFacts,
+      credentials: rotatedSnapshot.credentials,
+      auth: rotatedSnapshot.auth,
+      identity: rotatedSnapshot.identity,
+    });
+    expect(evidence).not.toContain('file-secret-one');
+    expect(evidence).not.toContain('file-secret-two');
   });
 
   it('resolved read 展开引用并应用 defaults，raw 文档仍保留引用', () => {

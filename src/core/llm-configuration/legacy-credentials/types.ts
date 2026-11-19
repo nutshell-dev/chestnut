@@ -13,6 +13,16 @@
 /** 命中层。'file' = workspace 凭据文件（唯一可写层）。 */
 export type CredentialSource = 'env' | 'file' | 'project-env';
 
+/**
+ * 同次解析产生的非 secret 凭据事实。revision 是来源与值内容的不可逆摘要，
+ * 仅用于 operational snapshot/reload；不得进入稳定账号身份或日志明文。
+ */
+export interface CredentialFact {
+  readonly source: CredentialSource | 'unresolved';
+  readonly revision: string;
+  readonly identityRef: string;
+}
+
 /** resolve 命中结果（含值 — 仅 resolve 返回 secret）。 */
 export interface ResolvedCredential {
   value: string;

@@ -201,28 +201,35 @@ describe('PiAiAdapter — openai-completions 协议', () => {
     expect(headers.get('x-custom')).toBe('yes');
   });
 
-  it('capability authentication resolves lazily for each request', async () => {
+  it('capability authentication resolves once per provider handle', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('one'))))
-      .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('two'))));
+      .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('two'))))
+      .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('three'))));
     vi.stubGlobal('fetch', fetchMock);
     const resolve = vi.fn()
       .mockResolvedValueOnce({ accessToken: 'token-one' })
       .mockResolvedValueOnce({ accessToken: 'token-two' });
-    const adapter = createProviderFromConnection({
+    const createAdapter = () => createProviderFromConnection({
       providerId: 'capability-provider',
       model: 'test-model',
       baseUrl: 'https://api.test.invalid/v1',
       apiFormat: 'openai',
       authentication: { kind: 'capability', identity: 'credential:v1', resolve },
     });
+    const adapter = createAdapter();
     await adapter.prepareInputMeter();
-    expect(resolve).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledTimes(1);
     await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
     await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(1);
     expect(new Headers(fetchMock.mock.calls[0][1].headers).get('authorization')).toBe('Bearer token-one');
-    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('authorization')).toBe('Bearer token-two');
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('authorization')).toBe('Bearer token-one');
+
+    const nextAdapter = createAdapter();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    await nextAdapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('authorization')).toBe('Bearer token-two');
   });
 
   it('capability authentication failures stay typed and never fall back to a request', async () => {

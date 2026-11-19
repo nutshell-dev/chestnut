@@ -86,7 +86,7 @@ import type { ProviderAuthentication } from './provider-connection.js';
 export interface PiAiAdapterOptions {
   credentialStore?: PiAiCredentialStore;
   inputArtifactOwner?: InputArtifactOwner;
-  /** @internal Lazy neutral-connection authentication; not a legacy config field. */
+  /** @internal Handle-bound neutral-connection authentication; not a legacy config field. */
   authentication?: Extract<ProviderAuthentication, { kind: 'capability' }>;
 }
 
@@ -96,6 +96,7 @@ export class PiAiAdapter implements ProviderAdapter {
 
   private readonly config: ProviderConfig;
   private readonly options: PiAiAdapterOptions | undefined;
+  private readonly authenticationPromise?: Promise<string | undefined>;
   private endpointPromise?: Promise<PiAiEndpoint>;
 
   constructor(config: ProviderConfig, options?: PiAiAdapterOptions) {
@@ -103,6 +104,11 @@ export class PiAiAdapter implements ProviderAdapter {
     this.options = options;
     this.name = config.name;
     this.model = config.model;
+    if (options?.authentication) {
+      this.authenticationPromise = this.requestApiKey();
+      // Observe eagerly so an unused handle cannot emit an unhandled rejection.
+      void this.authenticationPromise.catch(() => {});
+    }
   }
 
   private endpoint(): Promise<PiAiEndpoint> {
@@ -113,6 +119,7 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 
   private async requestApiKey(): Promise<string | undefined> {
+    if (this.authenticationPromise) return this.authenticationPromise;
     const authentication = this.options?.authentication;
     if (!authentication) return this.config.apiKey;
     try {

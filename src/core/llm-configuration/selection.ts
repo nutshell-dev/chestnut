@@ -5,7 +5,7 @@
  */
 import type { z } from 'zod';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
-import type { CredentialSource } from './legacy-credentials/index.js';
+import type { CredentialFact, CredentialSource } from './legacy-credentials/index.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
 const { toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
@@ -23,6 +23,8 @@ export interface LLMGlobalConfigView {
   workspaceRoot?: string;
   /** expandEnvVars 同次 credentials.resolve 观察到的非 secret 来源。 */
   credentialSources?: Readonly<Record<string, CredentialSource>>;
+  /** 同次解析的不可逆 credential revision；只参与 operational identity。 */
+  credentialFacts?: Readonly<Record<string, CredentialFact>>;
 }
 
 export interface LLMClawConfigView {
@@ -30,6 +32,7 @@ export interface LLMClawConfigView {
   /** 同次读取的 claw raw primary；保留 credential reference。 */
   raw?: { primary?: SharedLLMInput['primary'] };
   credentialSources?: Readonly<Record<string, CredentialSource>>;
+  credentialFacts?: Readonly<Record<string, CredentialFact>>;
 }
 
 export interface LLMConfigInput {

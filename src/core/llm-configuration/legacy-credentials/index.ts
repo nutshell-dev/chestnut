@@ -7,6 +7,7 @@
 
 export type {
   CredentialSource,
+  CredentialFact,
   ResolvedCredential,
   CredentialInfo,
   CredentialsOwner,

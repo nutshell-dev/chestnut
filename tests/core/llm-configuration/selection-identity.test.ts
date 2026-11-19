@@ -80,7 +80,9 @@ describe('LLMConfiguration selection / identity', () => {
       expect.objectContaining({ role: 'fallbacks[0]', ref: 'FALLBACK_KEY', source: 'file', writable: true }),
     ]));
     expect(snapshot.identity).toMatch(/^[0-9a-f]{64}$/);
-    expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(snapshot.config));
+    expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(
+      snapshot.config, {}, { id: '7', revision: 7 },
+    ));
     expect(snapshot.identity).not.toBe(snapshot.operationalIdentity);
   });
 
@@ -96,15 +98,21 @@ describe('LLMConfiguration selection / identity', () => {
     expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(resolveLLMConfig(global, override)));
   });
 
-  it('draft 与磁盘同形配置身份一致，revision/source 不造成稳定身份抖动', () => {
+  it('revision 不造成稳定身份抖动，但会推进有效 snapshot 的 operational identity', () => {
+    const global = createGlobalConfigSchema().parse(input);
     const fromInput = snapshotLLMConfigInput(input);
-    const fromDisk = snapshotLLMConfig(createGlobalConfigSchema().parse(input), undefined, {
+    const fromDisk = snapshotLLMConfig(global, undefined, {
       revision: { id: '9', revision: 9 }, documentSource: 'document',
+    });
+    const nextRevision = snapshotLLMConfig(global, undefined, {
+      revision: { id: '10', revision: 10 }, documentSource: 'document',
     });
     expect(fromInput.scope).toMatchObject({ workspaceRevision: 'uncommitted', documentSource: 'draft' });
     expect(fromDisk.scope).toMatchObject({ workspaceRevision: 9, documentSource: 'document' });
     expect(fromInput.identity).toBe(fromDisk.identity);
-    expect(fromInput.operationalIdentity).toBe(fromDisk.operationalIdentity);
+    expect(nextRevision.identity).toBe(fromDisk.identity);
+    expect(fromInput.operationalIdentity).not.toBe(fromDisk.operationalIdentity);
+    expect(nextRevision.operationalIdentity).not.toBe(fromDisk.operationalIdentity);
   });
 
   it('同 ref secret rotation 保持 auth identity，operational identity 变化且不泄露 secret', () => {

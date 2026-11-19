@@ -19,7 +19,12 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
-import { createLocalCredentials, type CredentialSource } from './legacy-credentials/index.js';
+import {
+  createLocalCredentials,
+  type CredentialFact,
+  type CredentialSource,
+  type ResolvedCredential,
+} from './legacy-credentials/index.js';
 import type { SharedLLM, SharedLLMInput } from './selection.js';
 import { assertNoLegacyPlaintextApiKey } from './key-input.js';
 import {
@@ -58,6 +63,7 @@ export interface LLMConfigurationDocumentStore {
     raw: LLMConfigDocument;
     resolved: ResolvedLLMConfigDocument;
     credentialSources: Readonly<Record<string, CredentialSource>>;
+    credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
   readRevision(): LLMConfigurationRevision;
@@ -82,6 +88,7 @@ export interface LLMConfigurationAdmin {
     revision: LLMConfigurationRevision;
     workspaceRoot: string;
     credentialSources: Readonly<Record<string, CredentialSource>>;
+    credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   mutateGlobalLocked(
     mutator: (config: { llm: SharedLLM }) => void,
@@ -197,17 +204,29 @@ export function createLLMConfigurationDocumentStore(deps: {
     raw: LLMConfigDocument;
     resolved: ResolvedLLMConfigDocument;
     credentialSources: Readonly<Record<string, CredentialSource>>;
+    credentialFacts: Readonly<Record<string, CredentialFact>>;
   } => {
     let raw: LLMConfigDocument | undefined;
     const credentialSources: Record<string, CredentialSource> = {};
+    const credentialFacts: Record<string, CredentialFact> = {};
+    const credentialHits = new Map<string, ResolvedCredential | undefined>();
     const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
     try {
       const resolved = loadYamlConfig<ResolvedLLMConfigDocument>(
         {
           fsFactory: deps.fsFactory,
           resolveEnvVar: (name) => {
-            const hit = credentials.resolve(name);
-            if (hit !== undefined) credentialSources[name] = hit.source;
+            // 同一 ref 在本次 snapshot 中只解析一次，primary/fallback/header 不会跨代。
+            if (!credentialHits.has(name)) credentialHits.set(name, credentials.resolve(name));
+            const hit = credentialHits.get(name);
+            if (hit !== undefined && credentialFacts[name] === undefined) {
+              credentialSources[name] = hit.source;
+              credentialFacts[name] = {
+                source: hit.source,
+                revision: sha256Hex(`${hit.source}\0${hit.value}`),
+                identityRef: name,
+              };
+            }
             return hit?.value;
           },
           validateRaw: (value) => {
@@ -219,7 +238,7 @@ export function createLLMConfigurationDocumentStore(deps: {
         resolvedDocumentSchema,
       );
       if (raw === undefined) throw new Error(`LLM configuration raw snapshot was not captured: ${configPath}`);
-      return { raw, resolved, credentialSources };
+      return { raw, resolved, credentialSources, credentialFacts };
     } catch (error) {
       if (isConfigStoreError(error) && error.code === 'not_found') {
         throw new LLMConfigurationNotFoundError(configPath);
@@ -386,6 +405,7 @@ export function createLLMConfiguration(deps: {
         },
         workspaceRoot: { value: getChestnutRoot(), enumerable: false },
         credentialSources: { value: document.credentialSources, enumerable: false },
+        credentialFacts: { value: document.credentialFacts, enumerable: false },
       });
       return view;
     },
@@ -397,6 +417,7 @@ export function createLLMConfiguration(deps: {
         revision: { id: String(document.resolved.revision), revision: document.resolved.revision },
         workspaceRoot: getChestnutRoot(),
         credentialSources: document.credentialSources,
+        credentialFacts: document.credentialFacts,
       };
     },
     mutateGlobalLocked: (mutator) => store().mutate((fresh) => {

@@ -42,8 +42,12 @@ import {
   type LLMGlobalConfigView,
   type LLMClawConfigView,
   type CredentialSource,
+  type CredentialFact,
 } from '../../core/llm-configuration/index.js';
-import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
+import {
+  createAuthenticationSetup,
+  type ResolvedAuthenticationSetupCredential,
+} from '../../core/llm-configuration/setup.js';
 import {
   loadWorkspaceAuditConfig,
   initWorkspaceAuditConfig,
@@ -55,6 +59,7 @@ import {
   publishWatchdogLayout,
 } from '../../watchdog/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
+import { sha256Hex } from '../../foundation/node-utils/index.js';
 
 /**
  * Phase 2206 Step B：`${VAR}` 解析注入 —— workspace Credentials owner 分层解析
@@ -133,7 +138,7 @@ function withLLMView(
   view: LLMGlobalConfigView,
 ): ClawGlobalConfig {
   const result = { ...stored, llm: view.llm };
-  for (const key of ['raw', 'revision', 'workspaceRoot', 'credentialSources'] as const) {
+  for (const key of ['raw', 'revision', 'workspaceRoot', 'credentialSources', 'credentialFacts'] as const) {
     if (view[key] !== undefined) Object.defineProperty(result, key, { value: view[key], enumerable: false });
   }
   return result as ClawGlobalConfig;
@@ -365,13 +370,23 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   try {
     let rawLLM: LLMClawConfigView['raw'];
     const credentialSources: Record<string, CredentialSource> = {};
+    const credentialFacts: Record<string, CredentialFact> = {};
+    const credentialHits = new Map<string, ResolvedAuthenticationSetupCredential | undefined>();
     const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
     const resolved = loadYamlConfig<ClawConfig>(
       {
         fsFactory: deps.fsFactory,
         resolveEnvVar: (name) => {
-          const hit = authentication.resolveSync(name);
-          if (hit !== undefined) credentialSources[name] = hit.source;
+          if (!credentialHits.has(name)) credentialHits.set(name, authentication.resolveSync(name));
+          const hit = credentialHits.get(name);
+          if (hit !== undefined && credentialFacts[name] === undefined) {
+            credentialSources[name] = hit.source;
+            credentialFacts[name] = {
+              source: hit.source,
+              revision: sha256Hex(`${hit.source}\0${hit.accessToken}`),
+              identityRef: name,
+            };
+          }
           return hit?.accessToken;
         },
         validateRaw: (value) => {
@@ -385,6 +400,7 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
     );
     if (rawLLM !== undefined) Object.defineProperty(resolved, 'raw', { value: rawLLM, enumerable: false });
     Object.defineProperty(resolved, 'credentialSources', { value: credentialSources, enumerable: false });
+    Object.defineProperty(resolved, 'credentialFacts', { value: credentialFacts, enumerable: false });
     return resolved;
   } catch (err) {
     if (isConfigStoreError(err)) {

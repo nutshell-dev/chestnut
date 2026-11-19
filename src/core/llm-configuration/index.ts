@@ -3,7 +3,7 @@
  *
  * LLM 有效配置、身份与凭据业务的单一入口。
  */
-export type { CredentialSource } from './legacy-credentials/index.js';
+export type { CredentialSource, CredentialFact } from './legacy-credentials/index.js';
 export { isCredentialRefName } from './legacy-credentials/index.js';
 export { CredentialsError, isCredentialsError } from './legacy-credentials/index.js';
 export type { CredentialsErrorCode } from './legacy-credentials/index.js';

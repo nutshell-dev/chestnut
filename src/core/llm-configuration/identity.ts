@@ -9,7 +9,7 @@ import { llmProviderConfigContract } from '../../foundation/llm-provider/index.j
 type ProviderInput = llmProviderConfigContract.ProviderInput;
 const { providerInputIdentity } = llmProviderConfigContract;
 import { sha256Hex } from '../../foundation/node-utils/index.js';
-import type { CredentialSource } from './legacy-credentials/index.js';
+import type { CredentialFact, CredentialSource } from './legacy-credentials/index.js';
 import type { ProviderAuthenticationCapability } from './authentication-store.js';
 import { classifyApiKeyConfigValue } from './key-input.js';
 import {
@@ -39,6 +39,8 @@ export interface CredentialProvenance {
   legacy: boolean;
   accountId?: string;
   identityVersion?: number;
+  /** 同次 snapshot 的不可逆凭据修订；不进入稳定 auth identity。 */
+  credentialRevision?: string;
 }
 
 export interface LLMAuthIdentity {
@@ -57,6 +59,8 @@ export interface LLMConfigSnapshot {
   scope: LLMConfigScope;
   credentials: readonly CredentialProvenance[];
   auth: readonly LLMAuthIdentity[];
+  /** 本次有效 snapshot 的非 secret 凭据事实，按 ref 索引。 */
+  credentialFacts: Readonly<Record<string, CredentialFact>>;
   /** 稳定、非 secret 的 scope/config/auth 摘要，可入 audit/env。 */
   identity: string;
   /** 含 secret 变更检测的 operational 摘要；仅供 probe/reload/adapter 失效判定。 */
@@ -70,6 +74,7 @@ export interface LLMConfigSnapshotOptions {
   revision?: { readonly id: string; readonly revision: number };
   documentSource?: 'document' | 'draft' | 'legacy';
   credentialSources?: Readonly<Record<string, CredentialSource>>;
+  credentialFacts?: Readonly<Record<string, CredentialFact>>;
 }
 
 /** 递归排序键的稳定序列化（函数成员丢弃——装配注入物不参与身份）。 */
@@ -100,13 +105,26 @@ function providerOperationalProjection(p: ProviderInput): Record<string, unknown
 }
 
 /** resolved 配置的 operational 摘要；不是稳定账号身份。 */
-export function llmConfigIdentity(config: LLMResolvedConfiguration): string {
-  return sha256Hex(stableIdentityStringify({
+export function llmConfigIdentity(
+  config: LLMResolvedConfiguration,
+  credentialFacts: Readonly<Record<string, CredentialFact>> = {},
+  revision?: { readonly id: string; readonly revision: number },
+): string {
+  const projection = {
     primary: providerOperationalProjection(config.primary),
     fallbacks: config.fallbacks.map(providerOperationalProjection),
     maxAttempts: config.retry.maxAttempts,
     retryDelayMs: config.retry.delayMs,
     circuitBreaker: config.legacyCircuitBreaker,
+  };
+  // 无 document/fact 的 draft 保持旧 operational 摘要兼容；有效 snapshot 显式绑定两类 revision。
+  if (revision === undefined && Object.keys(credentialFacts).length === 0) {
+    return sha256Hex(stableIdentityStringify(projection));
+  }
+  return sha256Hex(stableIdentityStringify({
+    ...projection,
+    configRevision: revision?.revision,
+    credentialFacts,
   }));
 }
 
@@ -150,6 +168,7 @@ function credentialForProvider(
   resolved: ProviderInput,
   credentials: ProviderAuthenticationCapability | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
+  credentialFacts: Readonly<Record<string, CredentialFact>>,
 ): { provenance: CredentialProvenance; auth: LLMAuthIdentity } {
   const provider = effective.label ?? raw.label
     ?? effective.provider_id ?? raw.provider_id
@@ -204,6 +223,9 @@ function credentialForProvider(
       legacy,
       ...(accountId !== undefined ? { accountId } : {}),
       identityVersion,
+      ...(credentialFacts[ref]?.revision !== undefined
+        ? { credentialRevision: credentialFacts[ref].revision }
+        : {}),
     },
     auth: {
       role,
@@ -224,6 +246,7 @@ function headerCredentialProvenance(
   effective: RawProvider,
   credentials: ProviderAuthenticationCapability | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
+  credentialFacts: Readonly<Record<string, CredentialFact>>,
 ): CredentialProvenance[] {
   const result: CredentialProvenance[] = [];
   for (const [header, value] of Object.entries(raw.extra_headers ?? {})) {
@@ -245,6 +268,9 @@ function headerCredentialProvenance(
       legacy: false,
       ...(described.accountId !== undefined ? { accountId: described.accountId } : {}),
       identityVersion: described.identityVersion ?? 1,
+      ...(credentialFacts[classified.ref]?.revision !== undefined
+        ? { credentialRevision: credentialFacts[classified.ref].revision }
+        : {}),
     });
   }
   return result;
@@ -286,10 +312,14 @@ export function snapshotLLMConfig(
     ...globalConfig.credentialSources,
     ...clawConfig?.credentialSources,
   };
+  const credentialFacts = options.credentialFacts ?? {
+    ...globalConfig.credentialFacts,
+    ...clawConfig?.credentialFacts,
+  };
   const projected = rawProviders.map(({ role, raw, effective, resolved }) =>
-    credentialForProvider(role, raw, effective, resolved, options.credentials, credentialSources));
+    credentialForProvider(role, raw, effective, resolved, options.credentials, credentialSources, credentialFacts));
   const headerCredentials = rawProviders.flatMap(({ role, raw, effective }) =>
-    headerCredentialProvenance(role, raw, effective, options.credentials, credentialSources));
+    headerCredentialProvenance(role, raw, effective, options.credentials, credentialSources, credentialFacts));
   const credentials = [...projected.map(entry => entry.provenance), ...headerCredentials];
   const auth = projected.map(entry => entry.auth);
   const revision = options.revision ?? globalConfig.revision;
@@ -325,8 +355,9 @@ export function snapshotLLMConfig(
     scope,
     credentials,
     auth,
+    credentialFacts,
     identity,
-    operationalIdentity: llmConfigIdentity(config),
+    operationalIdentity: llmConfigIdentity(config, credentialFacts, revision),
   };
 }
 
