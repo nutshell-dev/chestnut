@@ -41,6 +41,7 @@ beforeEach(() => {
   homeDir = createTrackedTempDirSync('chestnut-cred-home-');
   projectDir = createTrackedTempDirSync('chestnut-cred-proj-');
   vi.stubEnv('CHESTNUT_HOME', homeDir);
+  vi.stubEnv('HOME', homeDir);
   vi.stubEnv('CHESTNUT_ROOT', projectDir);
 });
 
@@ -72,11 +73,16 @@ describe('resolve 分层优先级', () => {
 
   it('file 缺席时 project-env 胜出；旧用户级凭据和 .env 均不可见', () => {
     fs.writeFileSync(path.join(projectDir, '.env'), 'P=project-value\n');
+    fs.mkdirSync(path.join(homeDir, '.chestnut'), { recursive: true });
     fs.writeFileSync(path.join(homeDir, '.env'), 'U=user-value\nP=project-shadowed\n');
-    fs.writeFileSync(path.join(homeDir, 'credentials.yaml'), 'version: 1\nrefs:\n  U: user-file-value\n');
+    fs.writeFileSync(path.join(homeDir, '.chestnut', '.env'), 'U=home-env-value\n');
+    const sentinel = 'version: 1\nrefs:\n  U: user-file-value\n';
+    fs.writeFileSync(path.join(homeDir, 'credentials.yaml'), sentinel);
+    fs.writeFileSync(path.join(homeDir, '.chestnut', 'credentials.yaml'), sentinel);
     expect(makeOwner({}).resolve('P')).toEqual({ value: 'project-value', source: 'project-env' });
     expect(makeOwner({}).resolve('U')).toBeUndefined();
-    expect(fs.readFileSync(path.join(homeDir, 'credentials.yaml'), 'utf8')).toContain('user-file-value');
+    expect(fs.readFileSync(path.join(homeDir, 'credentials.yaml'), 'utf8')).toBe(sentinel);
+    expect(fs.readFileSync(path.join(homeDir, '.chestnut', 'credentials.yaml'), 'utf8')).toBe(sentinel);
   });
 
   it('空值处处视为缺席', () => {
@@ -143,6 +149,19 @@ describe('describe', () => {
 });
 
 describe('set/unset', () => {
+  it('workspace .env 始终是只读回退，写删只改变 canonical YAML', async () => {
+    const dotEnv = path.join(projectDir, '.env');
+    const original = 'K=dotenv-value\nOTHER=untouched\n';
+    fs.writeFileSync(dotEnv, original);
+    const owner = makeOwner({});
+    await owner.set('K', 'file-value');
+    expect(fs.readFileSync(dotEnv, 'utf8')).toBe(original);
+    expect(owner.resolve('K')).toEqual({ value: 'file-value', source: 'file' });
+    await owner.unset('K');
+    expect(fs.readFileSync(dotEnv, 'utf8')).toBe(original);
+    expect(owner.resolve('K')).toEqual({ value: 'dotenv-value', source: 'project-env' });
+  });
+
   it('set 落盘 0600、目录 0700，配置引用可解析', async () => {
     const owner = makeOwner({});
     await owner.set('MY_KEY', 'sk-test-value');

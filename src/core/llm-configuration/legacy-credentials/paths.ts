@@ -4,7 +4,7 @@
  * Workspace credentials 路径原语（Phase 2206 Step B）。
  * 唯一可写文件为 `<workspace>/.chestnut/llm/credentials.yaml`，锁由 owner
  * 放在同目录；workspace 根 `.env` 仅作为只读回退。路径解析与 LLM 配置共用
- * `getChestnutRoot()`，不读取用户级凭据或 `CHESTNUT_HOME`。
+ * `getChestnutRoot()`，不读取任何用户级凭据或旧 home override。
  */
 
 import * as path from 'path';

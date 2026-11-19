@@ -107,7 +107,9 @@ export class PiAiAdapter implements ProviderAdapter {
     if (options?.authentication) {
       this.authenticationPromise = this.requestApiKey();
       // Observe eagerly so an unused handle cannot emit an unhandled rejection.
-      void this.authenticationPromise.catch(() => {});
+      void this.authenticationPromise.catch(() => {
+        // silent: the stored promise still surfaces the typed authentication failure on request.
+      });
     }
   }
 

@@ -3,11 +3,13 @@ import * as fs from 'node:fs';
 import {
   ApiKeyConfigError,
   createLLMConfigurationDocumentStore,
+  deriveCredentialRef,
   migrateLegacyApiKeysAtPath,
   type SharedLLMInput,
 } from '../../../src/core/llm-configuration/index.js';
 import { getCredentialsFilePath } from '../../../src/core/llm-configuration/legacy-credentials/paths.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { sha256Hex } from '../../../src/foundation/node-utils/index.js';
 import { cleanupTempDirSync, createTrackedTempDirSync } from '../../utils/temp.js';
 import * as path from 'node:path';
 
@@ -65,6 +67,24 @@ describe('legacy API key migration', () => {
     const revision = raw.revision;
     await expect(store.migrateLegacyApiKeys()).resolves.toEqual([]);
     expect(store.read().revision).toBe(revision);
+  });
+
+  it('旧用户级凭据不是迁移来源，且不会被修改或清理', async () => {
+    const legacyHome = createTrackedTempDirSync('chestnut-api-key-legacy-home-');
+    vi.stubEnv('CHESTNUT_HOME', legacyHome);
+    const ref = deriveCredentialRef(`primary.api_key_${sha256Hex('primary-secret').slice(0, 12)}`);
+    const legacyFile = path.join(legacyHome, 'credentials.yaml');
+    const sentinel = `version: 1\nrefs:\n  ${ref}: user-sentinel-value\n`;
+    fs.writeFileSync(legacyFile, sentinel, { mode: 0o600 });
+    const store = createLLMConfigurationDocumentStore(deps);
+    store.createFromSource(plaintextSource(), 'legacy-seed');
+
+    await expect(store.migrateLegacyApiKeys()).resolves.toHaveLength(2);
+
+    expect(fs.readFileSync(legacyFile, 'utf8')).toBe(sentinel);
+    expect(store.readResolved().primary.api_key).toBe('primary-secret');
+    expect(fs.readFileSync(getCredentialsFilePath(), 'utf8')).not.toContain('user-sentinel-value');
+    cleanupTempDirSync(legacyHome);
   });
 
   it('supports per-claw llm.primary overrides with the same protocol', async () => {
