@@ -76,7 +76,7 @@ export interface LLMConfigurationCommitResult {
   readonly snapshot: {
     raw: LLMConfigDocument;
     resolved: ResolvedLLMConfigDocument;
-    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+    credentialSources: Readonly<Record<string, CredentialSource>>;
   };
 }
 

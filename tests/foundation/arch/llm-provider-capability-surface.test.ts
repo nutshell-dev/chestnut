@@ -1,7 +1,3 @@
-/**
- * Phase 2173 C6: LLMProvider capability façade architecture guard.
- * Scanning implementation lives in the sibling helper to keep this test focused.
- */
 import { describe, expect, it } from 'vitest';
 import {
   FACADES,
@@ -15,7 +11,6 @@ import {
   sorted,
   sourceFiles,
 } from './llm-provider-capability-surface-helpers.js';
-
 describe('Phase 2173 C6: LLMProvider capability surface', () => {
   it('locks the seven namespace façades and ROOT_COMPAT barrel exports', () => {
     const surface = readBarrelSurface();
@@ -40,12 +35,10 @@ describe('Phase 2173 C6: LLMProvider capability surface', () => {
       sorted(ROOT_COMPAT_EXPORTS),
     );
     expect(result.references.every(reference => reference.kind === 'export')).toBe(true);
-    expect(result.references.filter(reference => reference.typeOnly).map(
-      reference => reference.name,
-    ).sort()).toEqual(sorted(ROOT_TYPE_EXPORTS));
-    expect(result.references.filter(reference => !reference.typeOnly).map(
-      reference => reference.name,
-    ).sort()).toEqual(sorted(ROOT_ERROR_EXPORTS));
+    expect(result.references.filter(reference => reference.typeOnly)
+      .map(reference => reference.name).sort()).toEqual(sorted(ROOT_TYPE_EXPORTS));
+    expect(result.references.filter(reference => !reference.typeOnly)
+      .map(reference => reference.name).sort()).toEqual(sorted(ROOT_ERROR_EXPORTS));
   });
 
   it('enforces façade roots, type-only protocol imports, and no deep/omnibus imports in src', () => {
