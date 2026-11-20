@@ -406,3 +406,48 @@ describe('vitest-projects-pool-timeout-consistency-invariant', () => {
     });
   });
 });
+
+
+describe('vitest project resource topology invariant (phase 2215)', () => {
+  type Project = {
+    test?: {
+      name?: string;
+      maxWorkers?: number;
+      sequence?: { groupOrder?: number };
+    };
+  };
+
+  it('caps overrides and separates fast from resource-heavy projects', async () => {
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const cfgPath = path.join(repoRoot, '.config/vitest.config.ts');
+    const mod = await import(cfgPath) as {
+      default?: { test?: { projects?: Project[] } };
+      resolveProjectMaxWorkers?: (defaultCap: number, override?: string) => number;
+    };
+    const resolve = mod.resolveProjectMaxWorkers;
+    expect(resolve).toBeDefined();
+    expect(resolve?.(4, '')).toBe(4);
+    expect(resolve?.(4, '1')).toBe(1);
+    expect(resolve?.(4, '16')).toBe(4);
+    expect(resolve?.(2, 'invalid')).toBe(2);
+
+    const projects = mod.default?.test?.projects ?? [];
+    const byName = new Map(projects.map(project => [project.test?.name, project.test]));
+    const fast = byName.get('fast');
+    const resourceNames = ['arch-compile', 'isolated', 'integration-process', 'integration-io'];
+    const resourceProjects = resourceNames.map(name => byName.get(name));
+
+    expect(fast?.sequence?.groupOrder).toBe(0);
+    expect(fast?.maxWorkers).toBeGreaterThan(0);
+    expect(fast?.maxWorkers).toBeLessThanOrEqual(4);
+    for (const project of resourceProjects) {
+      expect(project?.sequence?.groupOrder).toBe(1);
+      expect(project?.maxWorkers).toBeGreaterThan(0);
+      expect(project?.maxWorkers).toBeLessThanOrEqual(2);
+    }
+    // Vitest 4 requires all projects in a parallel group to share maxWorkers.
+    expect(new Set(resourceProjects.map(project => project?.maxWorkers)).size).toBe(1);
+    expect(byName.get('infra')?.sequence?.groupOrder).toBe(2);
+    expect(byName.get('infra')?.maxWorkers).toBe(1);
+  });
+});

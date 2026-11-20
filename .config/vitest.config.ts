@@ -2,15 +2,20 @@ import { defineConfig } from 'vitest/config';
 import os from 'node:os';
 
 // phase 323: 多 worktree 并行测试 contention 防护
-// env unset → fallback os.cpus() (单 worktree 跑等价旧行为)
-// env 设有效正整数 → vitest worker 上限取 env 值
+// phase 2215: 默认值按项目设安全 cap；env 只能降低 cap，不能扩大真实 IO 面。
 // 详 design/practices.md "多 worktree 并行跑测试" 段
 // phase 1897: vitest 4 池重构——poolOptions.threads.maxThreads（v3 野键）→ 顶层
 // maxWorkers（v4 项目级合法）；env 随之改名 VITEST_MAX_THREADS → VITEST_MAX_WORKERS。
-const envMaxWorkers = parseInt(process.env.VITEST_MAX_WORKERS ?? '', 10);
-const maxWorkers = Number.isFinite(envMaxWorkers) && envMaxWorkers > 0
-  ? envMaxWorkers
-  : os.cpus().length;
+export function resolveProjectMaxWorkers(defaultCap: number, override?: string): number {
+  const requested = parseInt(override ?? process.env.VITEST_MAX_WORKERS ?? '', 10);
+  return Number.isFinite(requested) && requested > 0
+    ? Math.min(defaultCap, requested)
+    : defaultCap;
+}
+
+const fastMaxWorkers = resolveProjectMaxWorkers(Math.min(os.cpus().length, 4));
+const resourceMaxWorkers = resolveProjectMaxWorkers(2);
+const infraMaxWorkers = resolveProjectMaxWorkers(1);
 
 /**
  * phase 1231: vi.mock (file-level static) file 列表
@@ -453,9 +458,8 @@ export default defineConfig({
     // 5s，不会误杀正常清理）。
     teardownTimeout: 10000,
     // phase 1897: vitest 4 调度模型——同 sequence.groupOrder 的项目同组并行、组间按
-    // groupOrder 从小到大串行；同组项目必须同 maxWorkers（v4 硬校验）。为保留各项目
-    // 并发上限（fast/isolated=N、arch-compile/integration-*=2、infra=1），按上限值分组：
-    // 0=N 组（大头先跑）、1=2-worker 组、2=infra。
+    // groupOrder 从小到大串行；同组项目必须同 maxWorkers（v4 硬校验）。phase 2215 将
+    // fast 与 isolated/真实 IO 分层：0=fast（至多 4）、1=低并发组（至多 2）、2=infra。
     projects: [
       {
         test: {
@@ -475,7 +479,7 @@ export default defineConfig({
             '**/dist/**',
           ],
           pool: 'threads',
-          maxWorkers,
+          maxWorkers: fastMaxWorkers,
           isolate: false,
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -494,7 +498,7 @@ export default defineConfig({
           include: ARCH_COMPILE_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          maxWorkers: 2,
+          maxWorkers: resourceMaxWorkers,
           isolate: true,
           testTimeout: 60000,
           hookTimeout: 15000,
@@ -503,7 +507,7 @@ export default defineConfig({
       {
         test: {
           name: 'isolated',
-          sequence: { groupOrder: 0 },
+          sequence: { groupOrder: 1 },
           globals: true,
           environment: 'node',
           include: ISOLATED_FILES,
@@ -517,7 +521,7 @@ export default defineConfig({
             'tests/cli/already-running-sentinel.test.ts',
           ],
           pool: 'threads',
-          maxWorkers,
+          maxWorkers: resourceMaxWorkers,
           isolate: true,
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -532,7 +536,7 @@ export default defineConfig({
           include: INTEGRATION_PROCESS_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          maxWorkers: 2,
+          maxWorkers: resourceMaxWorkers,
           isolate: true,
           testTimeout: 30000,
           hookTimeout: 15000,
@@ -547,7 +551,7 @@ export default defineConfig({
           include: INTEGRATION_IO_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          maxWorkers: 2,
+          maxWorkers: resourceMaxWorkers,
           isolate: true,
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -562,7 +566,7 @@ export default defineConfig({
           include: INFRA_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          maxWorkers: 1,
+          maxWorkers: infraMaxWorkers,
           isolate: true,
           testTimeout: 60000,
           hookTimeout: 30000,
