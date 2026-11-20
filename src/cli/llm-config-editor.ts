@@ -2,6 +2,8 @@
 import type * as readline from 'node:readline';
 import { CliError } from './errors.js';
 import type { FileSystem } from '../foundation/fs/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
+import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import { storeKeyAsCredential } from './credentials-prompt.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import { FORMAT_MAP } from './provider-format-map.js';
@@ -18,10 +20,12 @@ import {
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CONFIRM_PROMPT,
   setupApiKeyPrompt,
+  setupCredentialCleanupFailedLine,
+  setupCredentialDiscardedLine,
   setupProviderMenuLines,
   setupDraftPreviewLines,
 } from '../templates/messages/index.js';
-import type { LLMRepairAction } from './llm-connection-check.js';
+import type { LLMRepairAction } from './llm-repair-action.js';
 
 export interface LLMConfigEditorDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -45,6 +49,31 @@ export function recordCreatedCredential(
     return;
   }
   if (info.created) created.push({ ref, value: info.value });
+}
+
+/** Remove only credentials created by this attempt and still holding its value. */
+export async function discardCreatedCredentials(
+  deps: LLMConfigEditorDeps,
+  created: readonly StoredCredential[],
+  emit = true,
+): Promise<void> {
+  if (created.length === 0) return;
+  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
+  for (const { ref, value } of created) {
+    let removed = false;
+    try {
+      await authentication.modify(ref, async (current) => {
+        if (current === value) {
+          removed = true;
+          return undefined;
+        }
+        return current;
+      });
+      if (emit && removed) console.log(setupCredentialDiscardedLine(ref));
+    } catch (err) {
+      if (emit) console.log(setupCredentialCleanupFailedLine(ref, formatErr(err)));
+    }
+  }
 }
 
 export type ExplicitLLMConfigResult =

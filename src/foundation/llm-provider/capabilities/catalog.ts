@@ -34,8 +34,13 @@ export {
   validateCatalogProtocol,
   CatalogProtocolMismatchError,
   catalogModelKnown,
-  catalogProvidersWithoutPreset,
   resolveCatalogIdentity,
   CATALOG_REVISION,
 } from '../catalog-strategy.js';
 export type { CatalogResolution, CatalogWireIdentity } from '../catalog-strategy.js';
+export { catalogProviderLoginMetadata } from '../provider-login-metadata.js';
+export type { CatalogProviderLoginMetadata } from '../provider-login-metadata.js';
+export {
+  CATALOG_PROVIDER_ALIAS_REVISION,
+  resolveLegacyCatalogProviderAlias,
+} from '../catalog-provider-aliases.js';

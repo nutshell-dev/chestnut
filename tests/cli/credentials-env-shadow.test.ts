@@ -255,4 +255,70 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     await expect(promptReconfigure(configDeps, rl, 'model')).rejects.toBe(failure);
     expect(patch).toHaveBeenCalledTimes(1);
   });
+
+  it('provider replacement 复用 shared editor 并提交显式 catalog facts', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    // Change provider → OpenAI → typed key → Enter accepts the explicit default model.
+    rlAnswers.queue = ['3', '6', 'typed-key', ''];
+    const rl = mockRl as unknown as import('readline').Interface;
+
+    const snapshot = await promptReconfigure(await deps(), rl, 'auth');
+
+    expect(snapshot).not.toBeNull();
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('provider_id: openai');
+    expect(rawYaml).toContain('api_format: openai-responses');
+    expect(rawYaml).toContain('auth_profile: api_key');
+    expect(rawYaml).toContain('model: gpt-4o');
+    expect(rawYaml).not.toContain('preset:');
+    expect(rawYaml).not.toContain('typed-key');
+  });
+
+  it('custom provider replacement 保留显式 protocol/base URL/model，取消确认不改 primary', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    const rl = mockRl as unknown as import('readline').Interface;
+    rlAnswers.queue = [
+      '3', '10', '2', 'https://example.test/v1', 'typed-key', 'custom-model', 'y',
+    ];
+    const snapshot = await promptReconfigure(await deps(), rl, 'auth');
+    expect(snapshot).not.toBeNull();
+    let rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('provider_id: custom:openai');
+    expect(rawYaml).toContain('api_format: openai');
+    expect(rawYaml).toContain('model: custom-model');
+    expect(rawYaml).toContain('base_url: https://example.test/v1');
+    expect(rawYaml).not.toContain('preset:');
+
+    writeInitialConfig();
+    const before = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    const credentialsPath = path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml');
+    const credentialsBefore = fs.readFileSync(credentialsPath, 'utf8');
+    rlAnswers.queue = [
+      '3', '10', '2', 'https://cancelled.test/v1', 'typed-key', 'cancelled-model', 'n',
+    ];
+    const cancelled = await promptReconfigure(await deps(), rl, 'auth');
+    expect(cancelled).toBeNull();
+    rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
+    expect(rawYaml).toBe(before);
+    expect(fs.readFileSync(credentialsPath, 'utf8')).toBe(credentialsBefore);
+  });
+
+  it('model 空输入保持 required，所有 reconfigure 问题都不再宣传 preset default/auto', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    const lines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      rlAnswers.queue = ['2', '', 'n'];
+      const rl = mockRl as unknown as import('readline').Interface;
+      const snapshot = await promptReconfigure(await deps(), rl, 'model');
+      expect(snapshot).toBeNull();
+      expect(lines).toContain('Model is required.');
+      const prompts = mockRl.question.mock.calls.map(call => String(call[0])).join('\n');
+      expect(prompts).not.toMatch(/preset default|"auto"/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });

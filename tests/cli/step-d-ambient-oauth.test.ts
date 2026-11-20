@@ -3,7 +3,7 @@
  *
  * - config provider add：ambient preset（amazon-bedrock）不索 API key、配置不落
  *   api_key 字段、probe 配置不带 apiKey；
- * - config provider login/logout：label → preset.piAiProvider → llm-login 运行缝
+ * - config provider login/logout：label → canonical provider/login metadata → llm-login 运行缝
  *   （缝被 mock；pi-ai 原生 login 流行为由 pi-ai-auth.test.ts 覆盖）；
  * - start 门控 missingStartLLMParams：api key 仅 api_key profile 必需；base-url
  *   仅 custom preset 必需；
@@ -171,17 +171,31 @@ describe('missingStartLLMParams — Phase 1926 Step D profile 规则', () => {
 
 /* ── config provider login / logout ────────────────────────────────────────── */
 
-function writeCodexConfig() {
+function writeLegacyPresetConfig(preset: string, model: string) {
   const configDir = path.join(tempDir, '.chestnut');
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: openai-codex\n    model: gpt-6.1-sol\n`,
+    `llm:\n  primary:\n    preset: ${preset}\n    model: ${model}\n`,
+  );
+}
+
+function writeCodexConfig() {
+  writeLegacyPresetConfig('openai-codex', 'gpt-6.1-sol');
+}
+
+function writeExplicitPrimaryConfig(primary: string) {
+  const configDir = path.join(tempDir, '.chestnut');
+  fs.mkdirSync(path.join(configDir, 'llm'), { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.yaml'), '{}\n');
+  fs.writeFileSync(
+    path.join(configDir, 'llm', 'config.yaml'),
+    `schema_version: 1\nrevision: 1\nprimary:\n${primary}\n`,
   );
 }
 
 describe('config provider login/logout — Phase 1926 Step D', () => {
-  it('login：label → piAiProvider，缺省 type 取 provider 首选（oauth）', async () => {
+  it('login：label → canonical provider，缺省 type 取 provider 首选（oauth）', async () => {
     writeCodexConfig();
     loginMock.providerLoginTypes.mockResolvedValue(['oauth']);
 
@@ -223,17 +237,77 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
     expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
   });
 
-  it('login：custom preset（无 piAiProvider）→ 明确拒绝', async () => {
-    const configDir = path.join(tempDir, '.chestnut');
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.yaml'),
-      `llm:\n  primary:\n    preset: custom-openai\n    api_key: sk-x\n    base_url: https://x.local/v1\n`,
-    );
+  it('login：custom provider（无 canonical catalog identity）→ 明确拒绝', async () => {
+    vi.stubEnv('CUSTOM_API_KEY', 'env-key');
+    writeExplicitPrimaryConfig(`  provider_id: custom:openai
+  api_format: openai
+  auth_profile: api_key
+  api_key: \${CUSTOM_API_KEY}
+  model: custom-model
+  base_url: https://x.local/v1`);
     const cmd = createConfigCommand(commandDeps);
-    await expect(cmd.parseAsync(['node', 'test', 'provider', 'login', 'custom-openai']))
+    await expect(cmd.parseAsync(['node', 'test', 'provider', 'login', 'custom:openai']))
       .rejects.toThrow(/process\.exit/);
+    expect(loginMock.providerLoginTypes).not.toHaveBeenCalled();
     expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
+  });
+
+  it('login：ambient-only 提示来自 canonical login metadata', async () => {
+    writeLegacyPresetConfig('amazon-bedrock', 'anthropic.claude-sonnet-4-6');
+    loginMock.providerLoginTypes.mockResolvedValue([]);
+    const errors: string[] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    try {
+      const cmd = createConfigCommand(commandDeps);
+      await expect(cmd.parseAsync(['node', 'test', 'provider', 'login', 'amazon-bedrock']))
+        .rejects.toThrow(/process\.exit/);
+      expect(loginMock.providerLoginTypes).toHaveBeenCalledWith('amazon-bedrock');
+      expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
+      expect(errors.join('\n')).toContain('AWS_PROFILE');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('login：metadata-only catalog provider 不冒充 wire/login identity', async () => {
+    vi.stubEnv('DASHSCOPE_API_KEY', 'env-key');
+    writeExplicitPrimaryConfig(`  provider_id: qwen
+  api_format: anthropic
+  auth_profile: api_key
+  api_key: \${DASHSCOPE_API_KEY}
+  model: qwen3.8-max
+  base_url: https://dashscope.aliyuncs.com/apps/anthropic
+  catalog_provider: qwen-token-plan
+  catalog_model: qwen3.8-max`);
+    const cmd = createConfigCommand(commandDeps);
+    await expect(cmd.parseAsync(['node', 'test', 'provider', 'login', 'qwen']))
+      .rejects.toThrow(/process\.exit/);
+    expect(loginMock.providerLoginTypes).not.toHaveBeenCalled();
+    expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
+  });
+
+  it('login/logout：canonical id 上的 metadata-only wire 也不冒充 login identity', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'env-key');
+    writeExplicitPrimaryConfig(`  provider_id: deepseek
+  api_format: anthropic
+  auth_profile: api_key
+  api_key: \${DEEPSEEK_API_KEY}
+  model: deepseek-flash[1m]
+  base_url: https://api.deepseek.com/anthropic
+  catalog_provider: deepseek
+  catalog_model: deepseek-flash`);
+    const cmd = createConfigCommand(commandDeps);
+    await expect(cmd.parseAsync(['node', 'test', 'provider', 'login', 'deepseek']))
+      .rejects.toThrow(/process\.exit/);
+    expect(loginMock.providerLoginTypes).not.toHaveBeenCalled();
+    expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
+
+    const logoutCmd = createConfigCommand(commandDeps);
+    await expect(logoutCmd.parseAsync(['node', 'test', 'provider', 'logout', 'deepseek']))
+      .rejects.toThrow(/process\.exit/);
+    expect(loginMock.runProviderLogout).not.toHaveBeenCalled();
   });
 
   it('logout：删除 stored credential（缝调用）', async () => {

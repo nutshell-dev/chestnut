@@ -2,8 +2,8 @@
  * @module L1.LLMProvider
  * Phase 1927 Step D：catalog provider → chestnut 配置策略单源。
  *
- * pi-ai catalog（PROVIDER_INVENTORY 快照）是 provider universe；PRESETS 只是
- * UX 别名/默认值。本模块给「显式 catalog provider 配置」（provider_id + model +
+ * pi-ai catalog（PROVIDER_INVENTORY 快照）是 provider universe；legacy preset
+ * migration 是独立输入边界。本模块给「显式 catalog provider 配置」（provider_id + model +
  * auth_profile）提供同步的、无需动态 import pi-ai 的裁决面：
  *
  * - provider 合法性：inventory 快照成员（未知 id loud，附可用清单）；
@@ -19,7 +19,6 @@ import {
   MODEL_CATALOG,
   MODEL_CATALOG_PI_AI_VERSION,
 } from './model-catalog.generated.js';
-import { PRESETS } from './presets.js';
 import type { ApiFormat, AuthProfile } from './api-format.js';
 import { resolveContextWindowForIdentity } from './model-context-windows.js';
 import type {
@@ -237,18 +236,4 @@ export function withCatalogWireIdentity(
   wire: CatalogWireIdentity,
 ): CatalogResolution {
   return Object.freeze({ ...resolution, wire: Object.freeze(wire) });
-}
-
-/**
- * 无任何 preset 别名的 catalog provider（UX 列表的增量来源——消除 provider
- * universe 与 PRESETS 的双重封闭来源：preset 覆盖的走 preset，其余由 inventory
- * 单源派生）。返回排序后的 provider id。
- */
-export function catalogProvidersWithoutPreset(): string[] {
-  const covered = new Set(
-    Object.values(PRESETS)
-      .map((p) => p.piAiProvider)
-      .filter((v): v is string => v !== undefined),
-  );
-  return Object.keys(PROVIDER_INVENTORY).filter((id) => !covered.has(id)).sort();
 }

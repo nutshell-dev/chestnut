@@ -234,6 +234,7 @@ afterEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.CHESTNUT_LLM_API_KEY;
   delete process.env.MISTRAL_API_KEY;
+  delete process.env.OPENAI_API_KEY;
   delete process.env.CUSTOM_API_KEY;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -581,6 +582,7 @@ describe('start LLM gate (unit)', () => {
     await applyStartLLMOptions(deps, { model: 'claude-new', nonInteractive: true });
 
     expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledTimes(1);
+    expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledWith({ model: 'claude-new' });
     expect(vi.mocked(console.error)).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
     expect(vi.mocked(console.error)).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
   });
@@ -598,29 +600,43 @@ describe('start LLM gate (unit)', () => {
     expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledTimes(1);
   });
 
-  it('S. initialized patch：catalog 换边清 preset，preset 换边清 provider_id', async () => {
-    process.env.MISTRAL_API_KEY = 'sk-mistral-test';
+  it('S. initialized provider replacement uses explicit facts; unknown methods never write preset', async () => {
+    process.env.OPENAI_API_KEY = 'sk-openai-test';
     const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
 
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
     await applyStartLLMOptions(deps, {
-      provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+      provider: 'openai', model: 'gpt-5', apiKeyEnv: 'OPENAI_API_KEY', nonInteractive: true,
     });
-    expect(deps.rootConfig.patchPrimary).toHaveBeenCalledTimes(1);
-    const patch = deps.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
-    expect(patch['provider_id']).toBe('mistral');
-    expect('preset' in patch && patch['preset'] === undefined).toBe(true); // 换边清除
+    expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledTimes(1);
+    const patch = deps.llmConfiguration.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
+    expect(patch).toMatchObject({
+      provider_id: 'openai', api_format: 'openai-responses', auth_profile: 'api_key',
+      model: 'gpt-5', api_key: '${OPENAI_API_KEY}',
+    });
+    expect('preset' in patch && patch['preset'] === undefined).toBe(true);
 
-    const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
-    await applyStartLLMOptions(deps2, {
-      provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
-    });
-    const patch2 = deps2.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
-    expect(patch2['preset']).toBeUndefined();
-    expect(patch2).toMatchObject({
-      provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
-      model: 'claude-x', api_key: '${MISTRAL_API_KEY}',
-    });
+    const unknown = makeGateDeps(() => makeGlobal('claude-x'));
+    const error = await applyStartLLMOptions(unknown, {
+      provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'OPENAI_API_KEY', nonInteractive: true,
+    }).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(START_USAGE_EXIT_CODE);
+    expect((error as CliError).message).toContain('Unknown configuration method');
+    expect(unknown.llmConfiguration.patchPrimary).not.toHaveBeenCalled();
+  });
+
+  it('S4. legacy-shaped primary without explicit provider identity cannot drive a partial patch', async () => {
+    const legacy = makeGlobal('claude-x');
+    Reflect.deleteProperty(legacy.llm.primary, 'provider_id');
+    Reflect.set(legacy.llm.primary, 'preset', 'anthropic');
+    const deps = makeGateDeps(() => legacy);
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+
+    await expect(applyStartLLMOptions(deps, {
+      model: 'claude-new', nonInteractive: true,
+    })).rejects.toThrow(/--provider is required/);
+    expect(deps.llmConfiguration.patchPrimary).not.toHaveBeenCalled();
   });
 });
 

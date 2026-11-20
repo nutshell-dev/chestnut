@@ -8,7 +8,6 @@ const {
   CatalogModelNotFoundError,
   CatalogProtocolMismatchError,
   deriveCatalogAuthProfile,
-  catalogProvidersWithoutPreset,
 } = llmProviderCatalog;
 import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
@@ -200,11 +199,5 @@ describe('catalog strategy', () => {
   it('retains auth facts for migration/UX without adapter defaults', () => {
     expect(deriveCatalogAuthProfile('openai-codex')).toBe('oauth');
     expect(deriveCatalogAuthProfile('mistral')).toBe('api_key');
-  });
-
-  it('lists catalog providers not covered by UX presets', () => {
-    const uncovered = catalogProvidersWithoutPreset();
-    expect(uncovered).toEqual(expect.arrayContaining(['mistral', 'azure', 'radius', 'moonshotai']));
-    expect(uncovered).not.toEqual(expect.arrayContaining(['moonshotai-cn', 'anthropic', 'openai-codex']));
   });
 });

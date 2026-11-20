@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
-const { CATALOG_REVISION, resolveCatalogIdentity } = llmProviderCatalog;
+const {
+  CATALOG_PROVIDER_ALIAS_REVISION,
+  CATALOG_REVISION,
+  catalogProviderLoginMetadata,
+  resolveCatalogIdentity,
+  resolveLegacyCatalogProviderAlias,
+} = llmProviderCatalog;
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
 /** Offline custom-provider fixture only needs a short, positive timeout. */
@@ -67,5 +73,45 @@ describe('catalog identity facade', () => {
     }).catalogResolution;
     expect(resolution?.window).toMatchObject({ contextWindow: 128_000, source: 'catalog' });
     expect(resolution?.providerId).toBe('cloudflare-ai-gateway');
+  });
+
+  it('uses the dedicated revisioned alias capability and exposes catalog_alias source', () => {
+    const aliases = {
+      moonshot: 'moonshotai-cn',
+      gemini: 'google',
+      grok: 'xai',
+      'openrouter-anthropic': 'openrouter',
+      kimi: 'kimi-coding',
+      qwen: 'qwen-token-plan',
+    } as const;
+    expect(CATALOG_PROVIDER_ALIAS_REVISION).toBe('legacy-catalog-provider-aliases@1');
+    for (const [legacyId, catalogId] of Object.entries(aliases)) {
+      expect(resolveLegacyCatalogProviderAlias(legacyId)).toBe(catalogId);
+    }
+    expect(resolveLegacyCatalogProviderAlias('openai')).toBeUndefined();
+    expect(resolveLegacyCatalogProviderAlias('custom:openai')).toBeUndefined();
+    expect(resolveLegacyCatalogProviderAlias('unknown')).toBeUndefined();
+
+    const resolution = resolveCatalogIdentity({
+      name: 'qwen', model: 'qwen3.8-max', apiFormat: 'anthropic',
+      baseUrl: 'https://example.test/anthropic',
+    });
+    expect(resolution.window).toMatchObject({
+      contextWindow: 1_000_000,
+      source: 'catalog_alias',
+      providerId: 'qwen',
+      revision: CATALOG_REVISION,
+      aliasRevision: CATALOG_PROVIDER_ALIAS_REVISION,
+    });
+  });
+
+  it('keeps login metadata canonical and separate from model aliases', () => {
+    expect(catalogProviderLoginMetadata('amazon-bedrock')).toEqual({
+      providerId: 'amazon-bedrock',
+      authHint: expect.stringContaining('AWS_PROFILE'),
+    });
+    expect(catalogProviderLoginMetadata('qwen')).toBeUndefined();
+    expect(catalogProviderLoginMetadata('custom:openai')).toBeUndefined();
+    expect(catalogProviderLoginMetadata('unknown')).toBeUndefined();
   });
 });

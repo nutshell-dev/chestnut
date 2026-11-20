@@ -13,7 +13,6 @@
  */
 
 import * as readline from 'readline';
-import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   GlobalConfigAlreadyExistsError,
@@ -55,13 +54,14 @@ import {
 import { FORMAT_MAP } from './provider-format-map.js';
 import {
   collectExplicitLLMConfig,
+  discardCreatedCredentials,
   recordCreatedCredential,
   repairExplicitLLMConfig,
   storeSetupApiKey,
   type Question,
   type StoredCredential,
 } from './llm-config-editor.js';
-export { recordCreatedCredential } from './llm-config-editor.js';
+export { discardCreatedCredentials, recordCreatedCredential } from './llm-config-editor.js';
 export type { Question, StoredCredential } from './llm-config-editor.js';
 import {
   emitLLMSetupWorkflowAudit,
@@ -73,8 +73,6 @@ import {
   SETUP_CANCELLED,
   setupConnectingLine,
   setupRepairMenuLines,
-  setupCredentialDiscardedLine,
-  setupCredentialCleanupFailedLine,
 } from '../templates/messages/index.js';
 import {
   START_GATE_EXIT_CODE,
@@ -187,31 +185,6 @@ function makeQuestion(rl: readline.Interface): Question {
   return (prompt: string, defaultValue?: string): Promise<string> =>
     askQuestion(rl, prompt, defaultValue);
 }
-
-export async function discardCreatedCredentials(
-  deps: Pick<FirstRunDeps, 'fsFactory'>,
-  created: readonly StoredCredential[],
-  emit: boolean = true,
-): Promise<void> {
-  if (created.length === 0) return;
-  const authentication = createAuthenticationSetup({ fsFactory: deps.fsFactory });
-  for (const { ref, value } of created) {
-    let removed = false;
-    try {
-      await authentication.modify(ref, async (current) => {
-        if (current === value) {
-          removed = true;
-          return undefined;
-        }
-        return current;
-      });
-      if (emit && removed) console.log(setupCredentialDiscardedLine(ref));
-    } catch (err) {
-      if (emit) console.log(setupCredentialCleanupFailedLine(ref, formatErr(err)));
-    }
-  }
-}
-
 
 function parseRepairChoice(raw: string): LLMRepairAction | undefined {
   switch (raw.trim().toLowerCase()) {

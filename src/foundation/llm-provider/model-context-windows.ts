@@ -10,7 +10,7 @@
  *   1. model id 在目录中只有唯一 contextWindow → 直接使用（模型选择是权威输入，
  *      不依赖 provider/preset label）；
  *   2. 同名 model 有多组值 → exact `(provider id, model id)` 精确命中消歧；否则经
- *      PRESETS.piAiProvider/catalogProvider 别名命中（Phase 1975 metadata-only 映射）；
+ *      专用、带 revision 的 legacy catalog alias capability 命中；
  *   3. 仍无法消歧 → 保守最小值（避免超限请求）；
  *   4. 目录未命中 → 既有启发式（默认 256K + 后缀/模型族特判 1M）。
  *
@@ -20,7 +20,10 @@
  */
 
 import { MODEL_CATALOG } from './model-catalog.generated.js';
-import { PRESETS } from './presets.js';
+import {
+  CATALOG_PROVIDER_ALIAS_REVISION,
+  resolveLegacyCatalogProviderAlias,
+} from './catalog-provider-aliases.js';
 import type { CatalogResolution, ContextWindowResolution } from './catalog-resolution-types.js';
 
 /** 默认 context window（model 名未命中 1M 特判时 fallback、phase 684 改 128K → 256K） */
@@ -95,12 +98,14 @@ export function resolveContextWindowForIdentity(
   const finish = (
     contextWindow: number,
     source: ContextWindowResolution['source'],
+    aliasRevision?: string,
   ): ContextWindowResolution => Object.freeze({
     contextWindow,
     source,
     providerId: identity.providerId ?? identity.providerHint ?? 'unknown',
     modelId: identity.modelId,
     revision: identity.revision,
+    ...(aliasRevision !== undefined && { aliasRevision }),
   });
 
   if (identity.kind !== 'custom' && identity.metadata) {
@@ -115,12 +120,10 @@ export function resolveContextWindowForIdentity(
   if (windows?.size === 1) return finish(Math.min(...windows), 'catalog');
   const direct = providerId ? MODEL_CATALOG[`${providerId}/${modelName}`] : undefined;
   if (direct) return finish(direct.contextWindow, 'catalog');
-  const aliased = providerId
-    ? (PRESETS[providerId]?.piAiProvider ?? PRESETS[providerId]?.catalogProvider)
-    : undefined;
+  const aliased = providerId ? resolveLegacyCatalogProviderAlias(providerId) : undefined;
   if (aliased) {
     const hit = MODEL_CATALOG[`${aliased}/${modelName}`];
-    if (hit) return finish(hit.contextWindow, 'catalog');
+    if (hit) return finish(hit.contextWindow, 'catalog_alias', CATALOG_PROVIDER_ALIAS_REVISION);
   }
   if (windows && windows.size > 1) return finish(Math.min(...windows), 'explicit_fallback');
 

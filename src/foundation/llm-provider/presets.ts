@@ -61,8 +61,6 @@ interface ProviderPreset {
   catalogApiFormat?: ApiFormat;
   /** Phase 1926 Step D：认证装配类别（缺席按 api_key 处理，back-compat）。 */
   authProfile?: AuthProfile;
-  /** ambient/oauth preset 的认证来源提示（CLI 交互/失败提示展示，不含 secret）。 */
-  authHint?: string;
   defaultBaseUrl?: string;
   defaultModel?: string;
   /** Environment variable name for the API key (e.g. ANTHROPIC_API_KEY) */
@@ -257,7 +255,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'amazon-bedrock',
     displayName: 'Amazon Bedrock',
     authProfile: 'ambient',
-    authHint: 'AWS 凭证链（AWS_PROFILE / 默认链 / ECS / web identity）+ AWS_REGION；无需 api_key。',
     defaultModel: 'anthropic.claude-sonnet-4-6',
     piAiProvider: 'amazon-bedrock',
     catalogApiFormat: 'bedrock-converse-stream',
@@ -266,7 +263,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'google-vertex',
     displayName: 'Google Vertex AI',
     authProfile: 'ambient',
-    authHint: 'GOOGLE_CLOUD_API_KEY 或 ADC（GOOGLE_APPLICATION_CREDENTIALS / gcloud）+ GOOGLE_CLOUD_PROJECT/LOCATION；无需 api_key。',
     defaultModel: 'gemini-2.5-pro',
     piAiProvider: 'google-vertex',
     catalogApiFormat: 'google-vertex',
@@ -275,7 +271,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'openai-codex',
     displayName: 'OpenAI Codex (OAuth)',
     authProfile: 'oauth',
-    authHint: '需先经 config provider login <label> 完成 OAuth 登录（纯 OAuth provider，api_key 无效）。',
     // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
     defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'openai-codex',
@@ -285,7 +280,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'github-copilot',
     displayName: 'GitHub Copilot (OAuth)',
     authProfile: 'oauth',
-    authHint: '需先经 config provider login <label> 完成 OAuth 登录（device code）。',
     // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
     defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'github-copilot',

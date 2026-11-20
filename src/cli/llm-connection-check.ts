@@ -6,7 +6,7 @@
  */
 
 import * as readline from 'readline';
-import { formatErr } from "../foundation/node-utils/index.js";
+import { formatErr, newUuid } from "../foundation/node-utils/index.js";
 
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
@@ -22,9 +22,6 @@ import {
 import { llmProviderCall, llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
 type ProviderInput = llmProviderCall.ProviderInput;
 type ProviderFactory = llmProviderCall.ProviderFactory;
-import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
-const { PRESETS, catalogProvidersWithoutPreset } = llmProviderCatalog;
-// Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 
 import {
   LLM_PROBE_MAX_TOKENS,
@@ -33,11 +30,18 @@ import {
 } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { toOrchestratorConfig } from '../assembly/index.js';
-// Legacy reconfigure still writes a legacy document; setup uses FORMAT_MAP's explicit protocols.
-const LEGACY_CUSTOM_FORMAT_MAP: Record<string, string> = {
-  '1': 'custom-anthropic', '2': 'custom-openai', '3': 'custom-gemini',
-};
 import { passwordQuestion } from './utils/password-prompt.js';
+import { question as askQuestion } from './utils/prompt.js';
+import {
+  collectExplicitLLMConfig,
+  discardCreatedCredentials,
+  type ExplicitLLMConfigResult,
+  type StoredCredential,
+} from './llm-config-editor.js';
+import {
+  makeExplicitSetupProvider,
+  SETUP_PROVIDER_CATALOG,
+} from './setup-provider-catalog.js';
 
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 // Phase 1925 Step B：reconfigure 的明文 key 经 Credentials owner 落凭据文件、配置写 `${REF}`。
@@ -106,15 +110,9 @@ import { stripOrchestratorWrapper, truncateLLMMessage } from './utils/text.js';
  * Phase 1976：首次 setup 失败后的修复动作。菜单呈现归 setup 向导；
  * 本模块只提供稳定的动作集合与失败摘要，不再持有 start 的首屏菜单。
  */
-export type LLMRepairAction = 'retry' | 'edit-key' | 'edit-model' | 'edit-provider' | 'cancel';
-
-export const LLM_REPAIR_ACTIONS: readonly LLMRepairAction[] = [
-  'retry',
-  'edit-key',
-  'edit-model',
-  'edit-provider',
-  'cancel',
-];
+import { LLM_REPAIR_ACTIONS, type LLMRepairAction } from './llm-repair-action.js';
+export { LLM_REPAIR_ACTIONS };
+export type { LLMRepairAction };
 
 export interface LLMFailureSummary {
   errorType: LLMErrorType;
@@ -293,7 +291,7 @@ export async function checkLLMConnectionFor(
  * Phase 1926 Step C：成功时返回**已 probe 的配置快照**（身份证据；probe 与快照
  * 同一 resolved object），用户退出返回 null。调用方复用前必须比对当前身份。
  *
- * Menu: 1=API key, 2=model, 3=format+baseURL, n=exit
+ * Menu: 1=API key, 2=model, 3=provider, n=exit
  * After any change, re-tests the connection automatically.
  */
 export async function promptReconfigure(
@@ -310,20 +308,16 @@ export async function promptReconfigure(
       throw error;
     }
   }
-  const question = (prompt: string): Promise<string> =>
-    new Promise(resolve => rl.question(`${prompt}: `, ans => resolve(ans.trim())));
+  const question = (prompt: string, defaultValue?: string): Promise<string> =>
+    askQuestion(rl, prompt, defaultValue);
 
   const passwordPrompt = (prompt: string) => passwordQuestion(rl, `${prompt}: `);
-
-  // Phase 1926 Step D：catalog preset（含 ambient/oauth，无 defaultBaseUrl）同样可选；
-  // 仅 custom-*（无默认 baseUrl 且无 catalog 权威）留在 "Custom" 手工路径。
-  const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl || p.piAiProvider);
 
   while (true) {
     console.log('\nReconfigure LLM:');
     console.log('1. Update API key');
     console.log('2. Change model');
-    console.log('3. Change format & base URL');
+    console.log('3. Change provider');
     console.log('n. Exit');
     const choice = await question('\n> ');
 
@@ -333,13 +327,12 @@ export async function promptReconfigure(
       const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
       if (!raw) { console.log('API key is required.'); continue; }
-      // Phase 1925 Step B：ref 优先取当前 primary preset 的 envVar 约定名
-      // Phase 1984 Step B：env 同名已设置时，typed key 改用派生 ref 保存（不被 env
-      // 遮蔽）；派生 ref 仍被遮蔽则 loud 失败，不静默回退为环境变量。
+      // API key ref 只从当前显式 provider identity 对应的 setup descriptor 派生。
+      // 未知/custom identity 不猜环境变量，仍使用 credential seed 生成独立引用。
       const currentPrimary = deps.llmConfiguration.loadGlobal().llm.primary;
-      const currentPreset = Object.values(PRESETS).find(preset =>
-        preset.piAiProvider === currentPrimary.provider_id || preset.id === currentPrimary.provider_id);
-      const envVar = currentPreset?.envVar;
+      const currentSetup = SETUP_PROVIDER_CATALOG.find(choice =>
+        choice.providerId === currentPrimary.provider_id);
+      const envVar = currentSetup?.envVar;
       const envReady = Boolean(envVar && process.env[envVar]);
       const seed = currentPrimary.label ?? currentPrimary.provider_id;
       const stored = await storeKeyAsCredential(deps, raw, envReady
@@ -348,81 +341,33 @@ export async function promptReconfigure(
       reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ api_key: stored }));
 
     } else if (choice === '2') {
-      const raw = await question('New model (b = back, "auto" = preset default)');
+      const raw = await question('New model (b = back)');
       if (raw === 'b') continue;
-      if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
+      if (!raw) { console.log('Model is required.'); continue; }
       reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ model: raw }));
 
     } else if (choice === '3') {
-      type FmtStep = 'pick' | 'customFormat' | 'baseUrl' | 'done';
-      let step: FmtStep = 'pick';
-      let chosenPreset = '';
-      let chosenBaseUrl = '';
-
-      while (step !== 'done') {
-        if (step === 'pick') {
-          console.log('\nChange provider (b = back to menu):');
-          presetList.forEach((p, i) =>
-            console.log(`${i + 1}. ${p.displayName}  (${p.defaultBaseUrl})`)
-          );
-          // Phase 1927 Step D：无 preset 别名的 catalog provider 同样可选（无默认
-          // model——选择后必须显式输入 model，否则旧 model 跨 provider 无意义）
-          const catalogOnly = catalogProvidersWithoutPreset();
-          catalogOnly.forEach((id, i) =>
-            console.log(`${presetList.length + i + 1}. ${id}  (pi-ai catalog)`)
-          );
-          const catalogStart = presetList.length + 1;
-          const customIdx = presetList.length + catalogOnly.length + 1;
-          console.log(`${customIdx}. Custom (enter format & base URL manually)`);
-
-          const raw = await question('\n> ');
-          if (raw === 'b') break;
-          const idx = parseInt(raw, 10);
-          if (isNaN(idx)) { console.log('Invalid choice: not a number.'); continue; }
-
-          if (idx >= 1 && idx <= presetList.length) {
-            const p = presetList[idx - 1];
-            chosenPreset = p.id;
-            chosenBaseUrl = p.defaultBaseUrl ?? '';
-            // provider 换边清除互斥的 provider_id（patch 语义：undefined = 删键）
-            reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined }));
-            console.log(`✓ Set provider to ${p.displayName}`);
-            step = 'done';
-          } else if (idx >= catalogStart && idx < customIdx) {
-            const providerId = catalogOnly[idx - catalogStart];
-            const modelRaw = await question(`Model (required for ${providerId})`);
-            if (!modelRaw || modelRaw === 'b') { console.log('Model is required.'); continue; }
-            reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined }));
-            console.log(`✓ Set provider to ${providerId} (catalog), model ${modelRaw}`);
-            step = 'done';
-          } else if (idx === customIdx) {
-            step = 'customFormat';
-          } else {
-            console.log('Invalid choice.');
-          }
-
-        } else if (step === 'customFormat') {
-          console.log('\nAPI format (b = back):');
-          console.log('1. Anthropic');
-          console.log('2. OpenAI');
-          console.log('3. Gemini');
-          const raw = await question('\n> ');
-          if (raw === 'b') { step = 'pick'; continue; }
-          chosenPreset = LEGACY_CUSTOM_FORMAT_MAP[raw] ?? '';
-          if (!chosenPreset) { console.log('Invalid choice.'); continue; }
-          step = 'baseUrl';
-
-        } else if (step === 'baseUrl') {
-          const raw = await question('Base URL (b = back)');
-          if (raw === 'b') { step = 'customFormat'; continue; }
-          if (!raw) { console.log('Base URL is required.'); continue; }
-          chosenBaseUrl = raw;
-          reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl }));
-          step = 'done';
-        }
+      const created: StoredCredential[] = [];
+      let collected: ExplicitLLMConfigResult;
+      try {
+        collected = await collectExplicitLLMConfig(deps, rl, question, created, {
+          // Cancellation must never overwrite a credential used by another entry.
+          credentialSeed: `reconfigure-${newUuid()}`,
+        });
+      } catch (error) {
+        await discardCreatedCredentials(deps, created);
+        throw error;
       }
-
-      if (step !== 'done') continue;
+      if (collected.kind === 'cancelled') {
+        await discardCreatedCredentials(deps, created);
+        return null;
+      }
+      // Replacing primary must not move the old primary to fallback; clear only the
+      // legacy field while committing the shared editor's explicit provider facts.
+      reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({
+        ...makeExplicitSetupProvider(collected.draft),
+        preset: undefined,
+      }));
 
     } else {
       console.log('Invalid choice.');

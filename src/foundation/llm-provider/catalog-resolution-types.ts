@@ -3,10 +3,12 @@ import type { ApiFormat } from './api-format.js';
 
 export interface ContextWindowResolution {
   readonly contextWindow: number;
-  readonly source: 'catalog' | 'configured' | 'heuristic' | 'explicit_fallback';
+  readonly source: 'catalog' | 'catalog_alias' | 'configured' | 'heuristic' | 'explicit_fallback';
   readonly providerId: string;
   readonly modelId: string;
   readonly revision: string;
+  /** Present only when the dedicated legacy alias capability supplied the hit. */
+  readonly aliasRevision?: string;
 }
 
 export interface CatalogWireIdentity {

@@ -124,7 +124,6 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
     const { getBuiltinModels } = await import('@earendil-works/pi-ai/providers/all');
     const { llmProviderConfigSchema } = await import('../../../src/foundation/llm-provider/llm-provider-config-schema.js');
     const { toProviderConfig } = await import('../../../src/foundation/llm-provider/config-adapter.js');
-    const { catalogProvidersWithoutPreset } = await import('../../../src/foundation/llm-provider/catalog-strategy.js');
 
     for (const id of Object.keys(PROVIDER_INVENTORY)) {
       const models = getBuiltinModels(id) as Array<{ id: string; api: string }>;
@@ -154,11 +153,5 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
       if (resolvedProfile === 'oauth') expect(PROVIDER_INVENTORY[id].auth.oauth).toBe(true);
       else expect(PROVIDER_INVENTORY[id].auth.apiKey).toBe(true);
     }
-
-    // 派生策略与 preset 别名互补覆盖 = universe 全集（无双重封闭来源）
-    const uncovered = catalogProvidersWithoutPreset();
-    const covered = new Set(Object.values(PRESETS).map((p) => p.piAiProvider).filter(Boolean));
-    expect(new Set([...uncovered, ...covered])).toEqual(new Set(Object.keys(PROVIDER_INVENTORY)));
-    expect(uncovered.every((id) => !covered.has(id as string))).toBe(true);
   });
 });

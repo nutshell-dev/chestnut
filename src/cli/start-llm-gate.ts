@@ -21,7 +21,6 @@
 
 import * as readline from 'readline';
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
-const { PRESETS, isCatalogProvider } = llmProviderCatalog;
 type ApiFormat = llmProviderCatalog.ApiFormat;
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
@@ -40,6 +39,7 @@ import {
   findSetupProvider,
   isCustomSetupChoice,
   makeExplicitSetupProvider,
+  SETUP_PROVIDER_CATALOG,
   SETUP_PROVIDER_ORDER,
 } from './setup-provider-catalog.js';
 import { storeKeyAsCredential, type StoreKeyHooks } from './credentials-prompt.js';
@@ -164,7 +164,13 @@ export async function applyStartLLMOptions(
   opts: StartLLMOptions,
 ): Promise<void> {
   const setup = opts.provider ? findSetupProvider(opts.provider) : undefined;
-  if (setup && opts.provider) {
+  if (opts.provider) {
+    if (!setup) {
+      throw new CliError(
+        `Unknown configuration method "${opts.provider}". Available: ${SETUP_PROVIDER_ORDER.join(', ')}`,
+        { code: START_USAGE_EXIT_CODE },
+      );
+    }
     const missing = missingStartLLMParams(opts);
     if (missing.length > 0) {
       throw new CliError(`Missing required non-interactive params: ${missing.join(', ')}`, {
@@ -191,24 +197,18 @@ export async function applyStartLLMOptions(
   if (!providerRef) {
     throw new CliError('--provider is required (no existing primary provider)', { code: START_USAGE_EXIT_CODE });
   }
-  // Existing-workspace partial patch remains legacy-compatible; first-run uses explicit drafts.
-  const catalogProviderId = !PRESETS[providerRef] && isCatalogProvider(providerRef) ? providerRef : undefined;
+  // Without --provider this is a narrow patch of the existing explicit primary.
+  // Legacy preset documents have already crossed the L4 migration boundary; never
+  // reinterpret their alias or synthesize provider/protocol defaults here.
+  const currentSetup = SETUP_PROVIDER_CATALOG.find(choice => choice.providerId === providerRef);
   const apiKey = (opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV])
     ? await resolveNonInteractiveApiKey(deps, opts, {
-      envVar: setup?.envVar ?? PRESETS[providerRef]?.envVar,
-      seed: setup?.id ?? providerRef,
+      envVar: currentSetup?.envVar,
+      seed: currentSetup?.id ?? providerRef,
     })
     : undefined;
 
-  // provider 换边时清除互斥字段（patch 语义：undefined = 删键）
-  const patch: { preset?: string; provider_id?: string; model?: string; base_url?: string; api_key?: string } = {};
-  if (catalogProviderId) {
-    patch.provider_id = catalogProviderId;
-    patch.preset = undefined;
-  } else if (opts.provider) {
-    patch.preset = opts.provider;
-    patch.provider_id = undefined;
-  }
+  const patch: { model?: string; base_url?: string; api_key?: string } = {};
   if (opts.model) patch.model = opts.model;
   if (opts.baseUrl) patch.base_url = opts.baseUrl;
   if (apiKey) patch.api_key = apiKey;

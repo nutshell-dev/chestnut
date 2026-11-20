@@ -6,7 +6,7 @@ import { MODEL_CATALOG } from '../../../src/foundation/llm-provider/model-catalo
  * Phase 1925 Step C 签名变更：resolveContextWindow(providerId, modelName)。
  *
  * Phase 1977 用户改判：context window **模型优先**——model id 在目录中唯一时
- * 直接使用（不依赖 provider/preset label）；同名多值由 provider/preset 精确
+ * 直接使用（不依赖 provider/legacy alias）；同名多值由 provider/alias 精确
  * 消歧，仍无法消歧取保守最小值；目录未命中保留启发式。
  * （Phase 1925 G3「不做 id-only 兜底」由 Phase 1977 显式覆盖。）
  */
@@ -21,9 +21,8 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
       expect(resolveContextWindow('deepseek', 'deepseek-v4-pro')).toBe(1_000_000);
     });
 
-    it('chestnut preset id 经 piAiProvider/catalogProvider 别名命中', () => {
-      // Phase 1975：preset kimi 已移除 piAiProvider，改经 catalogProvider（kimi-coding）
-      // 别名命中；k3-256k 目录值 262144（启发式不会产出）
+    it('legacy provider id 经专用 catalog alias capability 命中', () => {
+      // kimi → kimi-coding；k3-256k 目录值 262144（启发式不会产出）
       expect(resolveContextWindow('kimi', 'k3-256k')).toBe(262_144);
       expect(resolveContextWindow('gemini', 'gemini-2.5-pro')).toBe(1_048_576);
     });
@@ -68,7 +67,7 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
       expect(resolveContextWindow('cloudflare-ai-gateway', 'gpt-5')).toBe(128_000);
     });
 
-    it('preset 别名命中取精确值（qwen → qwen-token-plan）', () => {
+    it('legacy alias 命中取精确值（qwen → qwen-token-plan）', () => {
       expect(resolveContextWindow('qwen', 'qwen3.8-max')).toBe(1_000_000);
     });
 
@@ -206,7 +205,7 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
       expect(resolveContextWindow('openai', 'gpt-99-unknown')).toBe(256_000);
     });
 
-    it('provider 无 piAiProvider 映射（custom-*）→ 启发式', () => {
+    it('provider 无专用 alias（custom-*）→ 启发式', () => {
       expect(resolveContextWindow('custom-openai', 'claude-via-gateway')).toBe(1_000_000);
       expect(resolveContextWindow('ollama', 'llama3.1')).toBe(256_000);
     });

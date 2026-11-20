@@ -16,7 +16,7 @@ const explicitFormatConsumers = [
   '../../../src/cli/llm-config-editor.ts',
   '../../../src/cli/first-run-setup.ts',
 ].map(read);
-const legacyReconfigure = read('../../../src/cli/llm-connection-check.ts');
+const reconfigure = read('../../../src/cli/llm-connection-check.ts');
 
 describe('LLM provider config ownership boundary', () => {
   it('moves schema, config type, and adapter to the L1 public barrel only', () => {
@@ -56,7 +56,7 @@ describe('LLM provider config ownership boundary', () => {
     expect(setupWorkflow.match(/commitExplicitProvider\(/g)).toHaveLength(1);
   });
 
-  it('keeps explicit and legacy numeric format mappings in their respective owners', () => {
+  it('keeps the explicit numeric format mapping in the shared editor owner', () => {
     expect(formatMap).toMatch(/export const FORMAT_MAP: Record<string, 'anthropic' \| 'openai' \| 'gemini'> = \{\s*'1': 'anthropic',\s*'2': 'openai',\s*'3': 'gemini',\s*\};/);
     expect(providerBarrel).not.toMatch(/\bFORMAT_MAP\b/);
     expect(orchestratorBarrel).not.toMatch(/\bFORMAT_MAP\b/);
@@ -64,7 +64,7 @@ describe('LLM provider config ownership boundary', () => {
       expect(consumer).toMatch(/import\s*\{\s*FORMAT_MAP\s*\}\s*from\s*'[^']*provider-format-map\.js';/);
     }
     expect(configCommand).not.toMatch(/\bFORMAT_MAP\b/);
-    expect(legacyReconfigure).not.toMatch(/import\s*\{\s*FORMAT_MAP\s*\}/);
-    expect(legacyReconfigure).toMatch(/LEGACY_CUSTOM_FORMAT_MAP[\s\S]*'1': 'custom-anthropic',[\s\S]*'2': 'custom-openai',[\s\S]*'3': 'custom-gemini'/);
+    expect(reconfigure).not.toMatch(/import\s*\{\s*FORMAT_MAP\s*\}/);
+    expect(reconfigure).not.toMatch(/LEGACY_CUSTOM_FORMAT_MAP|PRESETS|preset default/);
   });
 });

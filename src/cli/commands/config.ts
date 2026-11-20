@@ -19,7 +19,7 @@ import {
 } from '../../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
 import { llmProviderCatalog } from '../../foundation/llm-provider/index.js';
-const { PRESETS } = llmProviderCatalog;
+const { catalogProviderLoginMetadata } = llmProviderCatalog;
 
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
@@ -559,10 +559,19 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
 
 /**
  * Phase 1926 Step D：provider 登录/登出（pi-ai 原生 login 流）。
- * label → config 里的 provider（primary/fallback）→ preset.piAiProvider；
+ * label → config 里的 canonical provider（primary/fallback）→ login metadata；
  * --type 缺省取 provider 首选（oauth 优先，其次 api_key 交互登录）。
  * loadGlobal 先执行（Credentials owner backend 注册同点，见 config-load.ts）。
  */
+function loginMetadataForEntry(entry: ReturnType<typeof providerEntryFor>) {
+  const providerId = entry.provider_id;
+  return providerId
+    && !providerId.startsWith('custom:')
+    && entry.catalog_provider === undefined
+    ? catalogProviderLoginMetadata(providerId)
+    : undefined;
+}
+
 async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { type?: string }): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
@@ -574,14 +583,14 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
     `Provider "${label}" not found (check "chestnut config provider list")`,
   );
   const entry = providerEntryFor(config, hit.candidate);
-  const piAiProvider = entry.provider_id?.startsWith('custom:') ? undefined : entry.provider_id;
-  const preset = Object.values(PRESETS).find(candidate => candidate.piAiProvider === piAiProvider);
-  if (!piAiProvider) {
+  const login = loginMetadataForEntry(entry);
+  if (!login) {
     throw new CliError(
       `Provider "${label}" has no pi-ai catalog provider; ` +
       `login is only available for catalog providers (api key goes to "config provider add" / reconfigure)`,
     );
   }
+  const piAiProvider = login.providerId;
   let type: ProviderLoginType | undefined;
   if (opts.type !== undefined) {
     if (opts.type === 'oauth' || opts.type === 'api-key' || opts.type === 'api_key') {
@@ -593,7 +602,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   const available = await providerLoginTypes(piAiProvider);
   if (available.length === 0) {
     throw new CliError(
-      `Provider "${piAiProvider}" has no interactive login (ambient-only: ${preset?.authHint ?? 'configure environment'})`,
+      `Provider "${piAiProvider}" has no interactive login (ambient-only: ${login.authHint ?? 'configure environment'})`,
     );
   }
   type ??= available[0];
@@ -628,10 +637,11 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
     `Provider "${label}" not found (check "chestnut config provider list")`,
   );
   const entry = providerEntryFor(config, hit.candidate);
-  const piAiProvider = entry.provider_id?.startsWith('custom:') ? undefined : entry.provider_id;
-  if (!piAiProvider) {
+  const login = loginMetadataForEntry(entry);
+  if (!login) {
     throw new CliError(`Provider "${label}" has no pi-ai catalog provider; no stored credential to remove`);
   }
+  const piAiProvider = login.providerId;
   await runProviderLogout({
     piAiProvider,
     authentication: createAuthenticationSetup({ fsFactory: deps.fsFactory }),

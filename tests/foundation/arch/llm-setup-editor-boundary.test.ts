@@ -33,7 +33,20 @@ describe('Phase 2207: shared explicit LLM setup boundary', () => {
     }
   });
 
-  it('provider add target adapter 不读取 preset，PRESETS 仅留给既有 login 兼容', () => {
+  it('reconfigure 复用 shared explicit editor，运行配置路径均不读取 PRESETS', () => {
+    const reconfigure = read('src/cli/llm-connection-check.ts');
+    expect(reconfigure).toContain('collectExplicitLLMConfig');
+    expect(reconfigure).not.toContain('repairExplicitLLMConfig');
+    for (const file of [
+      'src/cli/llm-connection-check.ts',
+      'src/cli/start-llm-gate.ts',
+      'src/cli/commands/config.ts',
+    ]) {
+      expect(read(file), file).not.toMatch(/\bPRESETS\b|preset default|LEGACY_CUSTOM_FORMAT_MAP/);
+    }
+  });
+
+  it('provider add target adapter 不读取 preset 或 legacy migration', () => {
     const source = read('src/cli/commands/config.ts');
     const start = source.indexOf('async function providerAdd(');
     const end = source.indexOf('function formatApiKeyStatus(', start);

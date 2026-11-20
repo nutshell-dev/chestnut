@@ -9,6 +9,7 @@ function source(name: string): string {
 }
 
 const windowOwner = source('model-context-windows.ts');
+const catalogStrategy = source('catalog-strategy.ts');
 const runtime = readFileSync(
   new URL('../../../src/core/runtime/runtime.ts', import.meta.url),
   'utf8',
@@ -19,6 +20,9 @@ describe('LLMProvider catalog identity and context window surface', () => {
     expect(windowOwner).not.toMatch(/export\s+const\s+DEFAULT_MODEL_CONTEXT_WINDOW\b/);
     expect(windowOwner).toMatch(/const\s+DEFAULT_MODEL_CONTEXT_WINDOW\s*=\s*256_000;/);
     expect(windowOwner).toMatch(/export\s+function\s+resolveContextWindowForIdentity\s*\(/);
+    expect(windowOwner).not.toMatch(/\bPRESETS\b|from\s+['"]\.\/presets\.js['"]/);
+    expect(windowOwner).toContain('resolveLegacyCatalogProviderAlias');
+    expect(catalogStrategy).not.toMatch(/\bPRESETS\b|catalogProvidersWithoutPreset/);
     expect(runtime).not.toMatch(/resolveContextWindow/);
   });
 
