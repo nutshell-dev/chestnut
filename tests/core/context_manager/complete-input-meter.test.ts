@@ -11,6 +11,11 @@ describe('complete input measurement', () => {
   it('remeasures each full candidate instead of subtracting per-turn estimates', () => {
     const calls: Message[][] = [];
     const now = Date.now();
+    const measureComplete = vi.fn((messages: readonly Message[]) => {
+      calls.push([...messages]);
+      return { kind: 'estimated' as const, tokens: messages.some(message => Array.isArray(message.content)
+        && message.content.some(block => block.type === 'text')) ? 100 : 5, method: 'deepseek-v41-text' as const, reason: 'test' };
+    });
     const result = trimV2([
       msg('old', new Date(now - 2 * 86_400_000).toISOString()),
       { role: 'assistant', content: [
@@ -25,14 +30,11 @@ describe('complete input measurement', () => {
       policy: buildProactiveTrimPolicy(10),
       now,
       audit,
-      measureComplete: messages => {
-        calls.push([...messages]);
-        return { kind: 'estimated', tokens: messages.some(message => Array.isArray(message.content)
-          && message.content.some(block => block.type === 'text')) ? 100 : 5, method: 'deepseek-v41-text', reason: 'test' };
-      },
+      measureComplete,
     });
     expect(result.outcome.after).toBe(5);
     expect(calls.length).toBeGreaterThan(1);
+    expect(measureComplete.mock.calls.every(args => args.length === 1)).toBe(true);
   });
 
   it('unavailable measurement stops before archive/save', async () => {

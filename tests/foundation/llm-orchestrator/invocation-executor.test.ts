@@ -12,10 +12,12 @@ import type {
   LLMEventSink,
   LLMOrchestratorConfig,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall, llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+import { computeDynamicCallTimeoutMs } from '../../../src/foundation/llm-orchestrator/utils.js';
 import { mockProviderFactory } from './provider-test-fixtures.js';
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 
 /** Distinct positive fixture values keep primary/fallback config identity observable. */
 const PRIMARY_TIMEOUT_FIXTURE_MS = 1_000;
@@ -122,6 +124,95 @@ describe('InvocationExecutor failover and attempt audit', () => {
     expect(relevant[1]).toMatchObject({ outcome: 'failure', provider: 'primary', attemptIndex: 0 });
     expect(relevant[3]).toMatchObject({ outcome: 'success', provider: 'fallback', attemptIndex: 1 });
     expect(f.noteFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('InvocationExecutor timeout estimate ownership', () => {
+  it('keeps retry and fallback estimates candidate-local without rewriting L1 request facts', async () => {
+    const observations: InputMeasurementObservation[] = [];
+    const primaryTimeouts: number[] = [];
+    const fallbackTimeouts: number[] = [];
+    const requestMeter = (providerName: string, tokens: number) => ({
+      descriptor: {
+        revision: `${providerName}-timeout-revision`, provider: providerName, model: `${providerName}-model`,
+        api: 'test', contextWindow: 1_000_000, profile: 'test',
+      },
+      capability: { kind: 'complete_only' as const },
+      measure: vi.fn(() => ({ kind: 'estimated' as const, tokens, method: 'deepseek-v41-text' as const, reason: 'test' })),
+    });
+    const primaryPrepare = vi.fn(async () => requestMeter('primary', 10));
+    const fallbackPrepare = vi.fn(async () => requestMeter('fallback', 50_000));
+    const artifactRef = (requestId: string) => ({
+      artifactId: `input-artifact-${requestId}`, schemaVersion: 1 as const,
+      status: 'unavailable' as const, hashAlgorithm: 'sha256' as const, reason: 'test',
+    });
+    const primary = provider('primary', async options => {
+      const requestId = `primary-request-${primaryTimeouts.length + 1}`;
+      primaryTimeouts.push(options.timeoutMs!);
+      options.onInputMeasurement?.({
+        kind: 'failed', requestId, provider: 'primary', model: 'primary-model', reason: 'offline',
+        descriptorRevision: `revision-${requestId}`, inputSource: 'unlinked', artifactRef: artifactRef(requestId),
+        measurement: { kind: 'estimated', tokens: 17, method: 'deepseek-v41-text', reason: 'request-local' },
+      });
+      throw new LLMNetworkError('primary', new Error('offline'));
+    });
+    primary.prepareInputMeter = primaryPrepare;
+    const supplierResponse: LLMResponse = {
+      ...RESPONSE,
+      usage: { inputTokens: 29, outputTokens: 7, totalTokens: 36 },
+    };
+    const fallback = provider('fallback', async options => {
+      const requestId = 'fallback-request-1';
+      fallbackTimeouts.push(options.timeoutMs!);
+      options.onInputMeasurement?.({
+        kind: 'completed', requestId, provider: 'fallback', model: 'fallback-model',
+        descriptorRevision: `revision-${requestId}`, inputSource: 'unlinked', artifactRef: artifactRef(requestId),
+        measurement: { kind: 'estimated', tokens: 23, method: 'deepseek-v41-text', reason: 'request-local' },
+        usage: { unCachedInputTokens: 29, outputTokens: 7, totalTokens: 36 },
+        effectiveInputTokens: 29, normalizedUsageInputTokens: 29,
+        measuredInputTokens: 23, deltaTokens: 6, reconciliation: 'mismatch',
+      });
+      return supplierResponse;
+    });
+    fallback.prepareInputMeter = fallbackPrepare;
+    const f = fixture(primary, [fallback], undefined, 2);
+
+    const result = await f.executor.call({
+      options: { messages: [], onInputMeasurement: fact => observations.push(fact) },
+      admission: admitted,
+    });
+
+    expect(result).toBe(supplierResponse);
+    expect(result.usage).toEqual({ inputTokens: 29, outputTokens: 7, totalTokens: 36 });
+    expect(primaryTimeouts).toEqual([
+      computeDynamicCallTimeoutMs(PRIMARY_TIMEOUT_FIXTURE_MS, 10),
+      computeDynamicCallTimeoutMs(PRIMARY_TIMEOUT_FIXTURE_MS, 10),
+    ]);
+    expect(fallbackTimeouts).toEqual([computeDynamicCallTimeoutMs(FALLBACK_TIMEOUT_FIXTURE_MS, 50_000)]);
+    expect(primaryPrepare).toHaveBeenCalledTimes(1);
+    expect(fallbackPrepare).toHaveBeenCalledTimes(1);
+    expect(observations.map(fact => fact.requestId)).toEqual([
+      'primary-request-1', 'primary-request-2', 'fallback-request-1',
+    ]);
+    expect(observations.every(fact =>
+      fact.invocationId === admitted.invocationId
+      && fact.attemptId === `${admitted.attemptId}:request:${fact.requestId}`)).toBe(true);
+    expect(observations.map(fact => fact.artifactRef?.artifactId)).toEqual([
+      'input-artifact-primary-request-1', 'input-artifact-primary-request-2', 'input-artifact-fallback-request-1',
+    ]);
+    expect(observations.map(fact => fact.measurement)).toEqual([
+      { kind: 'estimated', tokens: 17, method: 'deepseek-v41-text', reason: 'request-local' },
+      { kind: 'estimated', tokens: 17, method: 'deepseek-v41-text', reason: 'request-local' },
+      { kind: 'estimated', tokens: 23, method: 'deepseek-v41-text', reason: 'request-local' },
+    ]);
+    const attemptResults = f.events.filter(event => event.type === 'call_attempt_result');
+    expect(attemptResults[0]).toMatchObject({
+      provider: 'primary', outcome: 'failure', requestIds: ['primary-request-1', 'primary-request-2'],
+    });
+    expect(attemptResults[1]).toMatchObject({
+      provider: 'fallback', outcome: 'success', requestIds: ['fallback-request-1'],
+    });
+    expect(f.events.filter(event => event.type === 'input_measurement')).toHaveLength(3);
   });
 });
 

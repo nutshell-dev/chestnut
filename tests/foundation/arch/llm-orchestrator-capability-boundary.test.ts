@@ -2,11 +2,16 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type {
   LLMCallCapability,
+  LLMCallOptions as L2LLMCallOptions,
   LLMOrchestrator,
   LLMOrchestratorOwner,
   LLMRuntimeCapability,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { SubagentTaskExecutorDeps } from '../../../src/assembly/subagent-task-executor.js';
+import type { llmProviderCall, llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+
+type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
+type CompleteInput = llmProviderModelMeasurement.CompleteInput;
 
 const read = (relative: string): string => readFileSync(
   new URL(`../../../${relative}`, import.meta.url),
@@ -30,6 +35,19 @@ describe('phase 2052 Step E: LLM execution, runtime management and owner capabil
     ] as const) {
       expectTypeOf<LLMOrchestrator>().not.toHaveProperty(method);
     }
+  });
+
+  it('keeps measurement owner records out of public call and meter inputs', () => {
+    expectTypeOf<keyof L1LLMCallOptions>().toEqualTypeOf<
+      | 'messages' | 'system' | 'tools' | 'maxTokens' | 'temperature' | 'model'
+      | 'timeoutMs' | 'signal' | 'inputArtifactPolicy' | 'onInputMeasurement'
+    >();
+    expectTypeOf<keyof L2LLMCallOptions>().toEqualTypeOf<
+      | 'messages' | 'system' | 'tools' | 'maxTokens' | 'temperature' | 'model'
+      | 'timeoutMs' | 'signal' | 'inputArtifactPolicy' | 'onInputMeasurement'
+      | 'hardTimeoutMs' | 'streamIdleTimeoutMs' | 'streamIdleProbeTimeoutMs' | 'recoveryFacts'
+    >();
+    expectTypeOf<keyof CompleteInput>().toEqualTypeOf<'messages' | 'system' | 'tools'>();
   });
 
   it('Owner 显式保留执行面、Runtime 四方法及恢复/健康能力', () => {

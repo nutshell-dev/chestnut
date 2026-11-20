@@ -865,7 +865,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     const hasValidFallbackCache = decision.stickyProviderId !== undefined;
     if (primaryWaiting && !hasValidFallbackCache && !limits.allowBreakerProbe
       && primaryState?.lastError?.class === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
-      yield* this._streamHedge(options, inv);
+      yield* this._streamHedge(options, inv, estimatedInputTokens);
       return;
     }
 
@@ -1336,7 +1336,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
    * Track B: fallback chain sequential call() — first success wins.
    * Winner-takes-all via Promise.race; loser aborted to avoid resource waste.
    */
-  private async* _streamHedge(options: LLMCallOptions, inv: CallPathAudit): AsyncIterableIterator<LLMStreamChunk> {
+  private async* _streamHedge(
+    options: LLMCallOptions,
+    inv: CallPathAudit,
+    estimatedInputTokens: number,
+  ): AsyncIterableIterator<LLMStreamChunk> {
     const fallbackNames = this.fallbacks.map(f => f.name);
     this.events.emit({
       type: 'hedge_started',
@@ -1352,12 +1356,20 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     const trackBMergedBase = mergeSignals(options.signal, trackBCtrl.signal);
     const cleanupSignals = () => { primaryMerged.cleanup(); trackBMergedBase.cleanup(); };
 
-    // Track A: primary.stream() iter, wait for first content chunk
+    // Track A: primary.stream() iter, wait for first content chunk. The estimate
+    // stays local to this candidate's timeout; request observations remain L1-owned.
+    const primaryInputTokens = typeof this.primary.prepareInputMeter === 'function'
+      ? await this.inputTokensFor(this.primary, options, estimatedInputTokens)
+      : estimatedInputTokens;
     const primaryProviderOpts: LLMCallOptions = {
       ...options,
       signal: primaryMerged.signal,
       hardTimeoutMs: undefined,
       streamIdleTimeoutMs: undefined,
+      timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
+        this.baseTimeoutFor(this.primary, false),
+        primaryInputTokens,
+      ),
       onInputMeasurement: this.inputMeasurementObserver(this.primary, options, inv),
     };
     const primaryIter = this.primary.stream!(primaryProviderOpts);
@@ -1405,12 +1417,19 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'provider_recovery_floor');
             continue;
           }
+          const fallbackInputTokens = typeof fb.prepareInputMeter === 'function'
+            ? await this.inputTokensFor(fb, options, estimatedInputTokens)
+            : estimatedInputTokens;
           const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
           const fbOpts: LLMCallOptions = {
             ...options,
             signal: fbMerged.signal,
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
+            timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
+              this.baseTimeoutFor(fb, true),
+              fallbackInputTokens,
+            ),
             onInputMeasurement: this.inputMeasurementObserver(fb, options, inv),
           };
           try {

@@ -24,6 +24,8 @@ type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementO
 import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
+import { computeDynamicCallTimeoutMs } from '../../../src/foundation/llm-orchestrator/utils.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 /** Real-timer mock tracks: slow enough to keep the hedge open, fast enough to win after startup. */
@@ -41,12 +43,26 @@ function createMockProvider(
     callError?: Error;
     callDelayMs?: number;
     measurementRequestId?: string;
+    inputTokens?: number;
+    onCallOptions?: (options: LLMCallOptions) => void;
+    onStreamOptions?: (options: LLMCallOptions) => void;
   } = {},
 ): ProviderAdapter {
   return {
     name,
     model: 'mock-model',
+    prepareInputMeter: opts.inputTokens === undefined ? undefined : async () => ({
+      descriptor: {
+        revision: `${name}-timeout-revision`, provider: name, model: 'mock-model',
+        api: 'test', contextWindow: 1_000_000, profile: 'test',
+      },
+      capability: { kind: 'complete_only' as const },
+      measure: () => ({
+        kind: 'estimated' as const, tokens: opts.inputTokens!, method: 'deepseek-v41-text' as const, reason: 'test',
+      }),
+    }),
     async call(callOpts?: LLMCallOptions) {
+      if (callOpts) opts.onCallOptions?.(callOpts);
       if (opts.measurementRequestId) {
         callOpts?.onInputMeasurement?.({
           kind: 'completed', requestId: opts.measurementRequestId,
@@ -74,6 +90,7 @@ function createMockProvider(
     },
     stream: opts.streamChunks || opts.streamError
       ? async function* (streamOpts?: LLMCallOptions) {
+          if (streamOpts) opts.onStreamOptions?.(streamOpts);
           if (opts.measurementRequestId) {
             streamOpts?.onInputMeasurement?.({
               kind: 'completed', requestId: opts.measurementRequestId,
@@ -218,10 +235,14 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
   });
 
   it('hedge_fallback_committed: primary slow/fail, fallback wins, wrap as stream', async () => {
+    let primaryTimeoutMs: number | undefined;
+    let fallbackTimeoutMs: number | undefined;
     const primary = createMockProvider('primary', {
       streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
       streamDelayMs: HEDGE_PRIMARY_STREAM_DELAY_MS,
       measurementRequestId: 'hedge-primary-request',
+      inputTokens: 10,
+      onStreamOptions: options => { primaryTimeoutMs = options.timeoutMs; },
     });
     const fallback = createMockProvider('fb1', {
       callResponse: {
@@ -231,6 +252,8 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       },
       callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       measurementRequestId: 'hedge-fallback-request',
+      inputTokens: 50_000,
+      onCallOptions: options => { fallbackTimeoutMs = options.timeoutMs; },
     });
     const service = createOrchestrator(primary, [fallback]);
     forceProviderWaiting(service, 0, 'transient');
@@ -264,6 +287,10 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       'input-artifact-hedge-primary-request', 'input-artifact-hedge-fallback-request',
     ]));
     expect(events.filter(e => e.type === 'input_measurement')).toHaveLength(2);
+    expect(primaryTimeoutMs).toBe(computeDynamicCallTimeoutMs(DEFAULT_LLM_TIMEOUT_MS, 10));
+    expect(fallbackTimeoutMs).toBe(computeDynamicCallTimeoutMs(DEFAULT_LLM_TIMEOUT_MS, 50_000));
+    expect(observations.every(fact => fact.measurement === undefined)).toBe(true);
+    expect(chunks.at(-1)).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5 } });
 
     const replay = InvocationSelectionLedger.replay(events);
     const invocation = replay.invocations.get(started.invocationId);

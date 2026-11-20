@@ -299,8 +299,14 @@ describe('PiAiAdapter — openai-completions 协议', () => {
       jsonResponse({ error: { message: "This model's maximum context length is 8192 tokens" } }, 400),
     ));
     const adapter = createLLMProvider(baseConfig());
-    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
-      .rejects.toBeInstanceOf(LLMContextExceededError);
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 4_321 }).catch(error => error);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    if (!(err instanceof LLMContextExceededError)) throw err;
+    expect(err.inputBudget?.descriptor.revision).toEqual(expect.any(String));
+    expect(err.inputBudget?.requestedMaxTokens).toBe(4_321);
+    expect(err.inputBudget?.inputTokens).toBeUndefined();
+    expect(err.inputBudget).not.toHaveProperty('measurement');
+    expect(err.inputBudget).not.toHaveProperty('tokens');
   });
 
   it('500 → LLMError server 档', async () => {
@@ -526,8 +532,13 @@ describe('PiAiAdapter — Phase 2012 成功响应 context enforcement', () => {
     ))));
     const auditLog = auditSink();
     const adapter = createLLMProvider(baseConfig({ auditLog }));
-    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
-      .rejects.toBeInstanceOf(LLMContextExceededError);
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch(error => error);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    if (!(err instanceof LLMContextExceededError)) throw err;
+    expect(err.inputBudget?.descriptor.revision).toEqual(expect.any(String));
+    expect(err.inputBudget?.inputTokens).toBe(CONTEXT_WINDOW + 44_000);
+    expect(err.inputBudget).not.toHaveProperty('measurement');
+    expect(err.inputBudget).not.toHaveProperty('tokens');
     expect(auditLog.write).toHaveBeenCalledTimes(1);
     const [event, ...details] = auditLog.write.mock.calls[0];
     expect(event).toBe('llm_context_overflow_observed');

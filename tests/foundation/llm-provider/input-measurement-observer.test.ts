@@ -204,6 +204,22 @@ describe('input measurement observer', () => {
     expect(observations[2]!.requestId).toBe(observations[3]!.requestId);
     expect(observations[0]!.requestId).not.toBe(observations[2]!.requestId);
     expect(observations[0]!.artifactRef?.artifactId).not.toBe(observations[2]!.artifactRef?.artifactId);
+    for (const [preparedIndex, terminalIndex] of [[0, 1], [2, 3]] as const) {
+      const prepared = observations[preparedIndex]!;
+      expect(prepared.kind).toBe('prepared');
+      if (prepared.kind !== 'prepared') throw new Error('expected prepared observation');
+      expect(observations[terminalIndex]).toMatchObject({
+        descriptorRevision: prepared.descriptor.revision,
+        artifactRef: prepared.artifactRef,
+        measurement: prepared.measurement,
+      });
+    }
+    const firstPrepared = observations[0]!;
+    const secondPrepared = observations[2]!;
+    if (firstPrepared.kind !== 'prepared' || secondPrepared.kind !== 'prepared') {
+      throw new Error('expected prepared observations');
+    }
+    expect(firstPrepared.descriptor.revision).not.toBe(secondPrepared.descriptor.revision);
   });
 
   it('emits exactly one failed terminal for a provider error', async () => {
@@ -228,6 +244,11 @@ describe('input measurement observer', () => {
     expect(observations[1]).toMatchObject({
       descriptorRevision: observations[0]!.kind === 'prepared' ? observations[0].descriptor.revision : undefined,
       inputHash: observations[0]!.kind === 'prepared' ? observations[0].inputHash : undefined,
+      artifactRef: observations[0]!.artifactRef,
+      measurement: observations[0]!.kind === 'prepared' ? observations[0].measurement : undefined,
+      measuredInputTokens: observations[0]!.kind === 'prepared' && observations[0].measurement.kind === 'estimated'
+        ? observations[0].measurement.tokens
+        : undefined,
     });
   });
 
@@ -259,6 +280,41 @@ describe('input measurement observer', () => {
       effectiveInputTokens: 3,
       normalizedUsageInputTokens: 3,
     });
+  });
+
+  it('preserves measure() unavailable in prepared and terminal without zero or fallback estimates', async () => {
+    mockSuccessfulProvider();
+    const observations: InputMeasurementObservation[] = [];
+    const adapter = createLLMProvider({
+      name: 'observer-measure-unavailable', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
+    });
+    const meter = await adapter.prepareInputMeter();
+    vi.spyOn(meter, 'measure').mockReturnValue({ kind: 'unavailable', reason: 'test measurement unavailable' });
+    vi.spyOn(adapter, 'prepareInputMeter').mockResolvedValue(meter);
+
+    await adapter.call({
+      messages: [{ role: 'user', content: 'hello' }],
+      onInputMeasurement: fact => observations.push(fact),
+    });
+
+    expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
+    expect(observations[0]!.requestId).toBe(observations[1]!.requestId);
+    expect(observations[0]).toMatchObject({
+      measurement: { kind: 'unavailable', reason: 'test measurement unavailable' },
+    });
+    expect(observations[1]).toMatchObject({
+      reconciliation: 'unavailable',
+      measurement: { kind: 'unavailable', reason: 'test measurement unavailable' },
+      descriptorRevision: observations[0]!.kind === 'prepared' ? observations[0].descriptor.revision : undefined,
+      artifactRef: observations[0]!.artifactRef,
+      effectiveInputTokens: 3,
+      normalizedUsageInputTokens: 3,
+      usage: { unCachedInputTokens: 3, outputTokens: 1 },
+    });
+    expect(observations[0]!.measurement).not.toHaveProperty('tokens');
+    expect(observations[1]).not.toHaveProperty('measuredInputTokens');
+    expect(observations[1]).not.toHaveProperty('deltaTokens');
   });
 
   it('normalizes cache usage once and preserves raw values and terminal correlation facts', async () => {
@@ -298,6 +354,10 @@ describe('input measurement observer', () => {
       },
       effectiveInputTokens: 15,
       normalizedUsageInputTokens: 15,
+      measuredInputTokens: prepared.kind === 'prepared' && prepared.measurement.kind === 'estimated'
+        ? prepared.measurement.tokens
+        : undefined,
+      reconciliation: 'mismatch',
       inputSource: 'unlinked',
       descriptorRevision: prepared.kind === 'prepared' ? prepared.descriptor.revision : undefined,
       inputHash: prepared.kind === 'prepared' ? prepared.inputHash : undefined,
