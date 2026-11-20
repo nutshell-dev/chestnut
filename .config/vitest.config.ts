@@ -303,7 +303,10 @@ const VI_GLOBALS_FILES: string[] = [];
  * These run in a dedicated vitest project with isolate:true and limited concurrency.
  */
 const INTEGRATION_PROCESS_FILES = [
+  'tests/cli/launcher-motion-access.test.ts',
   'tests/cli/workspace-motion-access.test.ts',
+  'tests/cli/watchdog-motion-access.test.ts',
+  'tests/utils/child-process.test.ts',
   // phase 1011: root file is not matched by **/*.test.ts
   'tests/foundation/process-exec.test.ts',
   'tests/foundation/process-exec/**/*.test.ts',
