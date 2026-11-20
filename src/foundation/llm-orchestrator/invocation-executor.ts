@@ -5,7 +5,7 @@
  * module owns retry/failover/stream/hedge/idle-probe mechanics and invocation-local facts.
  */
 import { llmProviderCall } from '../llm-provider/index.js';
-const { LLMError, LLMEmptyResponseError, LLMRateLimitError, LLMStreamAbortedError, LLMTimeoutError } = llmProviderCall;
+const { LLMContextExceededError, LLMEmptyResponseError, LLMRateLimitError, LLMStreamAbortedError, LLMTimeoutError } = llmProviderCall;
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
@@ -51,7 +51,7 @@ import {
   mergeSignals,
   wrapResponseAsStream,
 } from './utils.js';
-import { inputBudgetEvidence, observeInputBudget, timeoutInputTokens } from './input-budget.js';
+import { observeInputBudget, timeoutInputTokens } from './input-budget.js';
 
 export interface InvocationRecoveryLedger extends Pick<
   RecoveryLedger,
@@ -141,6 +141,10 @@ interface CallPathAudit {
   /** 每个候选实际产生的 requestId；重试保留多个，prepared/terminal 去重。 */
   requestIdsByProvider: Map<string, string[]>;
 }
+
+type HedgeTrackBResult =
+  | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
+  | { winner: 'B-error'; failures: LLMProviderFailure[]; skippedCount: number };
 
 
 export class LLMInvocationExecutor implements InvocationExecutor {
@@ -255,39 +259,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     };
   }
 
-  async prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult> {
-    const adapters = [this.primary, ...this.fallbacks];
-    if (request.kind === 'failure') {
-      const evidence = inputBudgetEvidence(request.error);
-      if (evidence.length === 0) return { kind: 'unavailable', reason: 'missing_evidence' };
-      for (const candidate of adapters) {
-        for (const target of evidence) {
-          const evidenceProvider = target.descriptor.providerLabel ?? target.descriptor.provider;
-          if (candidate.name !== evidenceProvider || candidate.model !== target.descriptor.model) continue;
-          try {
-            const meter = await candidate.prepareInputMeter();
-            return meter.descriptor.revision === target.descriptor.revision
-              ? { kind: 'available', meter }
-              : { kind: 'unavailable', reason: 'stale_revision' };
-          } catch {
-            // silent: stale provider evidence is returned as an explicit unavailable result.
-            return { kind: 'unavailable', reason: 'stale_revision' };
-          }
-        }
-      }
-      return { kind: 'unavailable', reason: 'ambiguous_target' };
-    }
-
-    const selected = this.currentStreamingProvider
-      ? adapters.find(candidate => candidate.name === this.currentStreamingProvider!.name && candidate.model === this.currentStreamingProvider!.model)
-      : this.lastSuccessProvider
-        ? adapters.find(candidate => candidate.name === this.lastSuccessProvider!.name && candidate.model === this.lastSuccessProvider!.model)
-        : this.primary;
-    if (!selected) return { kind: 'unavailable', reason: 'ambiguous_target' };
+  async prepareInputBudget(_request: InputBudgetRequest): Promise<InputBudgetResult> {
     try {
-      return { kind: 'available', meter: await selected.prepareInputMeter() };
+      return { kind: 'available', meter: await this.primary.prepareInputMeter() };
     } catch {
-      // silent: missing provider capability is returned as an explicit unavailable result.
+      // silent: missing primary capability is returned as an explicit unavailable result.
       return { kind: 'unavailable', reason: 'missing_evidence' };
     }
   }
@@ -491,8 +467,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
 
         if (classifyLLMError(lastError) === 'context_exceeded') {
+          // 保留既有观察事件；候选终态与聚合由调用方统一处理。
           this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
-          throw lastError;
         }
 
         this.events.emit({
@@ -512,6 +488,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         const errClass = classifyLLMError(lastError);
         // typed Retry-After 是跨候选恢复下界，不是当前 provider 的轮内睡眠时长。
         if (getRetryAfterSec(lastError) !== undefined) break;
+        if (errClass === 'context_exceeded') break;
         if (errClass === 'permanent' || errClass === 'quota') {
           this.events.emit({ type: 'permanent_skip_retry', provider: adapter.name, attempt, errorClass: errClass });
           break;
@@ -682,6 +659,31 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     });
   }
 
+  private contextDoneError(provider: string, stopReason: string): Error {
+    const error = new LLMContextExceededError(provider, 0, `stream done with ${stopReason}`);
+    this.noteFailureObserved(error);
+    return error;
+  }
+
+  /** 所有真实候选均为 context 时补充专项观察；错误本身始终保留完整聚合证据。 */
+  private throwAllProvidersFailed(
+    inv: CallPathAudit,
+    failures: LLMProviderFailure[],
+    skippedCount = 0,
+  ): never {
+    const attemptedFailures = failures.filter(failure => failure.localSkip !== true);
+    if (attemptedFailures.length > 0 && attemptedFailures.every(failure =>
+      (failure.errorClass ?? classifyLLMError(failure.error)) === 'context_exceeded')) {
+      this.events.emit({
+        type: 'all_providers_context_exceeded',
+        totalAttempted: attemptedFailures.length,
+        skippedCount,
+      });
+    }
+    this.recordExhausted(inv);
+    throw new LLMAllProvidersFailedError(failures);
+  }
+
   async call({ options, admission }: InvocationInput): Promise<LLMResponse> {
     this.recoveryController.noteAttemptStarted(admission.invocationId);
     const limits = this.resolveCallLimits(admission.invocationId);
@@ -734,6 +736,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     });
     const failures: LLMProviderFailure[] = [];
     const attemptedProviderIds = new Set<string>();
+    let skippedCount = 0;
 
     {
       // 统一 TTL 内保持上次成功的可用 fallback；到期或失败后从 primary 重评
@@ -744,6 +747,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         stickyFb = stickyIdx >= 0 ? this.fallbacks[stickyIdx] : undefined;
         if (stickyFb && stickyIdx >= 0) {
           if (this.isRecoveryBlocking(stickyIdx + 1, allowBreakerProbe)) {
+            skippedCount++;
             this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'provider_recovery_floor');
           } else {
             attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name));
@@ -754,7 +758,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             } catch (err) {
               // User abort is not a provider failure — propagate immediately
               if (options.signal?.aborted || isAbortError(err)) throw err;
-              if (classifyLLMError(err) === 'context_exceeded') throw err;
               // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
               this.noteCandidateFailure(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), err as Error);
             }
@@ -765,6 +768,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // Try primary
       let primaryFailed = false;
       if (this.isRecoveryBlocking(0, allowBreakerProbe)) {
+        skippedCount++;
         this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'provider_recovery_floor');
       } else {
         attemptedProviderIds.add(this.identityAt(0, this.primary.name));
@@ -775,7 +779,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
-          if (classifyLLMError(err) === 'context_exceeded') throw err;
           // silent: collect primary failure for aggregate LLMAllProvidersFailedError
           primaryFailed = true;
           this.noteCandidateFailure(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), err as Error);
@@ -794,6 +797,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           continue;
         }
         if (this.isRecoveryBlocking(i + 1, allowBreakerProbe)) {
+          skippedCount++;
           this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, providerId, 'provider_recovery_floor');
           continue;
         }
@@ -811,14 +815,12 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
-          if (classifyLLMError(err) === 'context_exceeded') throw err;
           // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
           this.noteCandidateFailure(inv, failures, this.fallbacks[i].name, providerId, err as Error);
         }
       }
 
-      this.recordExhausted(inv);
-      throw new LLMAllProvidersFailedError(failures);
+      this.throwAllProvidersFailed(inv, failures, skippedCount);
     }
   }
 
@@ -883,8 +885,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
     const failures: LLMProviderFailure[] = [];
 
-    // contextExceededCount race 边界：single-threaded async loop / per-attempt increment / race 极小
-    let contextExceededCount = 0;
     // phase 991 B.4: skipped (breaker-open) provider 不计入 totalAttempted 分母
     let skippedCount = 0;
 
@@ -923,7 +923,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       let receivedDone = false;
       let hasContent = false;  // owner predicate: text / thinking / tool-use content
       let lastError: Error | null = null;
-      let contextExceeded = false;
+      let contextExceededError: Error | null = null;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleCtrl: AbortController | null = null;
       let cleanupSignal: (() => void) | undefined;
@@ -982,7 +982,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             if (chunk.type === 'done') {
               receivedDone = true;
               if (classifyStreamDone(chunk) === 'context_exceeded') {
-                contextExceeded = true;
+                contextExceededError = this.contextDoneError(adapter.name, chunk.stopReason!);
                 this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: chunk.stopReason! });
                 yield {
                   type: 'reset',
@@ -998,14 +998,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             yield chunk;
           }
 
-          if (contextExceeded) {
-            contextExceededCount++;
-            // Phase 1968 Step B：context-exceeded 候选不进聚合 failures（既有语义），
-            // 但 attempt path 必须有终态——记录 failure（errorClass=context_exceeded）。
-            this.recordAttemptResult(inv, adapter.name, this.identityAt(breakerIndex, adapter.name), 'failure', {
-              errorClass: 'context_exceeded',
-              error: 'stream done with context_exceeded stopReason',
-            });
+          if (contextExceededError) {
+            this.noteCandidateFailure(
+              inv,
+              failures,
+              adapter.name,
+              this.identityAt(breakerIndex, adapter.name),
+              contextExceededError,
+            );
             lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
@@ -1088,13 +1088,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // Provider self-thrown AbortError when no signal fired
           if (err.name === 'AbortError') throw err;
 
-          // phase 690: stream 路径 context-exceeded（400 at handshake）→ 直接向上抛
-          // 不 failover、不 retry、不进 stream_reset partial-state 路径（context-exceeded 必 0 chunks yielded）
-          if (classifyLLMError(err) === 'context_exceeded') {
-            this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
-            throw err;
-          }
-
           // Mid-stream error: signal caller to discard partial state, then failover to next provider
           if (hasYielded) {
             this.events.emit({ type: 'stream_reset', provider: adapter.name, error: err.message });
@@ -1105,6 +1098,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             };
             lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
+          }
+
+          if (classifyLLMError(err) === 'context_exceeded') {
+            // 保留既有观察事件；握手失败与 done-chunk 一样结束当前候选。
+            this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
           }
 
           // Phase 1268 Step C: stream 与 call 对称 — 握手前每次 provider 调用失败
@@ -1124,6 +1122,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // 使用同一策略：不重试、继续考虑其余候选（quota 时间窗恢复归 owner 安排）。
           const handshakeErrClass = classifyLLMError(err);
           if (getRetryAfterSec(err) !== undefined) {
+            lastError = err;
+            lastFailedProviderName = adapter.name;
+            break;
+          }
+          if (handshakeErrClass === 'context_exceeded') {
             lastError = err;
             lastFailedProviderName = adapter.name;
             break;
@@ -1227,7 +1230,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
-      } else if (!success && !contextExceeded) {
+      } else if (!success && !contextExceededError) {
         // Circuit breaker: record failure（breaker_opened emit 由 onTransition 回调独占）
         // Phase 1268 Step C: 删除 provider 结束后硬编码 attempt: 0 的第二个
         // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
@@ -1245,26 +1248,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       this.currentStreamingProvider = null;
     }
 
-    // All providers failed
-    const totalProviders = providers.length;
-    // phase 991 B.4: 减 skipped 让 user-actionable context-exceeded message 在 1+ skipped 时仍能触发
-    const totalAttempted = totalProviders - skippedCount;
-    if (contextExceededCount > 0 && contextExceededCount === totalAttempted) {
-      this.events.emit({
-        type: 'all_providers_context_exceeded',
-        totalAttempted,
-        skippedCount,
-      });
-      this.recordExhausted(inv);
-      throw new LLMError(
-        `All ${totalAttempted} providers exhausted with context_window_exceeded. ` +
-        `Reduce system prompt, tool definitions, or conversation history.`,
-        { totalAttempted, skippedCount },
-      );
-    }
-
-    this.recordExhausted(inv);
-    throw new LLMAllProvidersFailedError(failures);
+    this.throwAllProvidersFailed(inv, failures, skippedCount);
   }
 
   /**
@@ -1310,23 +1294,40 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     }
   }
 
-  /** Context-done is a request-local terminal failure after hedge A has produced content. */
+  /** A 首 chunk 后 context-done：先 reset，再复用已经在运行的 B 链，绝不重试已失败候选。 */
   private async* _failHedgePrimaryContext(
+    options: LLMCallOptions,
     inv: CallPathAudit,
-    stopReason: string,
+    stopReason: string | undefined,
+    trackBPromise: Promise<HedgeTrackBResult>,
+    contextError?: Error,
   ): AsyncIterableIterator<LLMStreamChunk> {
-    this.events.emit({ type: 'context_exceeded_failover', provider: this.primary.name, stopReason });
-    this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-      errorClass: 'context_exceeded',
-      error: 'stream done with context_exceeded stopReason',
-    });
+    if (stopReason !== undefined) {
+      this.events.emit({ type: 'context_exceeded_failover', provider: this.primary.name, stopReason });
+    } else {
+      this.events.emit({ type: 'context_exceeded_throwthrough', provider: this.primary.name });
+    }
+    const error = contextError ?? this.contextDoneError(this.primary.name, stopReason ?? 'context_exceeded');
+    const aFailures: LLMProviderFailure[] = [];
+    this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), error);
     yield { type: 'reset', provider: this.primary.name };
-    this.recordExhausted(inv);
-    throw new LLMError(
-      `All 1 providers exhausted with context_window_exceeded. ` +
-      `Reduce system prompt, tool definitions, or conversation history.`,
-      { totalAttempted: 1, skippedCount: 0 },
-    );
+
+    const bResult = await trackBPromise;
+    if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
+    if (bResult.winner === 'B') {
+      this.events.emit({
+        type: 'hedge_fallback_committed',
+        winnerProvider: bResult.provider.name,
+        primaryProvider: this.primary.name,
+        primaryError: error.message,
+        primaryErrorClass: 'context_exceeded',
+        usage: bResult.response.usage,
+      });
+      this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
+      yield* wrapResponseAsStream(bResult.response);
+      return;
+    }
+    this.throwAllProvidersFailed(inv, [...aFailures, ...bResult.failures], bResult.skippedCount);
   }
 
   /**
@@ -1393,16 +1394,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       })();
 
       // Track B: fallback chain sequential call()
-      type BResult =
-        | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
-        | { winner: 'B-error'; failures: LLMProviderFailure[] };
-
-      const trackBPromise: Promise<BResult> = (async () => {
+      const trackBPromise: Promise<HedgeTrackBResult> = (async () => {
         const failures: LLMProviderFailure[] = [];
+        let skippedCount = 0;
         for (let i = 0; i < this.fallbacks.length; i++) {
-          if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
+          if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures, skippedCount };
           const fb = this.fallbacks[i];
           if (this.isRecoveryBlocking(i + 1, false)) {
+            skippedCount++;
             this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'provider_recovery_floor');
             continue;
           }
@@ -1425,7 +1424,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             if (options.signal?.aborted) {
               throw makeExternalAbortError(options.signal.reason);
             }
-            if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
+            if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures, skippedCount };
             const e = err as Error;
             this.noteFailureObserved(e);
             const errClass = classifyLLMError(e);
@@ -1444,7 +1443,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             this.noteCandidateFailure(inv, failures, fb.name, this.identityAt(i + 1, fb.name), e, errClass, false);
           }
         }
-        return { winner: 'B-error', failures };
+        return { winner: 'B-error', failures, skippedCount };
       })();
 
       // Race
@@ -1452,12 +1451,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
       // A 胜（first content chunk）
       if (winner.winner === 'A') {
-        trackBCtrl.abort();
+        // A 只有完整成功才获胜；context-done 时仍需要同一个 B 链接管。
         yield winner.chunk;
         let receivedDone = false;
         let primaryUsage: ProviderStreamChunk['usage'];
         let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
+        let drainContextError: Error | undefined;
         try {
           // phase 991 B.2: drain loop user-abort early-exit guard
           for await (const chunk of primaryIter) {
@@ -1480,29 +1480,33 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
           }
-          // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
-          this.events.emit({
-            type: 'hedge_primary_post_first_chunk_failure',
-            provider: this.primary.name,
-            error: err as Error,
-          });
-          // phase 991 B.6: emit stream_reset + yield reset chunk mirror non-hedge line 442-450
-          // caller 收 reset signal 知 discard partial state、与 non-hedge path 对称 invariant
-          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
-          yield {
-            type: 'reset',
-            provider: this.primary.name,
-            ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
-          };
-          drainError = err as Error;
+          if (classifyLLMError(err) === 'context_exceeded') {
+            drainContextError = err as Error;
+          } else {
+            // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
+            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
+            this.events.emit({
+              type: 'hedge_primary_post_first_chunk_failure',
+              provider: this.primary.name,
+              error: err as Error,
+            });
+            // phase 991 B.6: emit stream_reset + yield reset chunk mirror non-hedge line 442-450
+            // caller 收 reset signal 知 discard partial state、与 non-hedge path 对称 invariant
+            this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+            yield {
+              type: 'reset',
+              provider: this.primary.name,
+              ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+            };
+            drainError = err as Error;
+          }
         } finally {
           // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
           await closePrimary();
           cleanupSignals();
         }
-        if (contextDoneStopReason) {
-          yield* this._failHedgePrimaryContext(inv, contextDoneStopReason);
+        if (contextDoneStopReason || drainContextError) {
+          yield* this._failHedgePrimaryContext(options, inv, contextDoneStopReason, trackBPromise, drainContextError);
           return;
         }
         if (!receivedDone && !drainError) {
@@ -1588,17 +1592,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
       // A-error 胜（A 早失败）→ 等 B
       if (winner.winner === 'A-error') {
-        if (classifyLLMError(winner.error) === 'context_exceeded') {
-          trackBCtrl.abort();
-          await trackBPromise;
-          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-            errorClass: 'context_exceeded',
-            error: winner.error.message,
-          });
-          await closePrimary();
-          cleanupSignals();
-          throw winner.error;
-        }
         const bResult = await trackBPromise;
         if (options.signal?.aborted) {
           throw makeExternalAbortError(options.signal.reason);
@@ -1630,8 +1623,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
         const aFailures: LLMProviderFailure[] = [];
         this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), winner.error);
-        this.recordExhausted(inv);
-        throw new LLMAllProvidersFailedError([...aFailures, ...bResult.failures]);
+        this.throwAllProvidersFailed(inv, [...aFailures, ...bResult.failures], bResult.skippedCount);
       }
 
       // B-error 胜（B 全失败）→ 等 A
@@ -1643,6 +1635,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         let primaryUsage: ProviderStreamChunk['usage'];
         let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
+        let drainContextError: Error | undefined;
         try {
           // phase 991 B.2: drain loop user-abort early-exit guard
           for await (const chunk of primaryIter) {
@@ -1665,25 +1658,29 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
           }
-          // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
-          this.events.emit({
-            type: 'hedge_primary_post_first_chunk_failure',
-            provider: this.primary.name,
-            error: err as Error,
-          });
-          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
-          yield {
-            type: 'reset',
-            provider: this.primary.name,
-            ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
-          };
-          drainError = err as Error;
+          if (classifyLLMError(err) === 'context_exceeded') {
+            drainContextError = err as Error;
+          } else {
+            // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
+            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
+            this.events.emit({
+              type: 'hedge_primary_post_first_chunk_failure',
+              provider: this.primary.name,
+              error: err as Error,
+            });
+            this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+            yield {
+              type: 'reset',
+              provider: this.primary.name,
+              ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+            };
+            drainError = err as Error;
+          }
         } finally {
           cleanupSignals();
         }
-        if (contextDoneStopReason) {
-          yield* this._failHedgePrimaryContext(inv, contextDoneStopReason);
+        if (contextDoneStopReason || drainContextError) {
+          yield* this._failHedgePrimaryContext(options, inv, contextDoneStopReason, trackBPromise, drainContextError);
           return;
         }
         if (!receivedDone && !drainError) {
@@ -1714,23 +1711,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       if (options.signal?.aborted) {
         throw makeExternalAbortError(options.signal.reason);
       }
-      if (classifyLLMError(aResult.error) === 'context_exceeded') {
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: 'context_exceeded',
-          error: aResult.error.message,
-        });
-        await closePrimary();
-        cleanupSignals();
-        throw aResult.error;
-      }
       await closePrimary();
       cleanupSignals();
       // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
       const aFailures: LLMProviderFailure[] = [];
       this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), aResult.error);
-      this.recordExhausted(inv);
-      throw new LLMAllProvidersFailedError([...aFailures, ...winner.failures]);
+      this.throwAllProvidersFailed(inv, [...aFailures, ...winner.failures], winner.skippedCount);
     } finally {
+      // A 首 chunk 只是暂时领先；最终返回/提前退出时才取消仍在运行的 B。
+      trackBCtrl.abort();
       await closePrimary();
       cleanupSignals();
     }

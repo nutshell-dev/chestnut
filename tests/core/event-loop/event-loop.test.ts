@@ -499,6 +499,54 @@ describe('EventLoop.run', () => {
     expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
   });
 
+  it('not_applicable resets trim retry and dispatches the original aggregate without blocked state', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, reactiveTrim } = makeContextExceededRuntime(audit, {
+      status: 'not_applicable',
+      reason: 'primary_threshold_not_reached',
+      before: 749,
+      primaryWindow: 1000,
+      triggerRatio: 0.75,
+      triggerTokens: 750,
+      newMessages: [],
+      archived: false,
+    });
+    const aggregate = new LLMAllProvidersFailedError([
+      { provider: 'primary', error: new LLMContextExceededError('primary', 400, 'primary context') },
+      { provider: 'fallback', error: new LLMContextExceededError('fallback', 400, 'fallback context') },
+    ]);
+    processTurn.mockResolvedValue(makeTurnResult('failed', { error: aggregate }));
+    const eventLoop = makeEventLoop(runtime, audit);
+    (eventLoop as any).contextTrimRetryCount = 2;
+    (eventLoop as any).contextTrimRetryDelayMs = 40;
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(reactiveTrim).toHaveBeenCalledWith(aggregate);
+    expect((eventLoop as any).contextTrimRetryCount).toBe(0);
+    expect((eventLoop as any).contextTrimRetryDelayMs).toBe(CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS);
+    expect(readBlockedState()).toBeUndefined();
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toEqual([]);
+    expect(audit.entries).toContainEqual(expect.arrayContaining([
+      EVENTLOOP_AUDIT_EVENTS.ITERATION,
+      'type=context_trim_not_applicable',
+      'reason=primary_threshold_not_reached',
+      'before=749',
+      'primary_window=1000',
+      'trigger_ratio=0.75',
+      'trigger_tokens=750',
+    ]));
+    const fatal = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL);
+    expect(fatal?.some(col => String(col).includes(aggregate.message))).toBe(true);
+    expect(aggregate.failures.map(failure => failure.provider)).toEqual(['primary', 'fallback']);
+    expect(aggregate.failures[0].error.message).toContain('primary context');
+    expect(aggregate.failures[1].error.message).toContain('fallback context');
+  });
+
   it('chain reaction 触发 eventloop_iteration type=chain', async () => {
     const audit = createMockAudit();
     const runtime = {

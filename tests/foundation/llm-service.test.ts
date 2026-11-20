@@ -1129,7 +1129,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
 
     await expect(async () => {
       for await (const _ of service.stream({ messages: [] })) {}
-    }).rejects.toThrow(/context_window_exceeded.*Reduce/);
+    }).rejects.toThrow(LLMAllProvidersFailedError);
   });
 
   it('should emit context_exceeded_failover event', async () => {

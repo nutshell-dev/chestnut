@@ -5,7 +5,7 @@ import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { ContextTrimOutcome } from '../context_manager/index.js';
+import type { ReactiveTrimOutcome } from '../context_manager/index.js';
 import type { TurnResult, RuntimeTurnCallbacks } from '../runtime/index.js';
 import type { LLMFailureDisposition, LLMRecoveryFacts, LLMRecoverySchedule } from '../../foundation/llm-orchestrator/index.js';
 // Phase 1847: 原始批次交接 / 可失败格式化边界类型（自 Runtime barrel 导入，type-only，
@@ -99,7 +99,7 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
     reuseTraceId?: TraceId,
     recoveryFacts?: LLMRecoveryFacts,
   ): Promise<TurnResult>;
-  reactiveTrim(error?: unknown): Promise<ContextTrimOutcome>;
+  reactiveTrim(error?: unknown): Promise<ReactiveTrimOutcome>;
   /**
    * Phase 1944 Step B：LLM 失败处置事实查询（Runtime 转发 LLMOrchestrator
    * capability 的只读结论）。post-drain catch 的唯一 LLM 策略事实来源；

@@ -135,8 +135,8 @@ describe('hedge state machine cluster (phase 991)', () => {
     vi.clearAllMocks();
   });
 
-  describe('typed context throw-through', () => {
-    it('A-error typed context aborts B and preserves the original error', async () => {
+  describe('typed context candidate failover', () => {
+    it('A-error typed context does not abort a B track that can still succeed', async () => {
       const providerError = new LLMContextExceededError('primary', 413, 'too large');
       const primary = createMockProvider('primary', { streamError: providerError });
       const fallback = createMockProvider('fb1', { callDelayMs: HEDGE_FAST_CALL_DELAY_MS });
@@ -145,20 +145,54 @@ describe('hedge state machine cluster (phase 991)', () => {
       const emitted = attachEventSpy(service);
       const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
-      let caught: unknown;
-      try {
-        for await (const _chunk of service.stream({ messages: [] })) { /* drain */ }
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBe(providerError);
+      const chunks: LLMStreamChunk[] = [];
+      for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
+
+      expect(chunks).toEqual([
+        { type: 'text_delta', delta: 'Response from fb1' },
+        { type: 'done', stopReason: 'end_turn' },
+      ]);
       expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
-      expect(emitted.some(e => e.type === 'hedge_fallback_committed')).toBe(false);
-      expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'selected')).toBe(false);
+      expect(emitted.some(e => e.type === 'hedge_fallback_committed')).toBe(true);
+      expect(emitted).toContainEqual(expect.objectContaining({
+        type: 'call_attempt_result', provider: 'primary', outcome: 'failure', errorClass: 'context_exceeded',
+      }));
+      expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'selected' && e.provider === 'fb1')).toBe(true);
       expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'exhausted')).toBe(false);
     });
 
-    it('B-error then A typed context throws context instead of an aggregate', async () => {
+    it('A post-content typed context resets and commits the still-running B track', async () => {
+      const providerError = new LLMContextExceededError('primary', 413, 'too large');
+      const primary = createMockProvider('primary', {
+        streamChunks: [{ type: 'text_delta', delta: 'partial' }],
+        streamError: providerError,
+        streamErrorAfter: 1,
+      });
+      const fallback = createMockProvider('fb1', { callDelayMs: HEDGE_FAST_CALL_DELAY_MS });
+      const service = createOrchestrator(primary, [fallback]);
+      forceProviderWaiting(service, 0, 'transient');
+      const emitted = attachEventSpy(service);
+      const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
+      const chunks: LLMStreamChunk[] = [];
+
+      for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
+
+      expect(chunks).toEqual([
+        { type: 'text_delta', delta: 'partial' },
+        { type: 'reset', provider: 'primary' },
+        { type: 'text_delta', delta: 'Response from fb1' },
+        { type: 'done', stopReason: 'end_turn' },
+      ]);
+      expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
+      expect(emitted).toContainEqual(expect.objectContaining({
+        type: 'call_attempt_result', provider: 'primary', outcome: 'failure', errorClass: 'context_exceeded',
+      }));
+      expect(emitted.some(event =>
+        event.type === 'call_selection' && event.outcome === 'selected' && event.provider === 'fb1'
+      )).toBe(true);
+    });
+
+    it('B-error then A typed context preserves both failures in a mixed aggregate', async () => {
       const providerError = new LLMContextExceededError('primary', 413, 'too large');
       const primary = createMockProvider('primary', {
         streamDelayMs: HEDGE_ERROR_STREAM_DELAY_MS,
@@ -176,8 +210,11 @@ describe('hedge state machine cluster (phase 991)', () => {
       } catch (error) {
         caught = error;
       }
-      expect(caught).toBe(providerError);
-      expect(caught).not.toBeInstanceOf(LLMAllProvidersFailedError);
+      expect(caught).toBeInstanceOf(LLMAllProvidersFailedError);
+      const aggregate = caught as LLMAllProvidersFailedError;
+      expect(aggregate.failures.map(failure => failure.provider)).toEqual(['primary', 'fb1']);
+      expect(aggregate.failures[0].error).toBe(providerError);
+      expect(aggregate.evidence.map(failure => failure.family)).toEqual(['context_exceeded', 'transient']);
     });
   });
 
@@ -398,7 +435,7 @@ describe('hedge state machine cluster (phase 991)', () => {
   });
 
   describe('B.4 contextExceededCount accounting', () => {
-    it('1 waiting primary + 2 context_exceeded (3 total) → throws context-exceeded user message', async () => {
+    it('1 waiting primary + 2 context_exceeded (3 total) → throws aggregate context failure', async () => {
       const primary = createMockProvider('primary', {
         streamChunks: [{ type: 'text_delta', delta: 'ok' }],
       });
@@ -423,10 +460,10 @@ describe('hedge state machine cluster (phase 991)', () => {
         thrown = e as Error;
       }
 
-      expect(thrown).toBeDefined();
-      expect(thrown!.message).toContain('context_window_exceeded');
-      expect(thrown!.message).toContain('All 2 providers exhausted');
-      expect(thrown).not.toBeInstanceOf(LLMAllProvidersFailedError);
+      expect(thrown).toBeInstanceOf(LLMAllProvidersFailedError);
+      const aggregate = thrown as LLMAllProvidersFailedError;
+      expect(aggregate.failures.map(failure => failure.provider)).toEqual(['fb1', 'fb2']);
+      expect(aggregate.evidence.every(failure => failure.family === 'context_exceeded')).toBe(true);
     });
   });
 

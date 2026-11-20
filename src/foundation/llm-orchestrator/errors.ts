@@ -296,7 +296,8 @@ export function isContextExceededError(err: unknown): boolean {
     return true;
   }
   if (err instanceof LLMAllProvidersFailedError) {
-    return err.failures.some(failure => isContextExceededError(failure.error));
+    return err.failures.some(failure =>
+      failure.errorClass === 'context_exceeded' || isContextExceededError(failure.error));
   }
   return false;
 }

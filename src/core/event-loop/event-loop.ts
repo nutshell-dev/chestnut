@@ -55,7 +55,7 @@ import {
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks, EventLoopTurnStateSink, LlmGateReleaseFact, LlmGateReleaseBaseline } from './types.js';
 import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
-import { ContextInputMeasurementError, type ContextTrimOutcome } from '../context_manager/index.js';
+import { ContextInputMeasurementError, type ReactiveTrimOutcome } from '../context_manager/index.js';
 
 /**
  * Phase 1869 (Step C): 合并分组内「最新一条」——按 message.timestamp 比较
@@ -440,6 +440,7 @@ export class EventLoop {
    * Phase 1153 Step D: route reactive trim outcome with bounded retry.
    * - If retry budget already exhausted, block the current failed request before another trim.
    * - target_reached/progress (and actually persisted) → bounded retry with backoff.
+   * - not_applicable → preserve/dispatch the original failure; reset retry without blocking.
    * - no_progress/policy_conflict → blocked state; retry state reset; no cooldown loop.
    */
   private async _handleContextExceeded(
@@ -467,7 +468,7 @@ export class EventLoop {
       return;
     }
 
-    let outcome: ContextTrimOutcome;
+    let outcome: ReactiveTrimOutcome;
     try {
       outcome = await this.runtime.reactiveTrim(error);
     } catch (trimError) {
@@ -495,6 +496,19 @@ export class EventLoop {
           throw new Error(`invalid persisted trim outcome: ${outcome.status}`);
         }
         await this._scheduleContextTrimRetry(error, outcome);
+        return;
+      case 'not_applicable':
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          'type=context_trim_not_applicable',
+          `reason=${outcome.reason}`,
+          `before=${outcome.before}`,
+          `primary_window=${outcome.primaryWindow}`,
+          `trigger_ratio=${outcome.triggerRatio}`,
+          `trigger_tokens=${outcome.triggerTokens}`,
+        );
+        this._resetContextTrimRetryState();
+        await this._dispatchError(error);
         return;
       case 'no_progress':
       case 'policy_conflict':

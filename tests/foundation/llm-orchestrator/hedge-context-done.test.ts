@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { classifyStreamDone } from '../../../src/foundation/llm-orchestrator/utils.js';
 import type { LLMEvent, LLMEventSink, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
-import { LLMError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
@@ -11,6 +12,7 @@ import type { ProviderConnection } from './provider-test-fixtures.js';
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
 type LLMCallOptions = llmProviderCall.LLMCallOptions;
+type LLMResponse = llmProviderCall.LLMResponse;
 
 /** Delays the primary stream so the fallback failure is observed before its terminal context-done. */
 const PRIMARY_AFTER_FALLBACK_ERROR_DELAY_MS = 10;
@@ -20,6 +22,7 @@ interface MockProviderOptions {
   streamDelayMs?: number;
   callError?: Error;
   callPending?: boolean;
+  callPromise?: Promise<LLMResponse>;
   measurementRequestId?: string;
 }
 
@@ -32,6 +35,7 @@ function createMockProvider(name: string, options: MockProviderOptions = {}) {
       });
     }
     if (options.callPending) return new Promise<never>(() => {});
+    if (options.callPromise) return options.callPromise;
     if (options.callError) throw options.callError;
     return {
       content: [{ type: 'text' as const, text: `Response from ${name}` }],
@@ -115,12 +119,15 @@ async function collectStream(service: LLMOrchestratorImpl) {
   return { chunks, caught };
 }
 
-function expectContextFailure(
+function expectMixedContextFailure(
   result: { chunks: LLMStreamChunk[]; caught: unknown },
   events: LLMEvent[],
 ) {
-  expect(result.caught).toBeInstanceOf(LLMError);
-  expect((result.caught as Error).message).toContain('context_window_exceeded');
+  expect(result.caught).toBeInstanceOf(LLMAllProvidersFailedError);
+  const aggregate = result.caught as LLMAllProvidersFailedError;
+  expect(aggregate.failures.map(failure => failure.provider)).toEqual(['primary', 'fallback']);
+  expect(aggregate.evidence.map(failure => failure.family)).toEqual(['context_exceeded', 'transient']);
+  expect(events.filter(event => event.type === 'all_providers_context_exceeded')).toHaveLength(0);
   expect(result.chunks).toEqual([
     { type: 'text_delta', delta: 'partial' },
     { type: 'reset', provider: 'primary' },
@@ -148,7 +155,7 @@ describe('shared stream done classification', () => {
 });
 
 describe('hedge primary context-done', () => {
-  it('A wins: resets once and fails without waiting for or restarting B', async () => {
+  it('A wins then context-done: resets, finishes in-flight B, and continues unattempted B without repeats', async () => {
     const primaryRaw = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'partial' },
@@ -156,21 +163,42 @@ describe('hedge primary context-done', () => {
       ],
     });
     const returnSpy = spyOnPrimaryReturn(primaryRaw.provider);
-    const fallback = createMockProvider('fallback', { callPending: true });
-    const secondFallback = createMockProvider('fallback-2', { callPending: true });
+    let rejectFallback!: (error: Error) => void;
+    const fallbackResponse = new Promise<LLMResponse>((_resolve, reject) => { rejectFallback = reject; });
+    const fallback = createMockProvider('fallback', { callPromise: fallbackResponse });
+    const secondFallback = createMockProvider('fallback-2');
     const { service, events } = createOrchestrator(
       primaryRaw.provider,
       [fallback.provider, secondFallback.provider],
     );
     const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
-    const result = await collectStream(service);
+    const collecting = collectStream(service);
+    await vi.waitFor(() => expect(fallback.callSpy).toHaveBeenCalledTimes(1));
+    rejectFallback(new LLMNetworkError('fallback', new Error('offline')));
+    const result = await collecting;
 
-    expectContextFailure(result, events);
+    expect(result.caught).toBeUndefined();
+    expect(result.chunks).toEqual([
+      { type: 'text_delta', delta: 'partial' },
+      { type: 'reset', provider: 'primary' },
+      { type: 'text_delta', delta: 'Response from fallback-2' },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+    expect(events.filter(event =>
+      event.type === 'call_attempt_result'
+      && event.provider === 'primary'
+      && event.outcome === 'failure'
+      && event.errorClass === 'context_exceeded'
+    )).toHaveLength(1);
+    expect(events.some(event =>
+      event.type === 'call_selection' && event.outcome === 'selected' && event.provider === 'fallback-2'
+    )).toBe(true);
+    expect(events.some(event => event.type === 'call_selection' && event.outcome === 'exhausted')).toBe(false);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
-    expect(secondFallback.callSpy).not.toHaveBeenCalled();
+    expect(secondFallback.callSpy).toHaveBeenCalledTimes(1);
     expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
-    expect(lastSuccessProviderOf(service)).toBeNull();
+    expect(lastSuccessProviderOf(service)).toMatchObject({ name: 'fallback-2' });
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -193,7 +221,7 @@ describe('hedge primary context-done', () => {
 
     const result = await collectStream(service);
 
-    expectContextFailure(result, events);
+    expectMixedContextFailure(result, events);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
     expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
     expect(lastSuccessProviderOf(service)).toBeNull();
@@ -211,6 +239,34 @@ describe('hedge primary context-done', () => {
       status: 'failed', requestIds: ['context-fallback-request'],
     });
     expect(replay.diagnostics).toEqual([]);
+  });
+
+  it('A context-done plus B context failure aggregates all context evidence', async () => {
+    const primary = createMockProvider('primary', {
+      streamChunks: [
+        { type: 'text_delta', delta: 'partial' },
+        { type: 'done', stopReason: 'model_context_window_exceeded' },
+      ],
+    });
+    const fallback = createMockProvider('fallback', {
+      callError: new LLMContextExceededError('fallback', 413, 'too large'),
+    });
+    const { service, events } = createOrchestrator(primary.provider, [fallback.provider]);
+
+    const result = await collectStream(service);
+
+    expect(result.caught).toBeInstanceOf(LLMAllProvidersFailedError);
+    const aggregate = result.caught as LLMAllProvidersFailedError;
+    expect(aggregate.failures.map(failure => failure.provider)).toEqual(['primary', 'fallback']);
+    expect(aggregate.evidence.map(failure => failure.family)).toEqual(['context_exceeded', 'context_exceeded']);
+    expect(result.chunks).toEqual([
+      { type: 'text_delta', delta: 'partial' },
+      { type: 'reset', provider: 'primary' },
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'all_providers_context_exceeded', totalAttempted: 2, skippedCount: 0,
+    }));
+    expect(fallback.callSpy).toHaveBeenCalledTimes(1);
   });
 
   it('normal A done still yields done and records primary recovery', async () => {

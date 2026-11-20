@@ -6,13 +6,12 @@ import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/in
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const sources = [
-  '../../../src/foundation/llm-orchestrator/invocation-executor.ts',
   '../../../tests/foundation/llm-service.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 const sdkSource = readFileSync(new URL('../../../src/index.ts', import.meta.url), 'utf8');
 
 describe('LLMError base owner boundary', () => {
-  it('is owner-only and both class callers depend on LLMProvider', () => {
+  it('is owner-only and remaining class callers depend on LLMProvider', () => {
     expect('LLMError' in orchestratorBarrel).toBe(false);
     expect('LLMError' in orchestratorErrors).toBe(false);
     for (const source of sources) {

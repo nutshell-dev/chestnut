@@ -97,7 +97,7 @@ import {
   CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
   buildReactiveTrimPolicy,
   ContextInputMeasurementError,
-  type ContextTrimOutcome,
+  type ReactiveTrimOutcome,
   type TrimRuntimePolicy,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/index.js';
@@ -2235,12 +2235,12 @@ export class Runtime {
    * Phase 1218 Step A: this is an independent public mutation operation and must
    * acquire the dialog operation authority.
    */
-  async reactiveTrim(error?: unknown): Promise<ContextTrimOutcome> {
+  async reactiveTrim(error?: unknown): Promise<ReactiveTrimOutcome> {
     return this._withDialogOperation(() => this._reactiveTrimImpl(error));
   }
 
   /** Phase 1218 Step A: internal reactive trim implementation. */
-  private async _reactiveTrimImpl(error?: unknown): Promise<ContextTrimOutcome> {
+  private async _reactiveTrimImpl(error?: unknown): Promise<ReactiveTrimOutcome> {
     if (!this.contextTrimmingEnabled || !this.sessionManager) {
       return {
         status: 'no_progress',
@@ -2276,6 +2276,33 @@ export class Runtime {
     }
     const meter = budget.meter;
     const contextWindow = meter.descriptor.contextWindow;
+    const measureComplete = this.completeInputMeasurement(meter, session.systemPrompt, tools);
+    const measurement = measureComplete(session.messages);
+    if (measurement.kind === 'unavailable') {
+      throw new ContextInputMeasurementError(measurement.reason, meter.descriptor);
+    }
+    const triggerRatio = this.contextTrimPolicy.proactiveTriggerRatio;
+    const triggerTokens = Math.floor(contextWindow * triggerRatio);
+    if (measurement.tokens < triggerTokens) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_NOT_APPLICABLE,
+        'reason=primary_threshold_not_reached',
+        `before=${measurement.tokens}`,
+        `primary_window=${contextWindow}`,
+        `trigger_ratio=${triggerRatio}`,
+        `trigger_tokens=${triggerTokens}`,
+      );
+      return {
+        status: 'not_applicable',
+        reason: 'primary_threshold_not_reached',
+        before: measurement.tokens,
+        primaryWindow: contextWindow,
+        triggerRatio,
+        triggerTokens,
+        newMessages: session.messages,
+        archived: false,
+      };
+    }
     const outcome = await trimAndPersist({
       messages: session.messages,
       systemPrompt: session.systemPrompt,
@@ -2288,12 +2315,11 @@ export class Runtime {
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
-        explicitMaxTokens: meter.descriptor.explicitMaxTokens
-          ?? llmProviderCall.describeProviderInput(this.options.llmConfig.primary).maxTokens,
+        explicitMaxTokens: meter.descriptor.explicitMaxTokens,
       }, {
         targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),
-      measureComplete: this.completeInputMeasurement(meter, session.systemPrompt, tools),
+      measureComplete,
       measurementCapability: meter.capability,
       measurementDescriptor: meter.descriptor,
     });

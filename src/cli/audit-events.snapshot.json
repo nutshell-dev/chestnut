@@ -535,6 +535,7 @@
       "runtime_maybe_audit_step_failed",
       "runtime_optional_section_read_failed",
       "runtime_reactive_trim_exhausted",
+      "runtime_reactive_trim_not_applicable",
       "runtime_reactive_trim_triggered",
       "runtime_session_repair_failed",
     "runtime_trim_window_unavailable",

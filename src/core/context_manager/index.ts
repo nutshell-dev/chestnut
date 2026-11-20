@@ -29,6 +29,8 @@ export {
   buildReactiveTrimPolicy,
 
   type ContextTrimOutcome,
+  type ReactiveTrimNotApplicableOutcome,
+  type ReactiveTrimOutcome,
   type TrimPolicy,
   type TrimV2Options,
   type AuditWriter,

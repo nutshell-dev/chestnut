@@ -63,6 +63,7 @@ export const RUNTIME_AUDIT_EVENTS = {
   CONTEXT_INJECT_LOAD_FAILED: 'context_inject_load_failed',
   // phase 690: Runtime 反应式 trim+retry 触发 - LLM 返 context-exceeded 后 trim + 同 turn 重发
   REACTIVE_TRIM_TRIGGERED: 'runtime_reactive_trim_triggered',
+  REACTIVE_TRIM_NOT_APPLICABLE: 'runtime_reactive_trim_not_applicable',
   REACTIVE_TRIM_EXHAUSTED: 'runtime_reactive_trim_exhausted',
   TRIM_WINDOW_UNAVAILABLE: 'runtime_trim_window_unavailable',
   // Phase 1967 Step B: 单条超预算消息显式单独放行（不截断/不摘要，留证）
@@ -101,6 +102,7 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_maybe_audit_step_failed: 'audit',
   runtime_turn_contract_id_cache_failed: 'audit',
   runtime_reactive_trim_triggered: 'audit',  // phase 690
+  runtime_reactive_trim_not_applicable: 'audit',  // Phase 2209 Step D
   runtime_reactive_trim_exhausted: 'audit',  // phase 690
   runtime_llm_identity_publish_failed: 'audit',  // Phase 1945 Step C
   context_inject_load_failed: 'audit',  // phase 1440

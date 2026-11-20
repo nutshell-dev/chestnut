@@ -4,7 +4,7 @@ import { legacyProviderFactory } from './provider-test-fixtures.js';
  *
  * 保留：
  * - `estimatePromptTokens` 仅用于动态 timeout；
- * - 真实 provider `LLMContextExceededError` → `context_exceeded_throwthrough` 原样上抛。
+ * - 真实 provider `LLMContextExceededError` → 当前候选终态，继续后续 fallback。
  *
  * 删除：
  * - >=80% 预检拦截、70% warning、classifyContextBudget 边界。
@@ -21,6 +21,7 @@ import {
   LLM_TIMEOUT_TOKENS_PER_SECOND,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import { isContextExceededError, type LLMEvent, type LLMEventSink } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 const { LLMContextExceededError } = llmProviderCall;
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
@@ -118,7 +119,7 @@ describe('Phase 1969: no preflight admission', () => {
     await owner.close();
   });
 
-  it('真实 provider context_exceeded 保留 typed cause（不 retry、不伪造成功）', async () => {
+  it('单候选 context_exceeded 聚合后仍保留 typed cause（不 retry、不伪造成功）', async () => {
     const providerError = new LLMContextExceededError('openrouter', 413, 'request too large');
     const { owner, emitted, calls } = createOwner({ callError: providerError });
 
@@ -129,14 +130,19 @@ describe('Phase 1969: no preflight admission', () => {
       caught = err;
     }
     expect(isContextExceededError(caught)).toBe(true);
-    expect(caught).toBe(providerError);
+    expect(caught).toBeInstanceOf(LLMAllProvidersFailedError);
+    expect((caught as LLMAllProvidersFailedError).failures).toHaveLength(1);
+    expect((caught as LLMAllProvidersFailedError).failures[0].error).toBe(providerError);
     expect(calls()).toBe(1);
     expect(emitted.filter(e => e.type === 'context_exceeded_throwthrough')).toHaveLength(1);
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'all_providers_context_exceeded', totalAttempted: 1, skippedCount: 0,
+    }));
     expect(emitted.map(e => e.type)).not.toContain('context_budget_warning');
     await owner.close();
   });
 
-  it('多 provider primary typed context 原样上抛且不调用 fallback', async () => {
+  it('多 provider primary typed context 结束当前候选并调用 fallback', async () => {
     const providerError = new LLMContextExceededError('primary', 413, 'request too large');
     let fallbackCalls = 0;
     const primary: ProviderAdapter = {
@@ -157,15 +163,14 @@ describe('Phase 1969: no preflight admission', () => {
       providerFactory: legacyProviderFactory(config => config.providerId === 'fallback' ? fallback : primary),
     });
 
-    let caught: unknown;
-    try { await owner.call({ messages: [] }); } catch (error) { caught = error; }
-    expect(caught).toBe(providerError);
-    expect(fallbackCalls).toBe(0);
+    await expect(owner.call({ messages: [] })).resolves.toBe(OK_RESPONSE);
+    expect(fallbackCalls).toBe(1);
     expect(emitted.filter(e => e.type === 'context_exceeded_throwthrough')).toHaveLength(1);
+    expect(emitted.filter(e => e.type === 'all_providers_context_exceeded')).toHaveLength(0);
     await owner.close();
   });
 
-  it('sticky 与后续 fallback catch 均不吞 typed context', async () => {
+  it('sticky 与后续 fallback catch 均把 typed context 写入聚合证据', async () => {
     const stickyError = new LLMContextExceededError('fallback', 413, 'sticky too large');
     const fallbackError = new LLMContextExceededError('fallback', 413, 'fallback too large');
     for (const mode of ['sticky', 'fallback'] as const) {
@@ -214,7 +219,12 @@ describe('Phase 1969: no preflight admission', () => {
 
       let caught: unknown;
       try { await owner.call({ messages: [] }); } catch (error) { caught = error; }
-      expect(caught).toBe(contextError);
+      expect(caught).toBeInstanceOf(LLMAllProvidersFailedError);
+      const aggregate = caught as LLMAllProvidersFailedError;
+      expect(aggregate.failures.at(-1)?.error).toBe(contextError);
+      expect(aggregate.failures.map(failure => failure.provider)).toEqual(
+        mode === 'sticky' ? ['fallback'] : ['primary', 'fallback'],
+      );
       expect(primaryCalls).toBe(mode === 'sticky' ? 0 : 1);
       await owner.close();
     }

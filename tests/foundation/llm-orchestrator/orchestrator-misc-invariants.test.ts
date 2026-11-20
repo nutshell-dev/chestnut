@@ -387,7 +387,7 @@ describe('all-providers-context-exceeded-emit', () => {
       await expect(async () => {
         const stream = service.stream({ messages: [], tools: [] });
         for await (const _chunk of stream) { /* drain */ }
-      }).rejects.toThrow(/exhausted with context_window_exceeded/);
+      }).rejects.toThrow(LLMAllProvidersFailedError);
 
       const allCtxExceededEvents = events.filter((e) => e.type === 'all_providers_context_exceeded');
       expect(allCtxExceededEvents.length).toBe(1);
@@ -395,6 +395,11 @@ describe('all-providers-context-exceeded-emit', () => {
         totalAttempted: 2,
         skippedCount: 0,
       });
+      const failureEvents = events.filter(event =>
+        event.type === 'call_attempt_result' && event.outcome === 'failure');
+      expect(failureEvents).toHaveLength(2);
+      expect(failureEvents.every(event =>
+        event.type === 'call_attempt_result' && event.errorClass === 'context_exceeded')).toBe(true);
     });
 
     it('1 skipped + 1 attempted context_exceeded → totalAttempted=1 skippedCount=1', async () => {
@@ -414,7 +419,7 @@ describe('all-providers-context-exceeded-emit', () => {
       await expect(async () => {
         const stream = service.stream({ messages: [], tools: [] });
         for await (const _chunk of stream) { /* drain */ }
-      }).rejects.toThrow(/exhausted with context_window_exceeded/);
+      }).rejects.toThrow(LLMAllProvidersFailedError);
 
       const allCtxExceededEvents = events.filter((e) => e.type === 'all_providers_context_exceeded');
       expect(allCtxExceededEvents.length).toBe(1);

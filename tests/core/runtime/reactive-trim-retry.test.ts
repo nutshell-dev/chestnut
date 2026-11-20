@@ -19,7 +19,7 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
-import { ContextInputMeasurementError } from '../../../src/core/context_manager/errors.js';
+import { ContextInputMeasurementError, type TrimRuntimePolicy } from '../../../src/core/context_manager/index.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
@@ -98,7 +98,7 @@ describe('runtime reactive trim+retry path', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent */ });
   });
 
-  async function makeRuntime() {
+  async function makeRuntime(contextTrimPolicy?: Partial<TrimRuntimePolicy>) {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
       clawId: 'test-claw',
@@ -107,6 +107,7 @@ describe('runtime reactive trim+retry path', () => {
       dependencies: deps,
       idleTimeoutMs: 0,
       contextTrimmingEnabled: true,
+      ...(contextTrimPolicy === undefined ? {} : { contextTrimPolicy }),
     });
     runtimes.push(runtime);
     await runtime.initialize();
@@ -118,10 +119,30 @@ describe('runtime reactive trim+retry path', () => {
           contextWindow: 1_000, profile: 'legacy-cl100k-v2',
         },
         capability: { kind: 'unknown' as const },
-        measure: () => ({ kind: 'estimated' as const, tokens: 100, method: 'deepseek-v41-text' as const, reason: 'test' }),
+        measure: () => ({ kind: 'estimated' as const, tokens: 1000, method: 'deepseek-v41-text' as const, reason: 'test' }),
       },
     });
     return runtime;
+  }
+
+  function mockPrimaryTokens(runtime: Runtime, tokens: number, contextWindow = 1_000) {
+    const meter = {
+      descriptor: {
+        revision: 'phase2209-reactive', provider: 'test', model: 'test', api: 'test',
+        contextWindow, profile: 'legacy-cl100k-v2',
+      },
+      capability: { kind: 'unknown' as const },
+      measure: vi.fn(() => ({
+        kind: 'estimated' as const,
+        tokens,
+        method: 'deepseek-v41-text' as const,
+        reason: 'test',
+      })),
+    };
+    vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available', meter,
+    });
+    return meter;
   }
 
   /** 真实 pending 消息：EventLoop drain 失败后会 nack 回 pending，供下轮 run 重试。 */
@@ -159,7 +180,7 @@ describe('runtime reactive trim+retry path', () => {
         measureFixed: () => 0,
         measureMessage: () => 1,
       },
-      measure: vi.fn(() => ({ kind: 'estimated' as const, tokens: 100, method: 'deepseek-v41-text' as const, reason: 'test' })),
+      measure: vi.fn(() => ({ kind: 'estimated' as const, tokens: 1000, method: 'deepseek-v41-text' as const, reason: 'test' })),
     };
     const runtime = await makeRuntime();
     const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
@@ -186,7 +207,7 @@ describe('runtime reactive trim+retry path', () => {
     expect(prepare).toHaveBeenCalledWith({ kind: 'failure', error: expect.any(LLMContextExceededError) });
     const trimInputs = trimSpy.mock.calls[0][0];
     expect(trimInputs.measureComplete?.([])).toEqual({
-      kind: 'estimated', tokens: 100, method: 'deepseek-v41-text', reason: 'test',
+      kind: 'estimated', tokens: 1000, method: 'deepseek-v41-text', reason: 'test',
     });
     // Phase 1978: trim 成功 → 恰好一条 retry 事件（无 blocked）
     const trimEvents = capture.events.filter(e => String(e.type).startsWith('context_trim_'));
@@ -270,6 +291,175 @@ describe('runtime reactive trim+retry path', () => {
     expect(trimSpy).not.toHaveBeenCalled();
     expect(audit).toHaveBeenCalledWith(
       'runtime_trim_window_unavailable', 'kind=reactive', 'reason=missing_evidence',
+    );
+  });
+
+  it('returns typed not_applicable at 749 below a 750 threshold without persistence', async () => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+    const runtime = await makeRuntime();
+    const meter = mockPrimaryTokens(runtime, 749);
+    const archive = vi.spyOn((runtime as any).sessionManager, 'archive');
+    const save = vi.spyOn((runtime as any).sessionManager, 'save');
+    const audit = vi.spyOn(runtime.getAuditWriter(), 'write');
+
+    const outcome = await runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long'));
+
+    expect(outcome).toMatchObject({
+      status: 'not_applicable',
+      reason: 'primary_threshold_not_reached',
+      before: 749,
+      primaryWindow: 1000,
+      triggerRatio: 0.75,
+      triggerTokens: 750,
+      archived: false,
+    });
+    expect(meter.measure).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.any(String),
+      messages: expect.any(Array),
+      tools: expect.any(Array),
+    }));
+    expect(trimSpy).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      'runtime_reactive_trim_not_applicable',
+      'reason=primary_threshold_not_reached',
+      'before=749',
+      'primary_window=1000',
+      'trigger_ratio=0.75',
+      'trigger_tokens=750',
+    );
+  });
+
+  it('calls reactive trim at the 750/750 threshold', async () => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 750,
+      after: 100,
+      newMessages: [{ role: 'user', content: 'trimmed' } as Message],
+      archived: true,
+    });
+    const runtime = await makeRuntime();
+    mockPrimaryTokens(runtime, 750);
+
+    const outcome = await runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long'));
+
+    expect(outcome.status).toBe('target_reached');
+    expect(trimSpy).toHaveBeenCalledTimes(1);
+    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({
+      policy: { kind: 'reactive', targetCompleteTokens: 750 },
+    }));
+  });
+
+  it('uses custom trigger and reactive target ratios', async () => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 500,
+      after: 100,
+      newMessages: [{ role: 'user', content: 'trimmed' } as Message],
+      archived: true,
+    });
+    const runtime = await makeRuntime({ proactiveTriggerRatio: 0.5, reactiveTargetRatio: 0.6 });
+    mockPrimaryTokens(runtime, 500);
+
+    await runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long'));
+
+    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({
+      policy: { kind: 'reactive', targetCompleteTokens: 600 },
+    }));
+  });
+
+  it.each([
+    { primaryWindow: 1_024_000, fallbackWindow: 1_000_000 },
+    { primaryWindow: 1_000_000, fallbackWindow: 1_024_000 },
+  ])('uses the primary window instead of smaller or larger fallback evidence', async ({ primaryWindow, fallbackWindow }) => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: primaryWindow,
+      after: 100,
+      newMessages: [{ role: 'user', content: 'trimmed' } as Message],
+      archived: true,
+    });
+    const runtime = await makeRuntime();
+    mockPrimaryTokens(runtime, primaryWindow, primaryWindow);
+    const error = new LLMContextExceededError('fallback', 413, 'too long', {
+      descriptor: {
+        revision: 'fallback-evidence', provider: 'fallback', model: 'fallback', api: 'test',
+        contextWindow: fallbackWindow, profile: 'fallback-profile',
+      },
+    });
+
+    await runtime.reactiveTrim(error);
+
+    expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({
+      contextWindow: primaryWindow,
+      measurementDescriptor: expect.objectContaining({ contextWindow: primaryWindow }),
+      policy: { kind: 'reactive', targetCompleteTokens: Math.floor(primaryWindow * 0.75) },
+    }));
+  });
+
+  it('fails closed when the primary complete-input measurement is unavailable', async () => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+    const runtime = await makeRuntime();
+    const meter = mockPrimaryTokens(runtime, 750);
+    meter.measure.mockReturnValue({ kind: 'unavailable', reason: 'tokenizer_unavailable' } as any);
+    const archive = vi.spyOn((runtime as any).sessionManager, 'archive');
+    const save = vi.spyOn((runtime as any).sessionManager, 'save');
+
+    await expect(runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long')))
+      .rejects.toMatchObject({
+        name: 'ContextInputMeasurementError',
+        reason: 'tokenizer_unavailable',
+      });
+    expect(trimSpy).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('not_applicable dispatches the original aggregate failure without trim persistence or blocked state', async () => {
+    vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+    const aggregate = new LLMAllProvidersFailedError([
+      { provider: 'primary', error: new LLMContextExceededError('primary', 400, 'primary too long') },
+      { provider: 'fallback', error: new LLMContextExceededError('fallback', 400, 'fallback too long') },
+    ]);
+    vi.spyOn(loopModule, 'runReact').mockImplementation(async () => { throw aggregate; });
+    const runtime = await makeRuntime();
+    mockPrimaryTokens(runtime, 749);
+    const archive = vi.spyOn((runtime as any).sessionManager, 'archive');
+    const audit = vi.spyOn(runtime.getAuditWriter(), 'write');
+    await writePendingMsg('m1');
+    const capture = captureStreamEvents();
+    const loop = createTestEventLoop({
+      runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+    });
+    (loop as any).contextTrimRetryCount = 2;
+    (loop as any).contextTrimRetryDelayMs = 40;
+
+    await loop.run();
+
+    expect(trimSpy).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(capture.events.filter(e => String(e.type).startsWith('context_trim_'))).toEqual([]);
+    expect((loop as any).contextTrimRetryCount).toBe(0);
+    expect((loop as any).contextTrimRetryDelayMs).toBe(TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS);
+    await expect(fs.readFile(
+      path.join(testClawDir, 'status', 'llm-request-blocked-state.json'), 'utf-8',
+    )).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(audit).toHaveBeenCalledWith(
+      'eventloop_iteration',
+      'type=context_trim_not_applicable',
+      'reason=primary_threshold_not_reached',
+      'before=749',
+      'primary_window=1000',
+      'trigger_ratio=0.75',
+      'trigger_tokens=750',
+    );
+    expect(audit).toHaveBeenCalledWith(
+      'eventloop_fatal',
+      'reason=non_llm_error',
+      `recovery_delay_ms=${TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS}`,
+      expect.stringContaining(aggregate.message),
     );
   });
 
@@ -428,6 +618,20 @@ describe('Phase 2149 reactive persisted-candidate gate', () => {
     });
     try {
       await runtime.initialize();
+      vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+        kind: 'available',
+        meter: {
+          descriptor: {
+            revision: 'phase2209-persisted-gate', provider: 'test', model: 'test', api: 'test',
+            contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+          },
+          capability: { kind: 'unknown' as const },
+          measure: () => ({
+            kind: 'estimated' as const, tokens: 1_000,
+            method: 'deepseek-v41-text' as const, reason: 'test',
+          }),
+        },
+      });
       vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
       vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
         status: 'target_reached', before: 1_000, after: 100,

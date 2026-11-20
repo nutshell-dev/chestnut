@@ -68,6 +68,20 @@ export type ContextTrimOutcome =
       archived: false;
     });
 
+/** Runtime-owned reactive trigger decision; ContextManager never produces this outcome. */
+export interface ReactiveTrimNotApplicableOutcome {
+  status: 'not_applicable';
+  reason: 'primary_threshold_not_reached';
+  before: number;
+  primaryWindow: number;
+  triggerRatio: number;
+  triggerTokens: number;
+  newMessages: Message[];
+  archived: false;
+}
+
+export type ReactiveTrimOutcome = ContextTrimOutcome | ReactiveTrimNotApplicableOutcome;
+
 export type TrimPolicy =
   | { kind: 'proactive'; targetCompleteTokens: number }
   | { kind: 'reactive'; targetCompleteTokens: number };

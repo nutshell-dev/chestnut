@@ -13,18 +13,18 @@ import type { ProviderConnection } from './provider-test-fixtures.js';
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 const response = { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
-const descriptor = (model: string) => ({
+const descriptor = (model: string, contextWindow = 1_000_000) => ({
   revision: `rev-${model}`,
   provider: model,
   model,
   api: 'test',
-  contextWindow: 1_000_000,
+  contextWindow,
   profile: 'test',
 });
 
-function meter(model: string, tokens: number): ModelInputMeter {
+function meter(model: string, tokens: number, contextWindow?: number): ModelInputMeter {
   return {
-    descriptor: descriptor(model),
+    descriptor: descriptor(model, contextWindow),
     capability: { kind: 'complete_only' },
     measure: () => ({ kind: 'estimated', tokens, method: 'deepseek-v41-text', reason: 'test' }),
   };
@@ -61,33 +61,100 @@ describe('provider-bound input budget', () => {
     await owner.close();
   });
 
-  it('matches canonical catalog evidence back to the labeled provider candidate', async () => {
-    const aliasDescriptor = {
-      ...descriptor('kimi-k2.6'),
-      provider: 'moonshotai-cn',
-      providerLabel: 'moonshot',
-    };
+  it('keeps the primary trim anchor when failure evidence names a smaller fallback', async () => {
+    const primaryDescriptor = descriptor('primary', 1_000_000);
+    const fallbackDescriptor = descriptor('fallback', 256_000);
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'ephemeral' },
-      primary: { ...config('moonshot'), model: 'kimi-k2.6' },
-      fallbacks: [],
+      primary: config('primary'),
+      fallbacks: [config('fallback')],
       maxAttempts: 1,
-      retryDelayMs: 0, // 禁用重试等待；输入预算用例只调用一次候选。
+      retryDelayMs: 0,
       events: { emit: (() => {}) as LLMEventSink['emit'] },
-      providerFactory: legacyProviderFactory((_connection) => ({
-        name: 'moonshot',
-        model: 'kimi-k2.6',
-        prepareInputMeter: async () => ({ ...meter('kimi-k2.6', 1), descriptor: aliasDescriptor }),
+      providerFactory: legacyProviderFactory(connection => ({
+        name: connection.providerId,
+        model: connection.model,
+        prepareInputMeter: async () => connection.providerId === 'primary'
+          ? { ...meter('primary', 1), descriptor: primaryDescriptor }
+          : { ...meter('fallback', 1, 256_000), descriptor: fallbackDescriptor },
         call: async () => response,
       })),
     });
-    const error = new LLMContextExceededError('moonshot', 413, 'too large', {
-      descriptor: aliasDescriptor,
+    const error = new LLMContextExceededError('fallback', 413, 'too large', {
+      descriptor: fallbackDescriptor,
     });
 
     await expect(owner.prepareInputBudget({ kind: 'failure', error })).resolves.toMatchObject({
-      kind: 'available', meter: { descriptor: aliasDescriptor },
+      kind: 'available', meter: { descriptor: primaryDescriptor },
     });
+    await owner.close();
+  });
+
+  it('keeps the primary trim anchor after a fallback becomes the last successful provider', async () => {
+    const primaryDescriptor = descriptor('primary', 1_000_000);
+    const fallbackDescriptor = descriptor('fallback', 256_000);
+    const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
+      primary: config('primary'),
+      fallbacks: [config('fallback')],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: (() => {}) as LLMEventSink['emit'] },
+      providerFactory: legacyProviderFactory(connection => ({
+        name: connection.providerId,
+        model: connection.model,
+        prepareInputMeter: async () => connection.providerId === 'primary'
+          ? { ...meter('primary', 1), descriptor: primaryDescriptor }
+          : { ...meter('fallback', 1, 256_000), descriptor: fallbackDescriptor },
+        call: async () => {
+          if (connection.providerId === 'primary') {
+            throw new LLMContextExceededError('primary', 413, 'too large');
+          }
+          return response;
+        },
+      })),
+    });
+
+    await expect(owner.call({ messages: [] })).resolves.toBe(response);
+    expect(owner.getProviderInfo()).toMatchObject({ name: 'fallback', isFallback: true });
+    await expect(owner.prepareInputBudget({ kind: 'preview' })).resolves.toMatchObject({
+      kind: 'available', meter: { descriptor: primaryDescriptor },
+    });
+    await owner.close();
+  });
+
+  it('uses the reloaded primary while preserving the old attempt descriptor', async () => {
+    const oldDescriptor = descriptor('old-primary', 1_000_000);
+    const newDescriptor = descriptor('new-primary', 2_000_000);
+    const ownerConfig = {
+      lifecycle: { mode: 'ephemeral' as const },
+      primary: config('old-primary'),
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: (() => {}) as LLMEventSink['emit'] },
+      providerFactory: legacyProviderFactory(connection => ({
+        name: connection.providerId,
+        model: connection.model,
+        prepareInputMeter: async () => connection.providerId === 'old-primary'
+          ? { ...meter('old-primary', 1), descriptor: oldDescriptor }
+          : { ...meter('new-primary', 1, 2_000_000), descriptor: newDescriptor },
+        call: async () => response,
+      })),
+    };
+    const owner = createLLMOrchestrator(ownerConfig);
+    const oldBudget = await owner.prepareInputBudget({ kind: 'preview' });
+    if (oldBudget.kind !== 'available') throw new Error('expected old primary meter');
+
+    owner.reloadConfig({ ...ownerConfig, primary: config('new-primary') });
+    const oldError = new LLMContextExceededError('old-primary', 413, 'too large', {
+      descriptor: oldDescriptor,
+    });
+    await expect(owner.prepareInputBudget({ kind: 'failure', error: oldError })).resolves.toMatchObject({
+      kind: 'available', meter: { descriptor: newDescriptor },
+    });
+    expect(oldBudget.meter.descriptor).toBe(oldDescriptor);
+    expect(oldBudget.meter.descriptor.revision).toBe('rev-old-primary');
     await owner.close();
   });
 
