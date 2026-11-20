@@ -52,27 +52,42 @@ async function catchStoreError(
   promise: Promise<unknown>,
   code: ConfigStoreErrorCode,
 ): Promise<ConfigStoreError> {
-  try {
-    // Attach rejection handling before driving polling; disk writes remain real.
-    let settled = false;
-    const result = promise.then(
-      value => { settled = true; return { kind: 'returned' as const, value }; },
-      error => { settled = true; return { kind: 'threw' as const, error }; },
-    );
-    while (!settled) {
-      // Real asynchronous rename can schedule another poll after the timer queue empties.
-      await setImmediate();
-      await vi.advanceTimersToNextTimerAsync();
+  // Attach rejection handling before driving polling; disk writes remain real.
+  let settled = false;
+  const result = promise.then(
+    value => { settled = true; return { kind: 'returned' as const, value }; },
+    error => { settled = true; return { kind: 'threw' as const, error }; },
+  );
+  const waitBudgetMs = LOCK_OBSERVATION_TEST_TIMEOUT_MS;
+  const maxEmptyTimerPolls = 100;
+  const deadline = performance.now() + waitBudgetMs;
+  let emptyTimerPolls = 0;
+  while (!settled) {
+    if (performance.now() >= deadline) {
+      throw new Error(`ConfigStoreError(${code}) wait timed out after ${waitBudgetMs}ms; settled=${settled}`);
     }
-    const outcome = await result;
-    if (outcome.kind === 'threw') throw outcome.error;
-  } catch (error) {
-    expect(isConfigStoreError(error)).toBe(true);
-    expect(error).toBeInstanceOf(ConfigStoreError);
-    expect((error as ConfigStoreError).code).toBe(code);
-    return error as ConfigStoreError;
+    // Real asynchronous rename can schedule another poll after the timer queue empties.
+    await setImmediate();
+    if (settled) break;
+    if (vi.getTimerCount() === 0) {
+      emptyTimerPolls += 1;
+      if (emptyTimerPolls >= maxEmptyTimerPolls) {
+        throw new Error(`ConfigStoreError(${code}) wait has no next timer after ${emptyTimerPolls} empty polls; settled=${settled}, budget=${waitBudgetMs}ms`);
+      }
+      continue;
+    }
+    emptyTimerPolls = 0;
+    await vi.advanceTimersToNextTimerAsync();
   }
-  throw new Error(`expected ConfigStoreError with code "${code}"`);
+  const outcome = await result;
+  if (outcome.kind === 'returned') {
+    throw new Error(`expected ConfigStoreError with code "${code}"`);
+  }
+  const error = outcome.error;
+  expect(isConfigStoreError(error)).toBe(true);
+  expect(error).toBeInstanceOf(ConfigStoreError);
+  expect((error as ConfigStoreError).code).toBe(code);
+  return error as ConfigStoreError;
 }
 
 function writeLock(raw: string): void {

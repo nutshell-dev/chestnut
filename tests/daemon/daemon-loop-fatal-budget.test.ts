@@ -123,8 +123,15 @@ describe('phase 1873 Step I: daemon-loop fatal 有界恢复', () => {
      * Derivation: 20ms(tick) + 10ms(退避) + 20ms(tick) + 20ms(tick 起跑) + 余量。
      */
     // Fatal audit writes are the completion evidence; do not infer progress from elapsed time.
-    while (fatalEntries(audit).length < 2) {
+    const waitBudgetMs = 5_000;
+    const deadline = Date.now() + waitBudgetMs;
+    let observedFatals = fatalEntries(audit).length;
+    while (observedFatals < 2) {
+      if (Date.now() >= deadline) {
+        throw new Error(`second fatal audit timed out after ${waitBudgetMs}ms; observed=${observedFatals}`);
+      }
       await new Promise<void>(resolve => setImmediate(resolve));
+      observedFatals = fatalEntries(audit).length;
     }
     stop();
     await promise.catch(() => { /* silent: teardown */ });
