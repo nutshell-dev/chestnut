@@ -136,7 +136,7 @@ describe('ProbeController lifecycle-aware autonomous re-arm', () => {
     }));
   });
 
-  it('preserves durable failure backoff after a failure commit', () => {
+  it('preserves durable failure backoff after a failure commit', async () => {
     const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
     const f = fixture(primary);
     vi.clearAllTimers(); // 移除构造期初始安排，只观察 failure callback。
@@ -146,8 +146,16 @@ describe('ProbeController lifecycle-aware autonomous re-arm', () => {
       occurredAtMs: Date.now(), retryAfterSec: 30,
     }]);
 
+    const retryAt = f.ledger.snapshot().providers[0]?.retryAt;
+    expect(retryAt).toBe(Date.now() + 30_000);
     expect(vi.getTimerCount()).toBe(1);
     expect(f.ledger.snapshot().providers[0]).toMatchObject({ status: 'waiting' });
+
+    await vi.advanceTimersByTimeAsync(30_000 - 1);
+    expect(primary.call).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(0); // Flush the continuation's microtasks.
+    expect(primary.call).toHaveBeenCalledTimes(1);
   });
 
   it('runs an explicit ephemeral schedule once on success without a ready continuation', async () => {
@@ -211,7 +219,7 @@ describe('ProbeController lifecycle-aware autonomous re-arm', () => {
     const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
     const f = fixture(primary, [], {}, mode);
     vi.clearAllTimers();
-    vi.spyOn(f.controller, 'probe').mockRejectedValue(new Error('timer probe failed'));
+    const probe = vi.spyOn(f.controller, 'probe').mockRejectedValueOnce(new Error('timer probe failed'));
 
     f.controller.scheduleProbe(Date.now());
     await vi.advanceTimersByTimeAsync(0);
@@ -219,7 +227,24 @@ describe('ProbeController lifecycle-aware autonomous re-arm', () => {
     expect(f.events).toContainEqual(expect.objectContaining({
       type: 'instance_state_write_failed', context: 'probe_timer', reason: 'timer probe failed',
     }));
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(primary.call).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(expectedTimers);
+
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS - 1);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(primary.call).not.toHaveBeenCalled();
+
+    if (mode === 'durable') {
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(0); // Flush the rejected timer's continuation.
+      expect(probe).toHaveBeenCalledTimes(2);
+      expect(primary.call).toHaveBeenCalledTimes(1);
+    } else {
+      await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(primary.call).not.toHaveBeenCalled();
+    }
   });
 });
 
