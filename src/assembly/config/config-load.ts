@@ -379,7 +379,7 @@ export async function mutateGlobalConfigLocked(
   // 兼容旧 Assembly 调用方面；实际 LLM RMW 已归 L4，root 不再承载业务写。
   loadGlobalConfig(deps);
   return createLLMConfiguration(deps).mutateGlobalLocked((fresh) => {
-    mutator(fresh as ClawGlobalConfig);
+    mutator({ llm: fresh.llm } as ClawGlobalConfig);
   });
 }
 

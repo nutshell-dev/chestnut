@@ -19,6 +19,7 @@ export const CLI_AUDIT_EVENTS = {
   CONTRACT_CREATE: 'cli_contract_create',
   CONTRACT_CANCEL: 'cli_contract_cancel',                                    // NEW phase 1471: contract cancel CLI
   CONFIG_SAVED: 'cli_config_saved',                                        // NEW phase 1452: config provider 子命令 saveGlobal 成功侧
+  CONFIG_PROVIDER_REFERENCE_REJECTED: 'cli_config_provider_reference_rejected', // Phase 2216: ambiguity 失败证据
   INIT_DONE: 'cli_init_done',
   INIT_PROBE_ATTEMPTED: 'cli_init_probe_attempted',
   INIT_PROBE_SUCCEEDED: 'cli_init_probe_succeeded',

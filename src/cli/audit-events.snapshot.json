@@ -77,6 +77,7 @@
       "cli_claw_outbox_skip_done",
       "cli_claw_outbox_skip_start",
       "cli_claw_stop",
+      "cli_config_provider_reference_rejected",
       "cli_config_saved",
       "cli_contract_cancel",
       "cli_contract_create",

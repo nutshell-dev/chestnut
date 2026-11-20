@@ -104,7 +104,7 @@ describe('config provider remove/move — audit emit (phase 1452 Step B)', () =>
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
     expect(vi.mocked(console.log)).toHaveBeenCalledWith(
-      '✓ Removed provider (label="fb-one" role=fallback match=label) from fallbacks',
+      '✓ Removed provider (label="fb-one" label_state=present role=fallback match=label) from fallbacks',
     );
     expect(readAudit()).toContain('command=provider_remove');
   });

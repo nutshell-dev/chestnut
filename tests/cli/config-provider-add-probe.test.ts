@@ -318,6 +318,29 @@ describe('config provider add — primary probe', () => {
     expect(consoleLines.join('\n')).toContain('Cancelled');
   });
 
+  it('rejects the reserved no-label sentinel before probing or committing', async () => {
+    rlAnswers.queue = ['7', 'sk-sentinel-secret', '', '(no label)'];
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const cmd = createConfigCommand(configDeps);
+      await expect(cmd.parseAsync(['node', 'test', 'provider', 'add']))
+        .rejects.toThrow('process.exit(1)');
+      expect(errorSpy).toHaveBeenCalledWith('Provider label "(no label)" is reserved for a missing label');
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+
+    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.fallbacks ?? []).toHaveLength(0);
+    expect(fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'), 'utf8'))
+      .not.toContain('sk-sentinel-secret');
+  });
+
   it('allows a new label that equals another entry preset', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
     // The existing primary has preset=anthropic and no label; this is not a label duplicate.

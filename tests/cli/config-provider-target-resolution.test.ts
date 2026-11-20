@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { LLMGlobalConfigView } from '../../src/core/llm-configuration/index.js';
-import type { LLMProviderConfig } from '../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import {
+  llmProviderConfigSchema,
+  PROVIDER_NO_LABEL_SENTINEL,
+  type LLMProviderConfig,
+} from '../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import {
   formatAmbiguousProviderReference,
   formatProviderTarget,
   providerLabelExists,
+  providerTargetFingerprint,
   resolveProviderReference,
 } from '../../src/cli/commands/provider-reference.js';
 
@@ -68,7 +73,9 @@ describe('provider reference resolution', () => {
     });
     if (result.kind === 'resolved') {
       expect(result.candidate.label).toBeUndefined();
-      expect(formatProviderTarget(result)).toBe('label="(no label)" role=fallback match=provider_id');
+      expect(formatProviderTarget(result)).toBe(
+        'label="(no label)" label_state=missing role=fallback match=provider_id',
+      );
     }
   });
 
@@ -107,8 +114,8 @@ describe('provider reference resolution', () => {
     const message = formatAmbiguousProviderReference(result);
     expect(message).toContain('ambiguous_provider_reference');
     expect(message).toContain('role=primary index=-1');
-    expect(message).toContain('base_url="https://primary.test"');
-    expect(message).toContain('label="(no label)"');
+    expect(message).toContain('base_url="https://primary.test/"');
+    expect(message).toContain('label="(no label)" label_state=missing');
     expect(message.indexOf('role=primary')).toBeLessThan(message.indexOf('role=fallback'));
   });
 
@@ -127,9 +134,52 @@ describe('provider reference resolution', () => {
     });
   });
 
+  it('changes the target fingerprint when a same-label reference resolves to a replacement entry', () => {
+    const before = config({}, [{ label: 'target', provider_id: 'old', model: 'old-model' }]);
+    const after = config({}, [{ label: 'target', provider_id: 'new', model: 'new-model' }]);
+    const beforeHit = resolveProviderReference(before, 'target');
+    const afterHit = resolveProviderReference(after, 'target');
+    if (beforeHit.kind !== 'resolved' || afterHit.kind !== 'resolved') throw new Error('expected resolved targets');
+
+    expect(providerTargetFingerprint(before, beforeHit))
+      .not.toBe(providerTargetFingerprint(after, afterHit));
+    expect(providerTargetFingerprint(before, beforeHit))
+      .toBe(providerTargetFingerprint(before, beforeHit));
+  });
+
   it('preserves not-found classification', () => {
     expect(resolveProviderReference(config({}), 'missing'))
       .toEqual({ kind: 'not_found' });
+  });
+
+  it('redacts userinfo, query and fragment from candidate URLs and diagnostics', () => {
+    const secretUrl = 'https://user:password@provider.test/v1?token=query-secret&signature=signed#fragment-secret';
+    const result = resolveProviderReference(config(
+      { provider_id: 'shared', base_url: secretUrl },
+      [{ provider_id: 'shared', base_url: secretUrl }],
+    ), 'shared');
+
+    expect(JSON.stringify(result)).not.toContain('user:password');
+    expect(JSON.stringify(result)).not.toContain('query-secret');
+    expect(JSON.stringify(result)).not.toContain('signed');
+    expect(JSON.stringify(result)).not.toContain('fragment-secret');
+    if (result.kind !== 'ambiguous_provider_reference') throw new Error('expected ambiguity');
+    const message = formatAmbiguousProviderReference(result);
+    expect(message).toContain('base_url="https://provider.test/v1"');
+    expect(message).not.toContain('user:password');
+    expect(message).not.toContain('query-secret');
+    expect(message).not.toContain('fragment-secret');
+  });
+
+  it('distinguishes missing labels from a raw sentinel-shaped label in diagnostics', () => {
+    const missing = resolveProviderReference(config({ label: undefined }), 'custom:provider');
+    const present = resolveProviderReference(config({}, [{ label: PROVIDER_NO_LABEL_SENTINEL }]), PROVIDER_NO_LABEL_SENTINEL);
+    if (missing.kind !== 'resolved' || present.kind !== 'resolved') throw new Error('expected resolved targets');
+
+    expect(formatProviderTarget(missing)).toContain('label_state=missing');
+    expect(formatProviderTarget(present)).toContain('label_state=present');
+    expect(() => llmProviderConfigSchema.parse(entry({ label: PROVIDER_NO_LABEL_SENTINEL })))
+      .toThrow(/reserved no-label sentinel/);
   });
 
   it('does not include credentials in candidates or diagnostics', () => {

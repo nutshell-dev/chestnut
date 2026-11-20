@@ -7,11 +7,16 @@ import { THINKING_LEVELS } from './thinking-levels.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from './defaults.js';
 import { API_FORMATS } from './api-format.js';
 
+/** Reserved display sentinel; persisted user labels must remain distinguishable from a missing label. */
+export const PROVIDER_NO_LABEL_SENTINEL = '(no label)';
+
 export const llmProviderConfigSchema = z.object({
   provider_id: z.string().min(1),
   api_format: z.enum(API_FORMATS),
   auth_profile: z.enum(['api_key', 'ambient', 'oauth']),
-  label: z.string().optional(),
+  label: z.string().refine(value => value !== PROVIDER_NO_LABEL_SENTINEL, {
+    message: 'label must not use the reserved no-label sentinel',
+  }).optional(),
   api_key: z.string().min(1, 'api_key must not be empty').optional(),
   // Catalog connections may use their static endpoint; custom and metadata-only
   // connections must provide an explicit base URL (enforced by the adapter).

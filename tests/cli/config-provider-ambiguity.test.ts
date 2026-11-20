@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
 import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
+import { AuditWriter } from '../../src/foundation/audit/writer.js';
+import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
 import { cleanupTempDirSync, createTrackedTempDirSync } from '../utils/temp.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -158,12 +160,19 @@ describe('provider mutation ambiguity safety', () => {
     expect(errors).toContain('role=fallback index=1 label="(no label)"');
     expect(errors).toContain('model="model-one"');
     expect(errors).toContain('model="model-two"');
+    const audit = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf8');
+    expect(audit).toContain('cli_config_provider_reference_rejected');
+    expect(audit).toContain('reason=ambiguous_provider_reference');
+    expect(audit).toContain('revision=7');
+    expect(audit).toContain('match=provider_id');
+    expect(audit).toContain('candidate_count=3');
+    expect(audit).toContain('reference_sha256=');
     expectNoMutationSideEffects(before);
     expect(connMock.checkLLMConnection).not.toHaveBeenCalled();
     expect(mockRl.question).not.toHaveBeenCalled();
   });
 
-  it('re-resolves fresh locked config when a unique fallback becomes ambiguous', async () => {
+  it('fails closed when fresh locked config revision makes a unique fallback ambiguous', async () => {
     writeConfig(`primary:
   label: main
   provider_id: custom:anthropic
@@ -200,12 +209,140 @@ fallbacks:
 
     const errors = await runFailure(['provider', 'remove', 'custom:openai']);
 
-    expect(errors).toContain('ambiguous_provider_reference');
-    expect(errors).toContain('label="only"');
-    expect(errors).toContain('label="other"');
+    expect(errors).toContain('provider_target_drift');
+    expect(errors).not.toContain('label="other" role=fallback');
     if (!afterDrift) throw new Error('drift fixture did not run');
     expect(afterDrift.revision).toBe(8);
     expectNoMutationSideEffects(afterDrift);
+  });
+
+  it('redacts sensitive URL parts from terminal and reconstructable ambiguity audit evidence', async () => {
+    writeConfig(`primary:
+  label: main
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: https://main.test
+fallbacks:
+  - label: one
+    provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
+    model: model-one
+    base_url: 'https://user:secret-one@one.test/v1?token=query-secret&signature=signed#fragment-one'
+  - provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
+    model: model-two
+    base_url: 'https://user:secret-two@two.test/v1?access_token=token-secret#fragment-two'
+`);
+    const before = snapshot();
+
+    const errors = await runFailure(['provider', 'remove', 'custom:shared']);
+    const audit = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf8');
+
+    for (const evidence of [errors, audit]) {
+      expect(evidence).toContain('https://one.test/v1');
+      expect(evidence).toContain('https://two.test/v1');
+      expect(evidence).not.toContain('secret-one');
+      expect(evidence).not.toContain('secret-two');
+      expect(evidence).not.toContain('query-secret');
+      expect(evidence).not.toContain('signed');
+      expect(evidence).not.toContain('token-secret');
+      expect(evidence).not.toContain('fragment-one');
+      expect(evidence).not.toContain('fragment-two');
+    }
+    expect(audit).toContain('cli_config_provider_reference_rejected');
+    expect(audit).toContain('revision=7');
+    expect(audit).toContain('match=provider_id');
+    expect(audit).toContain('candidate_count=2');
+    expect(audit).toContain('"role":"fallback"');
+    expect(audit).toContain('"label_state":"missing"');
+    expectNoMutationSideEffects(before);
+  });
+
+  it('preserves the original ambiguity CLI failure when its dedicated audit write throws', async () => {
+    writeSharedProviderConfig();
+    const before = snapshot();
+    const originalWrite = AuditWriter.prototype.write;
+    vi.spyOn(AuditWriter.prototype, 'write').mockImplementation(function (
+      this: AuditWriter,
+      type: string,
+      ...cols: (string | number)[]
+    ) {
+      if (type === CLI_AUDIT_EVENTS.CONFIG_PROVIDER_REFERENCE_REJECTED) {
+        throw new Error('injected ambiguity audit failure');
+      }
+      return originalWrite.call(this, type, ...cols);
+    });
+
+    const errors = await runFailure(['provider', 'remove', 'custom:shared']);
+
+    expect(errors).toContain('Provider ambiguity audit write failed: injected ambiguity audit failure');
+    expect(errors).toContain('ambiguous_provider_reference');
+    expect(errors).toContain('provider mutation was not applied');
+    expectNoMutationSideEffects(before);
+  });
+
+  it.each([
+    ['remove', ['provider', 'remove', 'target']],
+    ['set-primary', ['provider', 'set-primary', 'target']],
+    ['move', ['provider', 'move', 'target', '1']],
+  ])('%s fails closed when the preflight target is replaced by a same-label entry', async (_name, args) => {
+    writeConfig(`primary:
+  label: main
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: https://main.test
+fallbacks:
+  - label: target
+    provider_id: custom:old
+    api_format: openai
+    auth_profile: ambient
+    model: old-model
+    base_url: https://old.test
+  - label: remaining
+    provider_id: custom:remaining
+    api_format: openai
+    auth_profile: ambient
+    model: remaining-model
+    base_url: https://remaining.test
+`);
+    rlAnswers.queue = ['y'];
+    const mutate = configDeps.llmConfiguration.mutateGlobalLocked;
+    let afterDrift: ReturnType<typeof snapshot> | undefined;
+    vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockImplementation(async mutator => {
+      await mutate(fresh => {
+        fresh.llm.fallbacks![0] = {
+          label: 'target',
+          provider_id: 'custom:new',
+          api_format: 'openai',
+          auth_profile: 'ambient',
+          model: 'new-model',
+          base_url: 'https://new.test',
+          temperature: 0.7,
+          timeout_ms: 30_000,
+        };
+      });
+      afterDrift = snapshot();
+      return mutate(mutator);
+    });
+
+    const errors = await runFailure(args);
+
+    expect(errors).toContain('provider_target_drift');
+    if (!afterDrift) throw new Error('drift fixture did not run');
+    expect(afterDrift.revision).toBe(8);
+    expect(afterDrift.document.fallbacks?.[0]).toMatchObject({
+      label: 'target',
+      provider_id: 'custom:new',
+      model: 'new-model',
+    });
+    expectNoMutationSideEffects(afterDrift);
+    expect(connMock.checkLLMConnection).not.toHaveBeenCalled();
   });
 });
 
@@ -241,7 +378,7 @@ fallbacks:
       expect.objectContaining({ label: 'remaining', provider_id: 'custom:remaining' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (label="shared" role=fallback match=label) from fallbacks',
+      '✓ Removed provider (label="shared" label_state=present role=fallback match=label) from fallbacks',
     );
   });
 
@@ -265,7 +402,7 @@ fallbacks:
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (label="(no label)" role=fallback match=provider_id) from fallbacks',
+      '✓ Removed provider (label="(no label)" label_state=missing role=fallback match=provider_id) from fallbacks',
     );
   });
 
@@ -291,7 +428,7 @@ fallbacks:
 
     expect(configDeps.llmConfiguration.store.read().primary).toMatchObject({ provider_id: 'custom:openai' });
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" role=fallback match=provider_id) is now primary',
+      '✓ Provider (label="(no label)" label_state=missing role=primary match=provider_id) is now primary',
     );
     expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
   });
@@ -325,8 +462,57 @@ fallbacks:
       expect.objectContaining({ provider_id: 'custom:openai' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" role=fallback match=provider_id) moved to fallback #2',
+      '✓ Provider (label="(no label)" label_state=missing role=fallback match=provider_id) moved to fallback #2',
     );
+  });
+
+  it('move output and audit use the actual locked fallback index after clamping', async () => {
+    writeConfig(`primary:
+  label: main
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: https://main.test
+fallbacks:
+  - label: target
+    provider_id: custom:target
+    api_format: openai
+    auth_profile: ambient
+    model: target-model
+    base_url: https://target.test
+  - label: removed-before-lock
+    provider_id: custom:middle
+    api_format: openai
+    auth_profile: ambient
+    model: middle-model
+    base_url: https://middle.test
+  - label: last
+    provider_id: custom:last
+    api_format: openai
+    auth_profile: ambient
+    model: last-model
+    base_url: https://last.test
+`);
+    let committed: ReturnType<typeof configDeps.llmConfiguration.loadGlobal> | undefined;
+    vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockImplementation(async mutator => {
+      const fresh = configDeps.llmConfiguration.loadGlobal();
+      fresh.llm.fallbacks!.splice(1, 1);
+      mutator(fresh);
+      committed = fresh;
+      return { kind: 'durable' };
+    });
+
+    await runCommand(['provider', 'move', 'target', '3']);
+
+    if (!committed) throw new Error('move fixture did not commit');
+    expect(committed.llm.fallbacks?.map(entry => entry.label)).toEqual(['last', 'target']);
+    expect(logLines.join('\n')).toContain('moved to fallback #2');
+    expect(logLines.join('\n')).not.toContain('moved to fallback #3');
+    const audit = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf8');
+    expect(audit).toContain('command=provider_move');
+    expect(audit).toContain('position=2');
+    expect(audit).not.toContain('position=3');
   });
 
   it('list displays no-label facts for primary and fallback rows', async () => {
@@ -359,5 +545,24 @@ fallbacks:
     expect(firstFallbackRow).toContain('(no label)');
     expect(output).toContain('named');
     expect(output).not.toContain('(unknown)');
+  });
+
+  it('explicitly rejects an existing sentinel-shaped label instead of silently migrating it', async () => {
+    writeConfig(`primary:
+  label: '(no label)'
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: https://main.test
+fallbacks: []
+`);
+    const before = fs.readFileSync(configPath(), 'utf8');
+
+    const errors = await runFailure(['provider', 'list']);
+
+    expect(errors).toContain('Legacy LLM migration invalid_mapping at primary');
+    expect(errors).toContain('mapped provider does not satisfy the explicit schema');
+    expect(fs.readFileSync(configPath(), 'utf8')).toBe(before);
   });
 });

@@ -132,7 +132,7 @@ export interface LLMConfigurationAdmin {
     credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   mutateGlobalLocked(
-    mutator: (config: { llm: SharedLLM }) => void,
+    mutator: (config: { llm: SharedLLM; revision: LLMConfigurationRevision }) => void,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
   commitExplicitProvider(
@@ -828,7 +828,10 @@ export function createLLMConfiguration(deps: {
       };
     },
     mutateGlobalLocked: (mutator) => store().mutate((fresh) => {
-      const view = { llm: documentConfig(fresh) as SharedLLM };
+      const view = {
+        llm: documentConfig(fresh) as SharedLLM,
+        revision: { id: String(fresh.revision), revision: fresh.revision },
+      };
       mutator(view);
       return { ...view.llm, schema_version: fresh.schema_version, revision: fresh.revision } as LLMConfigDocument;
     }),
