@@ -71,6 +71,7 @@ function runLock(
 async function catchStoreError(
   promise: Promise<unknown>,
   code: ConfigStoreErrorCode,
+  waitBudgetMs = 10_000,
 ): Promise<ConfigStoreError> {
   // Drive scheduled polls, not a fixed wall-clock wait; keep real filesystem I/O.
   let settled = false;
@@ -78,25 +79,16 @@ async function catchStoreError(
     value => { settled = true; return { kind: 'returned' as const, value }; },
     error => { settled = true; return { kind: 'threw' as const, error }; },
   );
-  const waitBudgetMs = 30_000;
-  const maxEmptyTimerPolls = 100;
   const deadline = performance.now() + waitBudgetMs;
-  let emptyTimerPolls = 0;
   while (!settled) {
     if (performance.now() >= deadline) {
-      throw new Error(`ConfigStoreError(${code}) wait timed out after ${waitBudgetMs}ms; settled=${settled}`);
+      throw new Error(`ConfigStoreError(${code}) wait timed out after ${waitBudgetMs}ms; settled=${settled}, timers=${vi.getTimerCount()}`);
     }
     await setImmediate();
     if (settled) break;
-    if (vi.getTimerCount() === 0) {
-      emptyTimerPolls += 1;
-      if (emptyTimerPolls >= maxEmptyTimerPolls) {
-        throw new Error(`ConfigStoreError(${code}) wait has no next timer after ${emptyTimerPolls} empty polls; settled=${settled}, budget=${waitBudgetMs}ms`);
-      }
-      continue;
-    }
-    emptyTimerPolls = 0;
-    await vi.advanceTimersToNextTimerAsync();
+    // An empty timer queue can be transient while real filesystem I/O is pending.
+    // Only the real-time deadline decides failure; a poll count is scheduler-dependent.
+    if (vi.getTimerCount() > 0) await vi.advanceTimersToNextTimerAsync();
   }
   const outcome = await result;
   if (outcome.kind === 'returned') {

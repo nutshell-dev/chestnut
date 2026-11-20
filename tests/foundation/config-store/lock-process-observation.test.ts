@@ -51,6 +51,7 @@ afterEach(async () => {
 async function catchStoreError(
   promise: Promise<unknown>,
   code: ConfigStoreErrorCode,
+  waitBudgetMs = 10_000,
 ): Promise<ConfigStoreError> {
   // Attach rejection handling before driving polling; disk writes remain real.
   let settled = false;
@@ -58,26 +59,16 @@ async function catchStoreError(
     value => { settled = true; return { kind: 'returned' as const, value }; },
     error => { settled = true; return { kind: 'threw' as const, error }; },
   );
-  const waitBudgetMs = LOCK_OBSERVATION_TEST_TIMEOUT_MS;
-  const maxEmptyTimerPolls = 100;
   const deadline = performance.now() + waitBudgetMs;
-  let emptyTimerPolls = 0;
   while (!settled) {
     if (performance.now() >= deadline) {
-      throw new Error(`ConfigStoreError(${code}) wait timed out after ${waitBudgetMs}ms; settled=${settled}`);
+      throw new Error(`ConfigStoreError(${code}) wait timed out after ${waitBudgetMs}ms; settled=${settled}, timers=${vi.getTimerCount()}`);
     }
     // Real asynchronous rename can schedule another poll after the timer queue empties.
     await setImmediate();
     if (settled) break;
-    if (vi.getTimerCount() === 0) {
-      emptyTimerPolls += 1;
-      if (emptyTimerPolls >= maxEmptyTimerPolls) {
-        throw new Error(`ConfigStoreError(${code}) wait has no next timer after ${emptyTimerPolls} empty polls; settled=${settled}, budget=${waitBudgetMs}ms`);
-      }
-      continue;
-    }
-    emptyTimerPolls = 0;
-    await vi.advanceTimersToNextTimerAsync();
+    // Do not turn a scheduler-dependent empty-poll count into a failure oracle.
+    if (vi.getTimerCount() > 0) await vi.advanceTimersToNextTimerAsync();
   }
   const outcome = await result;
   if (outcome.kind === 'returned') {
@@ -511,7 +502,11 @@ describe('ConfigStore persisted holder observations', () => {
       });
     let calls = 0;
 
-    await catchStoreError(runLock(() => { calls += 1; }), 'lock_timeout');
+    await catchStoreError(
+      runLock(() => { calls += 1; }),
+      'lock_timeout',
+      LOCK_OBSERVATION_TEST_TIMEOUT_MS - 5_000,
+    );
 
     expect(calls).toBe(0);
     expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(replacement);
