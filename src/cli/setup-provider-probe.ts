@@ -3,8 +3,8 @@
  *
  * 五家供应商（DeepSeek/Kimi/Qwen/GLM/MiniMax）在 setup（init 与
  * `config provider add`）中按固定顺序 probe 候选 Anthropic 端点：
- * 第一个 ok 的候选写入配置 preset + base_url；全败不保存并逐候选报告。
- * 运行时不再 probe——重启直接使用落盘 base_url。
+ * 第一个 ok 的候选把其 endpoint/base URL 写入显式 setup draft；全败不保存并逐候选报告。
+ * 运行时不再 probe——重启直接使用落盘的显式 endpoint/base URL。
  */
 
 import { CliError } from './errors.js';
