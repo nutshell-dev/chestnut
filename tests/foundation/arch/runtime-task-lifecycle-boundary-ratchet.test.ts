@@ -23,7 +23,7 @@ describe('phase 1359: Runtime task lifecycle boundary', () => {
     const types = read('src/core/runtime/types.ts');
     const runtime = read('src/core/runtime/runtime.ts');
     expect(types).toContain('readonly taskSystem: AsyncTaskRuntimeLifecycle');
-    expect(runtime).toContain('private taskSystem!: AsyncTaskRuntimeLifecycle');
+    expect(runtime).toContain('protected taskSystem!: AsyncTaskRuntimeLifecycle');
     expect(runtime).not.toContain('getTaskSystem()');
     expect(runtime).not.toMatch(/import type \{ AsyncTaskSystem \}/);
   });

@@ -26,7 +26,7 @@ describe('phase 1360: Runtime contract lifecycle boundary', () => {
     const types = read('src/core/runtime/types.ts');
     const runtime = read('src/core/runtime/runtime.ts');
     expect(types).toContain('readonly contractManager: ContractRuntimeLifecycle');
-    expect(runtime).toContain('private contractManager!: ContractRuntimeLifecycle');
+    expect(runtime).toContain('protected contractManager!: ContractRuntimeLifecycle');
     expect(types).not.toMatch(/import type \{ ContractSystem \}/);
     expect(runtime).not.toMatch(/import type \{ ContractSystem \}/);
   });
