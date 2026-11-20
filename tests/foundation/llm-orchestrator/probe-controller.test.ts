@@ -117,6 +117,112 @@ describe('ProbeController request and success semantics', () => {
   });
 });
 
+describe('ProbeController lifecycle-aware autonomous re-arm', () => {
+  it('keeps ephemeral failure facts and events without creating an autonomous timer', () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [], {}, 'ephemeral');
+
+    f.ledger.noteFailure([{
+      providerId: f.runtime.providerIds()[0]!, errorClass: 'transient', message: 'offline',
+      occurredAtMs: Date.now(), retryAfterSec: 30,
+    }]);
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.ledger.snapshot().providers[0]).toMatchObject({
+      status: 'waiting', lastError: { message: 'offline' },
+    });
+    expect(f.events).toContainEqual(expect.objectContaining({
+      type: 'recovery_scheduled', errorClass: 'transient', failureCount: 1,
+    }));
+  });
+
+  it('preserves durable failure backoff after a failure commit', () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary);
+    vi.clearAllTimers(); // 移除构造期初始安排，只观察 failure callback。
+
+    f.ledger.noteFailure([{
+      providerId: f.runtime.providerIds()[0]!, errorClass: 'transient', message: 'offline',
+      occurredAtMs: Date.now(), retryAfterSec: 30,
+    }]);
+
+    expect(vi.getTimerCount()).toBe(1);
+    expect(f.ledger.snapshot().providers[0]).toMatchObject({ status: 'waiting' });
+  });
+
+  it('runs an explicit ephemeral schedule once on success without a ready continuation', async () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [], {}, 'ephemeral');
+    const ready = vi.fn();
+    f.controller.subscribeReady(ready);
+
+    f.controller.scheduleProbe(Date.now());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(primary.call).toHaveBeenCalledTimes(1);
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS * 2);
+    expect(primary.call).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs an explicit ephemeral schedule once on failure without a retry continuation', async () => {
+    const primary: LLMProvider = {
+      name: 'primary', model: 'model-primary',
+      call: vi.fn(async () => { throw new Error('offline'); }),
+    };
+    const f = fixture(primary, [], {}, 'ephemeral');
+
+    f.controller.scheduleProbe(Date.now());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(primary.call).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.ledger.snapshot().providers[0]).toMatchObject({
+      status: 'waiting', lastError: { message: 'offline' },
+    });
+    expect(f.events).toContainEqual(expect.objectContaining({
+      type: 'provider_exhausted', provider: 'primary', error: 'offline',
+    }));
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS * 2);
+    expect(primary.call).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-arm an ephemeral explicit schedule when the recovery floor moves at timer fire', async () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [], {}, 'ephemeral');
+    f.controller.scheduleProbe(Date.now());
+    f.ledger.noteFailure([{
+      providerId: f.runtime.providerIds()[0]!, errorClass: 'rate_limit', message: 'limited',
+      occurredAtMs: Date.now(), retryAfterSec: 60,
+    }]);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(primary.call).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.ledger.snapshot().providers[0]).toMatchObject({ status: 'waiting' });
+  });
+
+  it.each([
+    { mode: 'ephemeral' as const, expectedTimers: 0 },
+    { mode: 'durable' as const, expectedTimers: 1 },
+  ])('emits timer rejection facts and applies the $mode continuation policy', async ({ mode, expectedTimers }) => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [], {}, mode);
+    vi.clearAllTimers();
+    vi.spyOn(f.controller, 'probe').mockRejectedValue(new Error('timer probe failed'));
+
+    f.controller.scheduleProbe(Date.now());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(f.events).toContainEqual(expect.objectContaining({
+      type: 'instance_state_write_failed', context: 'probe_timer', reason: 'timer probe failed',
+    }));
+    expect(vi.getTimerCount()).toBe(expectedTimers);
+  });
+});
+
 
 describe('ProbeController close, reload and late results', () => {
   it('aborts inflight work, waits for its exit and closes idempotently without publishing success', async () => {

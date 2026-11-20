@@ -109,6 +109,14 @@ function createOwner(
   return { owner, emitted };
 }
 
+async function createDurableOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
+  const dir = await createTrackedTempDir('probe-scheduler-durable-');
+  return createOwner(adapterOrAdapters, {
+    mode: 'durable',
+    fs: new NodeFileSystem({ baseDir: dir }),
+  });
+}
+
 /** 触发 0ms 定时器并冲刷 microtask 队列（probe 异步 continuation 落点）。 */
 function flush(): Promise<void> {
   return vi.advanceTimersByTimeAsync(0);
@@ -205,9 +213,9 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('失败退避：持续失败 → probe 失败后按统一 retryAt 自动安排下一次', async () => {
+  it('失败退避：持续失败 → durable probe 失败后按统一 retryAt 自动安排下一次', async () => {
     const mock = createControllableAdapter('primary', 'fail');
-    const { owner } = createOwner(mock.adapter);
+    const { owner } = await createDurableOwner(mock.adapter);
 
     owner.scheduleProbe(Date.now());
     await flush();
@@ -225,9 +233,9 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('失败退避（Retry-After）：typed Retry-After 直接决定统一 retryAt', async () => {
+  it('失败退避（Retry-After）：durable typed Retry-After 直接决定统一 retryAt', async () => {
     const mock = createControllableAdapter('primary', 'rate_limit');  // Retry-After = 2s < RESET_MS
-    const { owner } = createOwner(mock.adapter);
+    const { owner } = await createDurableOwner(mock.adapter);
 
     owner.scheduleProbe(Date.now());
     await flush();
@@ -240,9 +248,9 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('成功唤醒：失败一次后恢复 → probe 成功 → subscribeReady listener 恰一次', async () => {
+  it('成功唤醒：durable 失败一次后恢复 → probe 成功 → subscribeReady listener 恰一次', async () => {
     const mock = createControllableAdapter('primary', 'fail');
-    const { owner } = createOwner(mock.adapter);
+    const { owner } = await createDurableOwner(mock.adapter);
     const listener = vi.fn();
     owner.subscribeReady(listener);
 
@@ -268,9 +276,9 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('ready 后也按统一 TTL 持续自主 probe', async () => {
+  it('durable ready 后也按统一 TTL 持续自主 probe', async () => {
     const mock = createControllableAdapter('primary', 'ok');
-    const { owner } = createOwner(mock.adapter);
+    const { owner } = await createDurableOwner(mock.adapter);
     owner.scheduleProbe(Date.now());
     await flush();
     expect(mock.calls()).toBe(1);

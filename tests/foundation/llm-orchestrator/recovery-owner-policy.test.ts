@@ -25,10 +25,13 @@ import { legacyProviderFactory } from './provider-test-fixtures.js';
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { createTrackedTempDir } from '../../utils/temp.js';
 import type {
   LLMCallOptions,
   LLMEvent,
   LLMEventSink,
+  LLMInstanceLifecycle,
   LLMResponse,
   RecoveryFailureInput,
 } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -126,13 +129,14 @@ function createOwner(
   primary: ProviderAdapter,
   fallbacks: ProviderAdapter[] = [],
   configExtra?: Partial<ProviderConnection>,
+  lifecycle: LLMInstanceLifecycle = { mode: 'ephemeral' },
 ) {
   const { sink, emitted } = createMockSink();
   const adapters = new Map<string, ProviderAdapter>(
     [primary, ...fallbacks].map(a => [a.name, a]),
   );
   const config = {
-    lifecycle: { mode: 'ephemeral' as const },
+    lifecycle,
     primary: providerConfig(primary.name, configExtra),
     fallbacks: fallbacks.map(f => providerConfig(f.name)),
     maxAttempts: 1,
@@ -143,6 +147,18 @@ function createOwner(
   };
   const owner = createLLMOrchestrator(config);
   return { owner, emitted, config };
+}
+
+async function createDurableOwner(
+  primary: ProviderAdapter,
+  fallbacks: ProviderAdapter[] = [],
+  configExtra?: Partial<ProviderConnection>,
+) {
+  const dir = await createTrackedTempDir('recovery-owner-durable-');
+  return createOwner(primary, fallbacks, configExtra, {
+    mode: 'durable',
+    fs: new NodeFileSystem({ baseDir: dir }),
+  });
 }
 
 /** 触发 0ms 定时器并冲刷 microtask 队列（probe 异步 continuation 落点）。 */
@@ -186,10 +202,10 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await owner.close();
   });
 
-  it('仅 fallback 恢复：调度器依次验证候选（primary 探针失败 → fallback 探针成功 → ready）', async () => {
+  it('仅 fallback 恢复：durable 调度器依次验证候选（primary 探针失败 → fallback 探针成功 → ready）', async () => {
     const p = createControllableAdapter('primary', 'fail');
     const f = createControllableAdapter('fallback', 'fail');
-    const { owner } = createOwner(p.adapter, [f.adapter]);
+    const { owner } = await createDurableOwner(p.adapter, [f.adapter]);
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();
     const d0 = owner.getSharedRecoveryDecision();
@@ -214,10 +230,10 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await owner.close();
   });
 
-  it('全失败仍有下一安排：探针按 owner 下界持续重排，decision 保持 at', async () => {
+  it('全失败仍有下一安排：durable 探针按 owner 下界持续重排，decision 保持 at', async () => {
     const p = createControllableAdapter('primary', 'fail');
     const f = createControllableAdapter('fallback', 'fail');
-    const { owner } = createOwner(p.adapter, [f.adapter]);
+    const { owner } = await createDurableOwner(p.adapter, [f.adapter]);
 
     await expect(owner.call(OPTIONS)).rejects.toThrow();
     const d0 = owner.getSharedRecoveryDecision();
@@ -556,13 +572,14 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await owner.close();
   });
 
-  it('同名异配置候选：探针失败记账落到被探候选身份，不覆盖同名首候选（Z-C1 回归）', async () => {
+  it('同名异配置候选：durable 探针失败记账落到被探候选身份，不覆盖同名首候选（Z-C1 回归）', async () => {
     const p = createControllableAdapter('same-provider', 'auth');  // permanent：cooldown 下界较晚
     const f = createControllableAdapter('same-provider', 'fail');  // transient：reset 下界更早，优先探测
     const { sink } = createMockSink();
     const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
+    const dir = await createTrackedTempDir('recovery-owner-durable-');
     const owner = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
+      lifecycle: { mode: 'durable', fs: new NodeFileSystem({ baseDir: dir }) },
       primary: providerConfig('same-provider', { model: 'model-a', authentication: { kind: 'api_key' as const, value: 'key-a', identity: 'key-a' } }),
       fallbacks: [providerConfig('same-provider', { model: 'model-b', authentication: { kind: 'api_key' as const, value: 'key-b', identity: 'key-b' } })],
       maxAttempts: 1,

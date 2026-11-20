@@ -67,12 +67,10 @@ export class LLMProbeController {
     this.mode = deps.mode;
     this.unsubscribeCommits = this.ledger.subscribeCommits(context => {
       if (context === 'noteFailure' && !this.closed) {
-        this.scheduleProbe(this.nextAutonomousProbeAt());
+        this.scheduleAutonomousProbe(this.nextAutonomousProbeAt());
       }
     });
-    if (this.mode === 'durable') {
-      this.scheduleProbe(this.nextAutonomousProbeAt());
-    }
+    this.scheduleAutonomousProbe(this.nextAutonomousProbeAt());
   }
 
   probe(): Promise<LLMProbeResult> {
@@ -104,7 +102,7 @@ export class LLMProbeController {
       const fireGeneration = this.runtime.configGeneration();
       const fireDecision = this.getSharedRecoveryDecision();
       if (fireDecision.kind === 'at' && fireDecision.nextProbeAt > Date.now()) {
-        this.scheduleProbe(fireDecision.nextProbeAt);
+        this.scheduleAutonomousProbe(fireDecision.nextProbeAt);
         return;
       }
       const mergedIntoInflight = this.inflightProbe !== null;
@@ -117,14 +115,14 @@ export class LLMProbeController {
               console.error('LLM ready listener failed', error); // console: listener 异常须 fail-soft 且保持可观察
             }
           }
-          this.scheduleProbe(this.nextAutonomousProbeAt());
+          this.scheduleAutonomousProbe(this.nextAutonomousProbeAt());
         } else if (current.kind === 'at') {
-          this.scheduleProbe(current.nextProbeAt);
+          this.scheduleAutonomousProbe(current.nextProbeAt);
         }
       }).catch(error => {
         this.events.emit({ type: 'instance_state_write_failed', context: 'probe_timer', reason: formatErr(error) });
         if (!this.closed && fireGeneration === this.runtime.configGeneration()) {
-          this.scheduleProbe(this.nextAutonomousProbeAt());
+          this.scheduleAutonomousProbe(this.nextAutonomousProbeAt());
         }
       });
     }, Math.max(0, effectiveAtMs - Date.now()));
@@ -154,9 +152,7 @@ export class LLMProbeController {
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = undefined;
     }
-    if (this.mode === 'durable') {
-      this.scheduleProbe(this.nextAutonomousProbeAt());
-    }
+    this.scheduleAutonomousProbe(this.nextAutonomousProbeAt());
   }
 
   close(): Promise<void> {
@@ -178,6 +174,11 @@ export class LLMProbeController {
 
   private assertOpen(): void {
     if (this.closed) throw new LLMOrchestratorClosedError();
+  }
+
+  private scheduleAutonomousProbe(atMs: number): void {
+    if (this.mode !== 'durable') return;
+    this.scheduleProbe(atMs);
   }
 
   private nextAutonomousProbeAt(): number {

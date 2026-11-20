@@ -32,6 +32,16 @@ describe('Phase2064 LLM orchestrator internal dependency boundaries', () => {
     expect(read('recovery-ledger.ts')).toMatch(/\bstore\.commit\(/);
   });
 
+  it('routes every autonomous probe schedule through the narrow durable lifecycle gate', () => {
+    const source = read('probe-controller.ts');
+    expect(source).toContain("mode: LLMInstanceLifecycle['mode'];");
+    expect(source).toMatch(
+      /private scheduleAutonomousProbe\(atMs: number\): void \{\s*if \(this\.mode !== 'durable'\) return;\s*this\.scheduleProbe\(atMs\);/,
+    );
+    expect(source.match(/this\.scheduleProbe\(/g)).toHaveLength(1);
+    expect(source).not.toMatch(/\bLLMOrchestratorConfig\b|\bFileSystem\b|\bCLI\b/);
+  });
+
   it('Facade assembles and delegates without provider/recovery projections or probe algorithm', () => {
     const facade = read('orchestrator.ts');
     expect(facade).toMatch(/new LLMProbeController\(/);

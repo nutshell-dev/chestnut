@@ -13,8 +13,8 @@ import { legacyTestProviderFactory } from '../helpers/llm-provider.js';
  * 覆盖：
  * 1. 全候选 transient 故障：waiting 事实的 nextProbeAt 来自 owner 决定；gate 未就绪
  *    时不唤醒（证明 gate 非恒真）；探针到点验证成功 → ready 发布 → ATS 移动任务恰一次；
- *    业务等待事实只触发一次 scheduleProbe；owner 后台持续 probe 的自主调度不计入。
- * 2. 全候选 permanent：按 cooldown 持续 probe；候选恢复后 gate 就绪 → 恢复路径可移动。
+ *    业务等待事实只触发一次 scheduleProbe；ephemeral 显式一次性 probe 后不自主 continuation。
+ * 2. 全候选 permanent：按 cooldown 执行显式一次性 probe；候选恢复后 gate 就绪 → 恢复路径可移动。
  * 3. 同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动
  *    （Z-C1 回归：显示名不是身份，同名不同 model/key 是两个独立候选）。
  *
@@ -287,7 +287,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     const persisted = JSON.parse(fileMap.get(waitPath)!) as Record<string, unknown>;
     expect(persisted.nextProbeAt).toBe(t0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     expect(persisted.recordedAt).toBe(t0);
-    // 业务等待事实只调度一次；owner 的自主持续 probe 另有调度，不混入此计数。
+    // 业务等待事实只调度一次；ephemeral failure commit 不创建自主排程。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
     expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS }));
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
@@ -317,9 +317,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 成功唤醒不产生新的业务等待事实；后台自主复检不属于业务等待调度。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(POST_RECOVERY_OBSERVATION_MS);
-    // primary 已恢复；ready 后的健康复检使用 5 分钟 TTL，本窗口不重复调用。
+    // ephemeral 显式一次性 probe 完成后不在 ready/at continuation 自主重排。
     expect(p.calls()).toBe(2);
-    expect(f.calls()).toBeGreaterThan(1);
+    expect(f.calls()).toBe(1);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
     await owner.close();
   });
