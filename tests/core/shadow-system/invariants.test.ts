@@ -31,6 +31,10 @@ import { createExecTool } from '../../../src/foundation/command-tool/exec.js';
 import { EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/exec.js';
 import type { Tool, ToolRegistry } from '../../../src/foundation/tools/types.js';
 
+const { mockRunSubagent } = vi.hoisted(() => ({
+  mockRunSubagent: vi.fn(),
+}));
+
 describe('shadow-signal-propagation', () => {
   /**
    * shadow signal propagation tests (phase 874)
@@ -39,10 +43,6 @@ describe('shadow-signal-propagation', () => {
    * - outer abort signal propagates to inner runSubagent (shadow-system/system.ts)
    * - pre-aborted signal boundary path
    */
-
-  const { mockRunSubagent } = vi.hoisted(() => ({
-    mockRunSubagent: vi.fn(),
-  }));
 
   describe('shadow signal propagation (phase 874)', () => {
     let tempDir: string;
