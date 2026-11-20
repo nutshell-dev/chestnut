@@ -192,7 +192,7 @@ export class Runtime {
   private canonicalManifest?: CanonicalToolManifest;
 
   /** Phase 1218 Step A: single active dialog mutation operation join handle */
-  private activeDialogOperation: Promise<unknown> | null = null;
+  protected activeDialogOperation: Promise<unknown> | null = null;
   /** Phase 1218 Step A: stop gate — once true, new public operations fail-fast */
   private stopping = false;
 
@@ -275,8 +275,8 @@ export class Runtime {
   protected get toolRegistryForwarding(): ToolRegistry {
     return this._toolRegistryImpl;
   }
-  private taskSystem!: AsyncTaskRuntimeLifecycle;
-  private contractManager!: ContractRuntimeLifecycle;
+  protected taskSystem!: AsyncTaskRuntimeLifecycle;
+  protected contractManager!: ContractRuntimeLifecycle;
   /**
    * phase 1860 (RT-D5)：stop() 链上 contract close 的 typed outcome（失败证据不吞）。
    * Step F 组装 RuntimeStopOutcome 时消费；close 自身异常经 catch 转为 outcome（failures 承载）。

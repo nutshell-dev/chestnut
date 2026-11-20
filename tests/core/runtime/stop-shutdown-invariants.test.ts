@@ -18,6 +18,52 @@ import { createTestRuntime, createMockLLMConfig, createMockLLM } from '../_runti
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/index.js';
+import type { RuntimeOptions } from '../../../src/core/runtime/types.js';
+
+type RuntimeDependencies = RuntimeOptions['dependencies'];
+
+/** Type-checked access to the Runtime fields required by the stop scenarios. */
+class StopTestRuntime extends Runtime {
+  testSetInitialized(): void {
+    this.initialized = true;
+  }
+
+  testSetActiveDialogOperation(operation: Promise<unknown> | null): void {
+    this.activeDialogOperation = operation;
+  }
+
+  testSetTaskSystem(taskSystem: RuntimeDependencies['taskSystem']): void {
+    this.taskSystem = taskSystem;
+  }
+
+  testGetTaskSystem(): RuntimeDependencies['taskSystem'] {
+    return this.taskSystem;
+  }
+
+  testSetContractManager(contractManager: RuntimeDependencies['contractManager']): void {
+    this.contractManager = contractManager;
+  }
+
+  testGetContractManager(): RuntimeDependencies['contractManager'] {
+    return this.contractManager;
+  }
+
+  testSetLLM(llm: RuntimeDependencies['llm']): void {
+    this.llm = llm;
+  }
+
+  testGetLLM(): RuntimeDependencies['llm'] {
+    return this.llm;
+  }
+
+  testSetSessionManager(sessionManager: RuntimeDependencies['sessionManager']): void {
+    this.sessionManager = sessionManager;
+  }
+
+  testSetAuditWriter(auditWriter: RuntimeDependencies['auditWriter']): void {
+    this.auditWriter = auditWriter;
+  }
+}
 
 describe('stop-flush-barrier', () => {
   /**
@@ -44,9 +90,9 @@ describe('stop-flush-barrier', () => {
       vi.restoreAllMocks();
     });
 
-    function makeRuntime(mockDialogStore: DialogStore): Runtime {
+    function makeRuntime(mockDialogStore: DialogStore): StopTestRuntime {
       const { audit } = makeAudit();
-      const runtime = new Runtime({
+      const runtime = new StopTestRuntime({
         clawId: 'test-claw',
         clawDir: '/tmp/test',
         llmConfig: {} as any,
@@ -74,18 +120,20 @@ describe('stop-flush-barrier', () => {
         },
       });
 
-      // Inject internal fields that initialize() would normally set
-      (runtime as any).taskSystem = {
+      // Inject internal fields that initialize() would normally set.
+      runtime.testSetTaskSystem({
         shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
-      };
-      (runtime as any).llm = {
+      } as RuntimeDependencies['taskSystem']);
+      runtime.testSetLLM({
         close: vi.fn().mockImplementation(async () => {
           llmCloseCalled = true;
         }),
-      };
-      (runtime as any).sessionManager = mockDialogStore;
+      } as RuntimeDependencies['llm']);
+      runtime.testSetSessionManager(mockDialogStore);
       // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
-      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) };
+      runtime.testSetContractManager({
+        close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }),
+      } as RuntimeDependencies['contractManager']);
 
       return runtime;
     }
@@ -98,16 +146,16 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
+      runtime.testSetInitialized();
 
-      const taskSystemShutdown = vi.spyOn((runtime as any).taskSystem, 'shutdown');
-      const contractClose = vi.spyOn((runtime as any).contractManager, 'close');
-      const llmClose = vi.spyOn((runtime as any).llm, 'close');
+      const taskSystemShutdown = vi.spyOn(runtime.testGetTaskSystem(), 'shutdown');
+      const contractClose = vi.spyOn(runtime.testGetContractManager(), 'close');
+      const llmClose = vi.spyOn(runtime.testGetLLM(), 'close');
 
       // Simulate an active operation still in flight when stop() is called.
-      (runtime as any).activeDialogOperation = new Promise<void>((resolve) => {
+      runtime.testSetActiveDialogOperation(new Promise<void>((resolve) => {
         setTimeout(() => { operationResolved = true; resolve(); }, MOCK_OPERATION_SETTLE_MS);
-      });
+      }));
 
       await runtime.stop();
 
@@ -128,10 +176,10 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
+      runtime.testSetInitialized();
 
       // Simulate a rejecting active operation.
-      (runtime as any).activeDialogOperation = Promise.reject(new Error('disk full'));
+      runtime.testSetActiveDialogOperation(Promise.reject(new Error('disk full')));
 
       const outcome = await runtime.stop();
       expect(llmCloseCalled).toBe(true);
@@ -150,7 +198,7 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
+      runtime.testSetInitialized();
 
       const first = await runtime.stop();
       const second = await runtime.stop();
@@ -167,11 +215,11 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
-      (runtime as any).taskSystem = {
+      runtime.testSetInitialized();
+      runtime.testSetTaskSystem({
         shutdown: vi.fn().mockResolvedValue({ kind: 'timed_out', pending: ['claw:task-1'], terminal: [] }),
         abort: vi.fn(),
-      };
+      } as RuntimeDependencies['taskSystem']);
 
       const outcome = await runtime.stop();
       expect(outcome.kind).toBe('timed_out');
@@ -188,10 +236,10 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
-      (runtime as any).contractManager = {
+      runtime.testSetInitialized();
+      runtime.testSetContractManager({
         close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: ['auditor boom'] }),
-      };
+      } as RuntimeDependencies['contractManager']);
 
       const outcome = await runtime.stop();
       expect(outcome.contractClose.failures).toContain('auditor boom');
@@ -205,10 +253,10 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
-      (runtime as any).contractManager = {
+      runtime.testSetInitialized();
+      runtime.testSetContractManager({
         close: vi.fn().mockRejectedValue(new Error('close crashed')),
-      };
+      } as RuntimeDependencies['contractManager']);
 
       const outcome = await runtime.stop();
       expect(outcome.contractClose.alreadyClosed).toBe(false);
@@ -223,8 +271,10 @@ describe('stop-flush-barrier', () => {
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
-      (runtime as any).initialized = true;
-      (runtime as any).llm = { close: vi.fn().mockRejectedValue(new Error('llm boom')) };
+      runtime.testSetInitialized();
+      runtime.testSetLLM({
+        close: vi.fn().mockRejectedValue(new Error('llm boom')),
+      } as RuntimeDependencies['llm']);
 
       await expect(runtime.stop()).rejects.toThrow('llm boom');
       const outcome = await runtime.stop();
@@ -376,7 +426,7 @@ describe('shutdown-timeout', () => {
     function makeRuntime(deps: {
       shutdownImpl?: () => Promise<void>;
       abortImpl?: () => void;
-    } = {}): { runtime: Runtime; auditEvents: Array<{ type: string; args: string[] }> } {
+    } = {}): { runtime: StopTestRuntime; auditEvents: Array<{ type: string; args: string[] }> } {
       const auditEvents: Array<{ type: string; args: string[] }> = [];
       const auditWriter = {
         write: (type: string, ...args: string[]) => {
@@ -393,7 +443,7 @@ describe('shutdown-timeout', () => {
         archive: vi.fn().mockResolvedValue(undefined),
       } as unknown as DialogStore;
 
-      const runtime = new Runtime({
+      const runtime = new StopTestRuntime({
         clawId: 'test-claw',
         clawDir: '/tmp/test',
         llmConfig: {} as any,
@@ -418,16 +468,18 @@ describe('shutdown-timeout', () => {
         },
       });
 
-      // Inject internal fields that initialize() would normally set
-      (runtime as any).taskSystem = {
+      // Inject internal fields that initialize() would normally set.
+      runtime.testSetTaskSystem({
         shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
         abort: deps.abortImpl ?? vi.fn(),
-      };
-      (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
-      (runtime as any).sessionManager = mockDialogStore;
-      (runtime as any).auditWriter = auditWriter;
+      } as RuntimeDependencies['taskSystem']);
+      runtime.testSetLLM({ close: vi.fn().mockResolvedValue(undefined) } as RuntimeDependencies['llm']);
+      runtime.testSetSessionManager(mockDialogStore);
+      runtime.testSetAuditWriter(auditWriter as RuntimeDependencies['auditWriter']);
       // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
-      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) };
+      runtime.testSetContractManager({
+        close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }),
+      } as RuntimeDependencies['contractManager']);
 
       return { runtime, auditEvents };
     }
@@ -437,10 +489,10 @@ describe('shutdown-timeout', () => {
 
       await runtime.stop();
 
-      const taskSystem = (runtime as any).taskSystem;
+      const taskSystem = runtime.testGetTaskSystem();
       expect(taskSystem.shutdown).toHaveBeenCalledWith(RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS);
       expect(taskSystem.abort).not.toHaveBeenCalled();
-      expect((runtime as any).llm.close).toHaveBeenCalled();
+      expect(runtime.testGetLLM().close).toHaveBeenCalled();
     });
 
     it('shutdown timeout hit — abort path + TASK_SHUTDOWN_TIMEOUT_HIT audit', async () => {
@@ -457,7 +509,7 @@ describe('shutdown-timeout', () => {
         type: TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
         args: expect.arrayContaining([expect.stringContaining(`timeout_ms=${RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS}`)]),
       });
-      expect((runtime as any).llm.close).toHaveBeenCalled();
+      expect(runtime.testGetLLM().close).toHaveBeenCalled();
     });
 
     it('llm.close is called after shutdown even when timeout occurs', async () => {
@@ -466,10 +518,10 @@ describe('shutdown-timeout', () => {
 
       await runtime.stop();
 
-      const taskSystem = (runtime as any).taskSystem;
-      const llmClose = (runtime as any).llm.close;
+      const taskSystem = runtime.testGetTaskSystem();
+      const llmClose = runtime.testGetLLM().close;
 
-      const shutdownCallOrder = taskSystem.shutdown.mock.invocationCallOrder[0];
+      const shutdownCallOrder = vi.mocked(taskSystem.shutdown).mock.invocationCallOrder[0];
       const llmCloseCallOrder = llmClose.mock.invocationCallOrder[0];
       expect(llmCloseCallOrder).toBeGreaterThan(shutdownCallOrder);
       expect(llmClose).toHaveBeenCalled();
@@ -505,8 +557,8 @@ describe('regime-switch-archive-fail', () => {
       } as unknown as DialogStore;
     });
 
-    function makeRuntime(): Runtime {
-      return new Runtime({
+    function makeRuntime(): StopTestRuntime {
+      return new StopTestRuntime({
         clawId: 'test-claw',
         clawDir: '/tmp/test',
         llmConfig: {} as any,
@@ -544,13 +596,13 @@ describe('regime-switch-archive-fail', () => {
     it('archive throw 时应 audit REGIME_SWITCH_HARD_FAIL 并 throw upstream', async () => {
       const runtime = makeRuntime();
       // Inject internal fields so _checkRegimeSwitch can run
-      (runtime as any).initialized = true;
-      (runtime as any).sessionManager = mockDialogStore;
+      runtime.testSetInitialized();
+      runtime.testSetSessionManager(mockDialogStore);
       (runtime as any).toolRegistry = (runtime as any).options.dependencies.toolRegistry;
-      (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
-      (runtime as any).taskSystem = {
+      runtime.testSetLLM({ close: vi.fn().mockResolvedValue(undefined) } as RuntimeDependencies['llm']);
+      runtime.testSetTaskSystem({
         shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
-      };
+      } as RuntimeDependencies['taskSystem']);
 
       mockDialogStore.archive.mockRejectedValue(new Error('disk full'));
 
@@ -571,13 +623,13 @@ describe('regime-switch-archive-fail', () => {
 
     it('archive 成功后不应 audit REGIME_SWITCH_HARD_FAIL', async () => {
       const runtime = makeRuntime();
-      (runtime as any).initialized = true;
-      (runtime as any).sessionManager = mockDialogStore;
+      runtime.testSetInitialized();
+      runtime.testSetSessionManager(mockDialogStore);
       (runtime as any).toolRegistry = (runtime as any).options.dependencies.toolRegistry;
-      (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
-      (runtime as any).taskSystem = {
+      runtime.testSetLLM({ close: vi.fn().mockResolvedValue(undefined) } as RuntimeDependencies['llm']);
+      runtime.testSetTaskSystem({
         shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
-      };
+      } as RuntimeDependencies['taskSystem']);
       (runtime as any).lastIdentityHash = 'old-hash';
 
       mockDialogStore.archive.mockResolvedValue(undefined);
