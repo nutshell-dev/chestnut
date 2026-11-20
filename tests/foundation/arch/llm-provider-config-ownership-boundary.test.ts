@@ -12,11 +12,11 @@ const formatMap = read('../../../src/cli/provider-format-map.ts');
 const setupWorkflow = read('../../../src/core/llm-configuration/setup-workflow.ts');
 const firstRunSetup = read('../../../src/cli/first-run-setup.ts');
 const configCommand = read('../../../src/cli/commands/config.ts');
-const cliConsumers = [
-  '../../../src/cli/llm-connection-check.ts',
-  '../../../src/cli/commands/config.ts',
+const explicitFormatConsumers = [
+  '../../../src/cli/llm-config-editor.ts',
   '../../../src/cli/first-run-setup.ts',
 ].map(read);
+const legacyReconfigure = read('../../../src/cli/llm-connection-check.ts');
 
 describe('LLM provider config ownership boundary', () => {
   it('moves schema, config type, and adapter to the L1 public barrel only', () => {
@@ -56,12 +56,15 @@ describe('LLM provider config ownership boundary', () => {
     expect(setupWorkflow.match(/commitExplicitProvider\(/g)).toHaveLength(1);
   });
 
-  it('keeps the numeric format map as one CLI-owned source', () => {
-    expect(formatMap).toMatch(/export const FORMAT_MAP: Record<string, string> = \{\s*'1': 'custom-anthropic',\s*'2': 'custom-openai',\s*'3': 'custom-gemini',\s*\};/);
+  it('keeps explicit and legacy numeric format mappings in their respective owners', () => {
+    expect(formatMap).toMatch(/export const FORMAT_MAP: Record<string, 'anthropic' \| 'openai' \| 'gemini'> = \{\s*'1': 'anthropic',\s*'2': 'openai',\s*'3': 'gemini',\s*\};/);
     expect(providerBarrel).not.toMatch(/\bFORMAT_MAP\b/);
     expect(orchestratorBarrel).not.toMatch(/\bFORMAT_MAP\b/);
-    for (const consumer of cliConsumers) {
+    for (const consumer of explicitFormatConsumers) {
       expect(consumer).toMatch(/import\s*\{\s*FORMAT_MAP\s*\}\s*from\s*'[^']*provider-format-map\.js';/);
     }
+    expect(configCommand).not.toMatch(/\bFORMAT_MAP\b/);
+    expect(legacyReconfigure).not.toMatch(/import\s*\{\s*FORMAT_MAP\s*\}/);
+    expect(legacyReconfigure).toMatch(/LEGACY_CUSTOM_FORMAT_MAP[\s\S]*'1': 'custom-anthropic',[\s\S]*'2': 'custom-openai',[\s\S]*'3': 'custom-gemini'/);
   });
 });
