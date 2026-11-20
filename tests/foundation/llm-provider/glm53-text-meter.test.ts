@@ -40,29 +40,25 @@ function referenceText(text: string): number {
   return text ? referenceEncoder.encode(text, { add_special_tokens: false }).ids.length : 0;
 }
 
-function referenceMessage(content: string): number {
-  return 1 + referenceText(content) + referenceText('\n');
-}
-
 function estimatedTokens(input: CompleteInput): number {
   const result = meter.measure(input);
   expect(result).toMatchObject({
-    kind: 'estimated', method: 'glm5.3-text', reason: 'context_trim_only:glm53_text_projection',
+    kind: 'estimated', method: 'glm5.3-text', reason: 'context_trim_only:glm53_text',
   });
   return result.kind === 'estimated' ? result.tokens : -1;
 }
 
 describe('Glm53 local text meter', () => {
   it.each(['hello world', '中文与 English', '😀👨\u200d👩\u200d👧\u200d👦', 'line 1\nline 2', ''])(
-    'estimates stable mixed text %j with segmented control tokens',
+    'estimates stable mixed text %j without chat markup',
     content => {
       const input = { messages: [{ role: 'user' as const, content }] };
-      expect(estimatedTokens(input)).toBe(2 + referenceMessage(content));
-      expect(estimatedTokens(input)).toBe(2 + referenceMessage(content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
     },
   );
 
-  it('preserves system/user/assistant order and additive message boundaries', () => {
+  it('sums system and message content without role or control-token overhead', () => {
     const combined = {
       system: 'rules', messages: [
         { role: 'user' as const, content: 'question' },
@@ -70,11 +66,9 @@ describe('Glm53 local text meter', () => {
       ],
     };
     expect(estimatedTokens(combined)).toBe(
-      2 + referenceMessage('rules')
-      + referenceMessage('question')
-      + referenceMessage('answer'),
+      referenceText('rules') + referenceText('question') + referenceText('answer'),
     );
-    expect(estimatedTokens({ messages: [] })).toBe(2);
+    expect(estimatedTokens({ messages: [] })).toBe(0);
   });
 
   it.each([

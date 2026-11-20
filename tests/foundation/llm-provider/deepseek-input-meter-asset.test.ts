@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 describe('DeepSeek V4.1 tokenizer assets and cache', () => {
-  it('returns unavailable with the asset error and never reuses a count', async () => {
+  it('returns stable unavailable for asset failure and never reuses a count', async () => {
     tokenizerAsset.fail = true;
     const meter = await createLLMProvider(config).prepareInputMeter();
     const input = { messages: [{ role: 'user' as const, content: 'hello' }] };
@@ -45,7 +45,7 @@ describe('DeepSeek V4.1 tokenizer assets and cache', () => {
 
     expect(first).toEqual({
       kind: 'unavailable',
-      reason: expect.stringContaining('tokenizer asset unavailable'),
+      reason: 'deepseek_v41_text_estimate_unavailable:asset_initialization_failed',
     });
     expect(second).toEqual(first);
     expect(first).not.toMatchObject({ tokens: 0 });
@@ -56,7 +56,7 @@ describe('DeepSeek V4.1 tokenizer assets and cache', () => {
     const first = 'a'.repeat(9_000_000);
     const second = 'b'.repeat(9_000_000);
     const measure = (content: string): void => {
-      expect(meter.measure({ messages: [{ role: 'user', content }] }).kind).toBe('counted');
+      expect(meter.measure({ messages: [{ role: 'user', content }] }).kind).toBe('estimated');
     };
 
     measure(first);

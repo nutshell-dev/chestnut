@@ -71,6 +71,10 @@ describe('input measurement observer', () => {
     await adapter.call({ messages: [{ role: 'user', content: 'hello' }], onInputMeasurement: fact => observations.push(fact) });
     expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
     expect(observations[0]!.requestId).toBe(observations[1]!.requestId);
+    expect(observations[0]).toMatchObject({
+      measurement: { kind: 'estimated', method: 'legacy-cl100k' },
+    });
+    expect(observations[0]).not.toHaveProperty('usage');
     expect(observations[1]).toMatchObject({
       kind: 'completed',
       usage: {

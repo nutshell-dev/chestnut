@@ -26,7 +26,7 @@ function meter(model: string, tokens: number): ModelInputMeter {
   return {
     descriptor: descriptor(model),
     capability: { kind: 'complete_only' },
-    measure: () => ({ kind: 'counted', tokens, method: 'deepseek-v41-template' }),
+    measure: () => ({ kind: 'estimated', tokens, method: 'deepseek-v41-text', reason: 'test' }),
   };
 }
 

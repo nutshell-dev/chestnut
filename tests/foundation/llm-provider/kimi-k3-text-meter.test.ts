@@ -40,33 +40,21 @@ function referenceText(text: string): number {
   return text ? referenceEncoder.encode(text, [], [...CONTROLS]).length : 0;
 }
 
-function referenceMessage(role: 'system' | 'user' | 'assistant', content: string): number {
-  return 1 // open
-    + referenceText('message')
-    + referenceText(' role') + referenceText('="') + referenceText(role) + referenceText('"')
-    + 1 // sep
-    + referenceText(content)
-    + 1 // close
-    + referenceText('message')
-    + 1 // sep
-    + 1; // end_of_msg
-}
-
 function estimatedTokens(input: CompleteInput): number {
   const result = meter.measure(input);
   expect(result).toMatchObject({
-    kind: 'estimated', method: 'kimi-k3-text', reason: 'context_trim_only:kimi_k3_text_projection',
+    kind: 'estimated', method: 'kimi-k3-text', reason: 'context_trim_only:kimi_k3_text',
   });
   return result.kind === 'estimated' ? result.tokens : -1;
 }
 
 describe('Kimi K3 local text meter', () => {
   it.each(['hello world', '中文与 English', '😀👨\u200d👩\u200d👧\u200d👦', 'line 1\nline 2', ''])(
-    'estimates stable mixed text %j with segmented control tokens',
+    'estimates stable mixed text %j without chat markup',
     content => {
       const input = { messages: [{ role: 'user' as const, content }] };
-      expect(estimatedTokens(input)).toBe(referenceMessage('user', content));
-      expect(estimatedTokens(input)).toBe(referenceMessage('user', content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
     },
   );
 
@@ -79,7 +67,7 @@ describe('Kimi K3 local text meter', () => {
     expect(kimiK3Bpe.bpe_ranks.split(' ').length - 2).toBe(provenance.source.mergeableRanks);
   });
 
-  it('preserves system/user/assistant order and additive message boundaries', () => {
+  it('sums system and message content without role or control-token overhead', () => {
     const combined = {
       system: 'rules', messages: [
         { role: 'user' as const, content: 'question' },
@@ -87,9 +75,7 @@ describe('Kimi K3 local text meter', () => {
       ],
     };
     expect(estimatedTokens(combined)).toBe(
-      referenceMessage('system', 'rules')
-      + referenceMessage('user', 'question')
-      + referenceMessage('assistant', 'answer'),
+      referenceText('rules') + referenceText('question') + referenceText('answer'),
     );
     expect(estimatedTokens({ messages: [] })).toBe(0);
   });

@@ -19,7 +19,7 @@ export interface CompleteInput {
 }
 
 export interface MeterQualification {
-  kind: 'counted' | 'estimated' | 'unavailable';
+  kind: 'estimated' | 'unavailable';
   method: string;
   projection: string;
   assetRevision: string;
@@ -54,9 +54,10 @@ export interface InputMeterDescriptor {
   }>;
 }
 
+/** `counted` is read-only compatibility for historical audit events, never a fresh meter result. */
 export type InputMeasurement =
   | { kind: 'counted'; tokens: number; method: 'deepseek-v41-template' }
-  | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k' | 'kimi-k3-text' | 'qwen3.8-text' | 'glm5.3-text'; reason: string }
+  | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k' | 'deepseek-v41-text' | 'kimi-k3-text' | 'qwen3.8-text' | 'glm5.3-text'; reason: string }
   | { kind: 'unavailable'; reason: string };
 
 export interface MessageAdditiveInputCounter {
@@ -74,6 +75,4 @@ export interface ModelInputMeter {
   readonly descriptor: Readonly<InputMeterDescriptor>;
   readonly capability: InputMeasurementCapability;
   measure(input: CompleteInput): InputMeasurement;
-  /** Final provider payload when the meter owns a concrete protocol projection. */
-  project?(input: CompleteInput): unknown;
 }

@@ -239,9 +239,9 @@ describe('Phase 2149 proactive complete-input trigger', () => {
       status: 'target_reached', before: 1_500, after: 100, newMessages: [], archived: true,
     });
     const measureComplete = vi.fn(() => ({
-      kind: 'counted' as const,
+      kind: 'estimated' as const,
       tokens: 1_500,
-      method: 'deepseek-v41-template' as const,
+      method: 'deepseek-v41-text' as const, reason: 'test',
     }));
 
     const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000, measureComplete }));
@@ -260,7 +260,7 @@ describe('Phase 2149 proactive complete-input trigger', () => {
     const result = await maybeTrimProactive(makeInputs({
       contextWindow: 2_000,
       measureComplete: () => ({
-        kind: 'counted', tokens: 1_499, method: 'deepseek-v41-template',
+        kind: 'estimated', tokens: 1_499, method: 'deepseek-v41-text', reason: 'test',
       }),
     }));
 

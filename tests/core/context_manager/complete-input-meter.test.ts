@@ -27,8 +27,8 @@ describe('complete input measurement', () => {
       audit,
       measureComplete: messages => {
         calls.push([...messages]);
-        return { kind: 'counted', tokens: messages.some(message => Array.isArray(message.content)
-          && message.content.some(block => block.type === 'text')) ? 100 : 5, method: 'deepseek-v41-template' };
+        return { kind: 'estimated', tokens: messages.some(message => Array.isArray(message.content)
+          && message.content.some(block => block.type === 'text')) ? 100 : 5, method: 'deepseek-v41-text', reason: 'test' };
       },
     });
     expect(result.outcome.after).toBe(5);
@@ -76,9 +76,9 @@ it('Phase 2149: summary candidate measurement unavailable remains a typed error'
     measureComplete: candidate => candidate.some(message => message.systemSubtype === 'context_trim_summary')
       ? { kind: 'unavailable', reason: 'summary_measurement_failed' }
       : {
-          kind: 'counted',
+          kind: 'estimated',
           tokens: candidate.some(message => typeof message.content === 'string' && message.content.includes('<...>')) ? 10 : 100,
-          method: 'deepseek-v41-template',
+          method: 'deepseek-v41-text', reason: 'test',
         },
   })).toThrowError(ContextInputMeasurementError);
 });

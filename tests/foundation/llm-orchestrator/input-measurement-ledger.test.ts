@@ -136,6 +136,20 @@ describe('InputMeasurementLedger', () => {
     expect(second).toEqual(first);
   });
 
+  it('preserves historical counted audit facts without rewriting their kind or method', () => {
+    const historical = prepared('legacy-counted');
+    if (historical.kind !== 'prepared') throw new Error('prepared fixture required');
+    historical.measurement = { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' };
+    const state = InputMeasurementLedger.replayJsonl(
+      `${JSON.stringify(event(historical))}\n${JSON.stringify(event(terminal('legacy-counted')))}`,
+    );
+
+    expect(state.diagnostics).toEqual([]);
+    expect(state.requests.get(key('legacy-counted'))?.prepared).toMatchObject({
+      measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+    });
+  });
+
   it('marks unknown schemas and malformed hashes corrupt instead of completed', () => {
     const unknownSchema = { ...event(terminal('schema')), schemaVersion: 2 };
     const badHash = event(terminal('hash', 'completed', { ...artifact('hash'), contentHash: 'bad' }));

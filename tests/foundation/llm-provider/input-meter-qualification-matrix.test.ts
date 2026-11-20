@@ -4,35 +4,34 @@ import { createLLMProvider } from '../../../src/foundation/llm-provider/provider
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import type { CatalogResolution } from '../../../src/foundation/llm-provider/catalog-strategy.js';
 import {
-  DEEPSEEK_PROJECTION_REVISION,
   DEEPSEEK_V41_ASSET_REVISION,
-} from '../../../src/foundation/llm-provider/deepseek-input-projection.js';
-import {
-  createInputMeter,
-  isDeepseekV41MeterProfile,
-  qualifyMeter,
-} from '../../../src/foundation/llm-provider/input-meter.js';
+  DEEPSEEK_V41_TEXT_METHOD,
+} from '../../../src/foundation/llm-provider/deepseek-v41-meter.js';
+import { DEEPSEEK_V41_PROFILE_ID } from '../../../src/foundation/llm-provider/deepseek-input-profile.js';
+import { createInputMeter, qualifyMeter } from '../../../src/foundation/llm-provider/input-meter.js';
 import {
   KIMI_K3_TEXT_ASSET_REVISION,
-  KIMI_K3_TEXT_PROJECTION_REVISION,
+  KIMI_K3_TEXT_PROFILE_ID,
 } from '../../../src/foundation/llm-provider/kimi-k3-text-meter.js';
 import {
   GLM53_TEXT_ASSET_REVISION,
   GLM53_TEXT_PROFILE_ID,
-  GLM53_TEXT_PROJECTION_REVISION,
 } from '../../../src/foundation/llm-provider/glm53-text-meter.js';
 import {
   QWEN3_8_TEXT_ASSET_REVISION,
   QWEN3_8_TEXT_PROFILE_ID,
-  QWEN3_8_TEXT_PROJECTION_REVISION,
 } from '../../../src/foundation/llm-provider/qwen-text-meter.js';
+import {
+  normalizeModelFamilyName,
+  resolveModelFamily,
+} from '../../../src/foundation/llm-provider/model-family-resolver.js';
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
 import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';
 
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 const config: ProviderConfig = {
-  name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
-  baseUrl: 'https://api.deepseek.com/anthropic', catalogProvider: 'deepseek',
+  name: 'gateway', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
+  baseUrl: 'https://gateway.invalid/anthropic', catalogProvider: 'deepseek',
   catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
 };
 
@@ -43,364 +42,144 @@ beforeAll(async () => {
   ({ model, resolution } = resolvePiAiModel(await loadPiAiRuntime(), config));
 });
 
-describe('input meter qualification matrix', () => {
-  it('counts only the resolved canonical DeepSeek identity with pinned projection and asset evidence', async () => {
-    expect(model.id).toBe('deepseek-flash[1m]');
-    expect(resolution).toMatchObject({
-      kind: 'metadata_only', providerId: 'deepseek', modelId: 'deepseek-flash',
-      wire: { model: 'deepseek-flash[1m]', api: 'anthropic-messages' },
-    });
-    expect(isDeepseekV41MeterProfile(model, resolution)).toBe(true);
-    expect(qualifyMeter(resolution, model)).toEqual({
-      kind: 'counted',
-      method: 'deepseek-v41-template',
-      projection: DEEPSEEK_PROJECTION_REVISION,
-      assetRevision: DEEPSEEK_V41_ASSET_REVISION,
-      limits: { supportedTools: 'client' },
-    });
+function candidates(modelId: string): { model: typeof model; resolution: CatalogResolution } {
+  return {
+    model: { ...model, id: modelId },
+    resolution: { ...resolution, modelId, wire: { ...resolution.wire, model: modelId } },
+  };
+}
 
-    const canonical = resolvePiAiModel(await loadPiAiRuntime(), { ...config, model: 'deepseek-flash' });
-    expect(canonical.resolution.modelId).toBe('deepseek-flash');
-    expect(qualifyMeter(canonical.resolution, canonical.model).kind).toBe('counted');
-  });
+const FAMILIES = [
+  {
+    family: 'deepseek', model: 'deepseek-flash[1m]', profile: DEEPSEEK_V41_PROFILE_ID,
+    method: DEEPSEEK_V41_TEXT_METHOD, assetRevision: DEEPSEEK_V41_ASSET_REVISION,
+  },
+  {
+    family: 'kimi', model: 'kimi-k3', profile: KIMI_K3_TEXT_PROFILE_ID,
+    method: 'kimi-k3-text', assetRevision: KIMI_K3_TEXT_ASSET_REVISION,
+  },
+  {
+    family: 'qwen', model: 'qwen3.8-max', profile: QWEN3_8_TEXT_PROFILE_ID,
+    method: 'qwen3.8-text', assetRevision: QWEN3_8_TEXT_ASSET_REVISION,
+  },
+  {
+    family: 'glm', model: 'glm-5.3', profile: GLM53_TEXT_PROFILE_ID,
+    method: 'glm5.3-text', assetRevision: GLM53_TEXT_ASSET_REVISION,
+  },
+] as const;
 
-  it('estimates only exact resolved Kimi K3 OpenAI identities with the local text profile', async () => {
-    const kimi = resolvePiAiModel(await loadPiAiRuntime(), {
-      name: 'moonshot', model: 'kimi-k3', apiFormat: 'openai',
-      baseUrl: 'https://api.moonshot.cn/v1', catalogProvider: 'moonshotai-cn',
-      catalogModel: 'kimi-k3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    expect(kimi.resolution).toMatchObject({
-      kind: 'metadata_only', providerId: 'moonshotai-cn', modelId: 'kimi-k3',
-      wire: { model: 'kimi-k3', api: 'openai-completions' },
-    });
-    expect(qualifyMeter(kimi.resolution, kimi.model)).toEqual({
-      kind: 'estimated',
-      method: 'kimi-k3-text',
-      projection: KIMI_K3_TEXT_PROJECTION_REVISION,
-      assetRevision: KIMI_K3_TEXT_ASSET_REVISION,
-      reason: 'context_trim_only:kimi_k3_text_projection',
-      limits: { supportedTools: 'none' },
-    });
-    expect(createInputMeter(config, kimi.model, {}, kimi.resolution).measure({
-      messages: [{ role: 'user', content: 'hello' }],
-    })).toMatchObject({ kind: 'estimated', method: 'kimi-k3-text' });
-
-    const global = resolvePiAiModel(await loadPiAiRuntime(), {
-      name: 'moonshot-global', model: 'kimi-k3', piAiProvider: 'moonshotai',
-      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    expect(global.resolution.kind).toBe('catalog_model');
-    expect(qualifyMeter(global.resolution, global.model).method).toBe('kimi-k3-text');
-  });
-
+describe('model-family input meter matrix', () => {
   it.each([
-    ['catalog revision', () => ({
-      candidateModel: model,
-      candidateResolution: { ...resolution, revision: 'pi-ai@0.0.0' },
-    })],
-    ['provider', () => ({
-      candidateModel: model,
-      candidateResolution: { ...resolution, providerId: 'fireworks' },
-    })],
-    ['canonical model', () => ({
-      candidateModel: model,
-      candidateResolution: { ...resolution, modelId: 'deepseek-v4-pro' },
-    })],
-    ['wire model', () => ({
-      candidateModel: model,
-      candidateResolution: {
-        ...resolution,
-        wire: { ...resolution.wire, model: 'deepseek-flash-latest' },
-      },
-    })],
-    ['protocol', () => ({
-      candidateModel: { ...model, api: 'openai-completions' } as typeof model,
-      candidateResolution: {
-        ...resolution,
-        wire: { ...resolution.wire, api: 'openai-completions' },
-      },
-    })],
-    ['resolution kind', () => ({
-      candidateModel: model,
-      candidateResolution: { ...resolution, kind: 'catalog_model' },
-    })],
-  ])('keeps a mismatched %s on the legacy estimated path', (_name, candidates) => {
-    const { candidateModel, candidateResolution } = candidates();
-    const qualification = qualifyMeter(candidateResolution as CatalogResolution, candidateModel);
-    expect(isDeepseekV41MeterProfile(candidateModel, candidateResolution as CatalogResolution)).toBe(false);
-    expect(qualification).toMatchObject({
-      kind: 'estimated',
-      method: 'legacy-cl100k',
-      projection: 'estimate-only:no-final-wire-projection',
-      assetRevision: 'js-tiktoken:cl100k_base',
-      reason: expect.stringMatching(/^unsupported_model_or_protocol:/),
+    ['deepseek-flash[1m]', 'deepseek'],
+    ['accounts/fireworks/models/DeepSeek-V4P1-Flash', 'deepseek'],
+    ['kimi-k3', 'kimi'],
+    ['k3', 'kimi'],
+    ['K3-256K', 'kimi'],
+    ['moonshot/kimi-k2.7-code', 'kimi'],
+    ['qwen3.8-max', 'qwen'],
+    ['Qwen4-Max', 'qwen'],
+    ['glm-4.7', 'glm'],
+    ['zai/glm-5.3-flash', 'glm'],
+    ['MiniMax-M2.5', undefined],
+    ['deepseekish', undefined],
+    ['k3s', undefined],
+    ['not-kimi-k3', undefined],
+  ])('resolves %s only from its normalized model name', (modelName, family) => {
+    expect(resolveModelFamily(modelName)).toBe(family);
+  });
+
+  it('normalizes case, gateway prefixes, and one trailing context suffix', () => {
+    expect(normalizeModelFamilyName('  Accounts/Example/DeepSeek-Flash[1M]  ')).toBe('deepseek-flash');
+    expect(normalizeModelFamilyName('k3-256k')).toBe('k3-256k');
+  });
+
+  it.each(FAMILIES)('keeps $family selection invariant across provider, API, wire, and base URL', family => {
+    const base = candidates(family.model);
+    const variants = [
+      base,
+      { model: { ...base.model, api: 'openai-completions' } as typeof model,
+        resolution: { ...base.resolution, providerId: 'qwen-token-plan', revision: 'other-revision' } },
+      { model: base.model,
+        resolution: { ...base.resolution, kind: 'custom', providerId: undefined, modelId: 'unrelated-catalog-model',
+          wire: { model: 'unrelated-wire-model', api: 'unrelated-wire-api' } } as CatalogResolution },
+    ];
+    const qualifications = variants.map(candidate => qualifyMeter(candidate.resolution, candidate.model));
+    for (const qualification of qualifications) {
+      expect(qualification).toEqual({
+        kind: 'estimated', method: family.method,
+        projection: 'estimate-only:no-final-wire-projection', assetRevision: family.assetRevision,
+        reason: `context_trim_only:${family.family === 'deepseek' ? 'deepseek_v41_text'
+          : family.family === 'kimi' ? 'kimi_k3_text' : family.family === 'qwen' ? 'qwen_text' : 'glm53_text'}`,
+        limits: { supportedTools: 'none' },
+      });
+    }
+    const meters = variants.map((candidate, index) => createInputMeter(
+      { ...config, name: `provider-${index}`, baseUrl: `https://provider-${index}.invalid` },
+      candidate.model, {}, candidate.resolution,
+    ));
+    expect(meters.map(meter => meter.descriptor.profile)).toEqual([family.profile, family.profile, family.profile]);
+    for (const meter of meters) {
+      expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
+        kind: 'estimated', method: family.method,
+      });
+    }
+  });
+
+  it('changes the selected family when only the model name changes', () => {
+    const methods = FAMILIES.map(family => {
+      const candidate = candidates(family.model);
+      return qualifyMeter(candidate.resolution, candidate.model).method;
+    });
+    expect(methods).toEqual(FAMILIES.map(family => family.method));
+    expect(new Set(methods).size).toBe(FAMILIES.length);
+  });
+
+  it('resolves Qwen gateway models by their own names instead of the gateway provider', () => {
+    const expected = new Map([
+      ['deepseek-v4-pro', 'deepseek-v41-text'],
+      ['glm-5.3', 'glm5.3-text'],
+      ['kimi-k2.7-code', 'kimi-k3-text'],
+      ['qwen3.8-max', 'qwen3.8-text'],
+      ['MiniMax-M2.5', 'legacy-cl100k'],
+    ]);
+    for (const [modelId, method] of expected) {
+      const candidate = candidates(modelId);
+      candidate.resolution = { ...candidate.resolution, providerId: 'qwen-token-plan' };
+      expect(qualifyMeter(candidate.resolution, candidate.model)).toMatchObject({ kind: 'estimated', method });
+    }
+  });
+
+  it('uses cl100k only for an unknown model family', () => {
+    const unknown = candidates('unknown-model');
+    expect(qualifyMeter(unknown.resolution, unknown.model)).toMatchObject({
+      kind: 'estimated', method: 'legacy-cl100k',
+      projection: 'estimate-only:no-final-wire-projection', assetRevision: 'js-tiktoken:cl100k_base',
       limits: { supportedTools: 'declared' },
     });
   });
 
-  it('does not let a same-name custom model inherit counted qualification', async () => {
-    const custom = resolvePiAiModel(await loadPiAiRuntime(), {
-      ...config,
-      catalogProvider: undefined,
-      catalogModel: undefined,
-      piAiProvider: undefined,
-    });
-    expect(qualifyMeter(custom.resolution, custom.model)).toMatchObject({
-      kind: 'estimated',
-      method: 'legacy-cl100k',
-      reason: expect.stringContaining('catalog=custom'),
-    });
+  it('keeps descriptor identity facts separate from tokenizer qualification', () => {
+    const first = createInputMeter(config, model, {}, resolution);
+    const otherResolution = { ...resolution, revision: 'other-revision', providerId: 'other-provider' };
+    const second = createInputMeter(config, model, {}, otherResolution);
+    expect(first.descriptor.profile).toBe(second.descriptor.profile);
+    expect(first.descriptor.method).toBe(second.descriptor.method);
+    expect(first.descriptor.revision).not.toBe(second.descriptor.revision);
   });
 
-  it('keeps same-name K3 provider, API, and unresolved identities on legacy estimated', async () => {
-    const kimi = resolvePiAiModel(await loadPiAiRuntime(), {
-      name: 'moonshot', model: 'kimi-k3', piAiProvider: 'moonshotai',
-      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    const candidates = [
-      {
-        candidateModel: kimi.model,
-        candidateResolution: { ...kimi.resolution, providerId: 'fireworks' },
-      },
-      {
-        candidateModel: { ...kimi.model, api: 'anthropic-messages' } as typeof kimi.model,
-        candidateResolution: {
-          ...kimi.resolution,
-          wire: { ...kimi.resolution.wire, api: 'anthropic-messages' },
-        },
-      },
-      {
-        candidateModel: kimi.model,
-        candidateResolution: { ...kimi.resolution, kind: 'custom', providerId: undefined },
-      },
-    ];
-    for (const { candidateModel, candidateResolution } of candidates) {
-      expect(qualifyMeter(candidateResolution as CatalogResolution, candidateModel)).toMatchObject({
-        kind: 'estimated', method: 'legacy-cl100k', limits: { supportedTools: 'declared' },
-      });
-    }
-  });
-
-  it('uses one estimated Qwen3.8 asset for canonical Qwen3.7, Qwen3.8, and Qwen4 families', async () => {
-    const qwenConfig: ProviderConfig = {
-      name: 'qwen', model: 'qwen3.8-max', apiFormat: 'openai',
-      baseUrl: 'https://coding.dashscope.aliyuncs.com/v1', catalogProvider: 'qwen-token-plan',
-      catalogModel: 'qwen3.8-max', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    };
-    const runtime = await loadPiAiRuntime();
-    const qwen38 = resolvePiAiModel(runtime, qwenConfig);
-    const qwen37 = resolvePiAiModel(runtime, {
-      ...qwenConfig,
-      model: 'qwen3.7-plus', catalogProvider: 'qwen-token-plan-cn', catalogModel: 'qwen3.7-plus',
-    });
-    const qwen4Resolution = {
-      ...qwen38.resolution,
-      modelId: 'qwen4-max',
-      wire: { ...qwen38.resolution.wire, model: 'qwen4-max' },
-    } as CatalogResolution;
-    const qwen4Model = { ...qwen38.model, id: 'qwen4-max' };
-
-    for (const candidate of [qwen38, qwen37]) {
-      expect(candidate.resolution).toMatchObject({
-        providerId: expect.stringMatching(/^qwen-token-plan/),
-        wire: { api: 'openai-completions' },
-      });
-    }
-    for (const [candidateModel, candidateResolution] of [
-      [qwen38.model, qwen38.resolution],
-      [qwen37.model, qwen37.resolution],
-      [qwen4Model, qwen4Resolution],
-    ] as const) {
-      expect(qualifyMeter(candidateResolution, candidateModel)).toEqual({
-        kind: 'estimated',
-        method: 'qwen3.8-text',
-        projection: QWEN3_8_TEXT_PROJECTION_REVISION,
-        assetRevision: QWEN3_8_TEXT_ASSET_REVISION,
-        reason: 'context_trim_only:qwen_text_projection',
-        limits: { supportedTools: 'none' },
-      });
-      const candidateMeter = createInputMeter(qwenConfig, candidateModel, {}, candidateResolution);
-      expect(candidateMeter.descriptor.profile).toBe(QWEN3_8_TEXT_PROFILE_ID);
-      expect(candidateMeter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
-        kind: 'estimated', method: 'qwen3.8-text',
-      });
-    }
-  });
-
-  it('keeps Qwen gateway other vendors and mismatched Qwen identities on legacy estimated', async () => {
-    const qwen = resolvePiAiModel(await loadPiAiRuntime(), {
-      name: 'qwen', model: 'qwen3.8-max', apiFormat: 'openai',
-      baseUrl: 'https://coding.dashscope.aliyuncs.com/v1', catalogProvider: 'qwen-token-plan',
-      catalogModel: 'qwen3.8-max', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    const otherVendors = ['deepseek-v4-pro', 'glm-5.3', 'kimi-k2.7-code', 'MiniMax-M2.5'];
-    const candidates = [
-      ...otherVendors.map(modelId => ({
-        candidateModel: { ...qwen.model, id: modelId },
-        candidateResolution: {
-          ...qwen.resolution, modelId, wire: { ...qwen.resolution.wire, model: modelId },
-        },
-      })),
-      {
-        candidateModel: qwen.model,
-        candidateResolution: { ...qwen.resolution, providerId: 'openrouter' },
-      },
-      {
-        candidateModel: qwen.model,
-        candidateResolution: { ...qwen.resolution, modelId: 'qwen3.6-flash' },
-      },
-      {
-        candidateModel: qwen.model,
-        candidateResolution: { ...qwen.resolution, revision: 'pi-ai@0.0.0' },
-      },
-      {
-        candidateModel: { ...qwen.model, api: 'anthropic-messages' } as typeof qwen.model,
-        candidateResolution: {
-          ...qwen.resolution,
-          wire: { ...qwen.resolution.wire, api: 'anthropic-messages' },
-        },
-      },
-      {
-        candidateModel: qwen.model,
-        candidateResolution: {
-          ...qwen.resolution,
-          wire: { ...qwen.resolution.wire, model: 'qwen3.8-flash' },
-        },
-      },
-      {
-        candidateModel: qwen.model,
-        candidateResolution: { ...qwen.resolution, kind: 'custom', providerId: undefined },
-      },
-    ];
-    for (const { candidateModel, candidateResolution } of candidates) {
-      expect(qualifyMeter(candidateResolution as CatalogResolution, candidateModel)).toMatchObject({
-        kind: 'estimated', method: 'legacy-cl100k', limits: { supportedTools: 'declared' },
-      });
-    }
-  });
-
-  it('uses one estimated GLM-5.3 asset for canonical Z.AI GLM families and wire formats', async () => {
-    const runtime = await loadPiAiRuntime();
-    const zaiConfig: ProviderConfig = {
-      name: 'zai', model: 'glm-5.3', apiFormat: 'anthropic',
-      baseUrl: 'https://api.z.ai/api/anthropic', catalogProvider: 'zai',
-      catalogModel: 'glm-5.3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    };
-    const zai53 = resolvePiAiModel(runtime, zaiConfig);
-    const coding53 = resolvePiAiModel(runtime, {
-      name: 'zai-coding', model: 'glm-5.3-flash', piAiProvider: 'zai-coding-cn',
-      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    const zai47 = resolvePiAiModel(runtime, {
-      name: 'zai-openai', model: 'glm-4.7', piAiProvider: 'zai',
-      apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-
-    expect(zai53.resolution.wire.api).toBe('anthropic-messages');
-    expect(coding53.resolution.wire.api).toBe('openai-completions');
-    for (const candidate of [zai53, coding53, zai47]) {
-      expect(qualifyMeter(candidate.resolution, candidate.model)).toEqual({
-        kind: 'estimated',
-        method: 'glm5.3-text',
-        projection: GLM53_TEXT_PROJECTION_REVISION,
-        assetRevision: GLM53_TEXT_ASSET_REVISION,
-        reason: 'context_trim_only:glm53_text_projection',
-        limits: { supportedTools: 'none' },
-      });
-      const candidateMeter = createInputMeter(zaiConfig, candidate.model, {}, candidate.resolution);
-      expect(candidateMeter.descriptor.profile).toBe(GLM53_TEXT_PROFILE_ID);
-      expect(candidateMeter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
-        kind: 'estimated', method: 'glm5.3-text',
-      });
-    }
-  });
-
-  it('keeps GLM gateways, V models, other vendors, and mismatched identities on legacy estimated', async () => {
-    const zai = resolvePiAiModel(await loadPiAiRuntime(), {
-      name: 'zai', model: 'glm-5.3', apiFormat: 'anthropic',
-      baseUrl: 'https://api.z.ai/api/anthropic', catalogProvider: 'zai',
-      catalogModel: 'glm-5.3', apiKey: 'offline-only', timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
-    });
-    const consistentModel = (modelId: string) => ({
-      candidateModel: { ...zai.model, id: modelId },
-      candidateResolution: {
-        ...zai.resolution, modelId, wire: { ...zai.resolution.wire, model: modelId },
-      },
-    });
-    const candidates = [
-      ...['openrouter', 'qwen-token-plan', 'opencode'].map(providerId => ({
-        candidateModel: zai.model,
-        candidateResolution: { ...zai.resolution, providerId },
-      })),
-      consistentModel('qwen3.8-max'),
-      consistentModel('glm-4.6v'),
-      consistentModel('glm-4.4'),
-      {
-        candidateModel: zai.model,
-        candidateResolution: { ...zai.resolution, revision: 'pi-ai@0.0.0' },
-      },
-      {
-        candidateModel: { ...zai.model, api: 'openai-completions' } as typeof zai.model,
-        candidateResolution: zai.resolution,
-      },
-      {
-        candidateModel: zai.model,
-        candidateResolution: {
-          ...zai.resolution, wire: { ...zai.resolution.wire, model: 'glm-5.3-flash' },
-        },
-      },
-      {
-        candidateModel: zai.model,
-        candidateResolution: { ...zai.resolution, kind: 'custom', providerId: undefined },
-      },
-    ];
-    for (const { candidateModel, candidateResolution } of candidates) {
-      expect(qualifyMeter(candidateResolution as CatalogResolution, candidateModel)).toMatchObject({
-        kind: 'estimated', method: 'legacy-cl100k', limits: { supportedTools: 'declared' },
-      });
-    }
-  });
-
-  it('isolates descriptor cache keys when qualification identity changes', () => {
-    const counted = createInputMeter(config, model, {}, resolution);
-    const wrongRevision = {
-      ...resolution,
-      revision: 'pi-ai@0.0.0',
-    };
-    const estimated = createInputMeter(config, model, {}, wrongRevision);
-
-    expect(counted.descriptor).toMatchObject({
-      profile: 'deepseek-v41-flash-1017-v1',
-      assetRevision: DEEPSEEK_V41_ASSET_REVISION,
-    });
-    expect(estimated.descriptor).toMatchObject({
-      profile: 'legacy-cl100k-v2',
-      assetRevision: 'js-tiktoken:cl100k_base',
-    });
-    expect(estimated.descriptor.revision).not.toBe(counted.descriptor.revision);
-  });
-
-  it('fails unsupported tools and multimodal blocks instead of estimating a counted profile', async () => {
+  it('returns stable unavailable for unsupported specialized-meter inputs', async () => {
     const meter = await createLLMProvider(config).prepareInputMeter();
-    const serverTool = meter.measure({
+    const toolInput = meter.measure({
       messages: [{ role: 'user', content: 'hello' }],
-      tools: [{
-        name: 'server', description: '', input_schema: { type: 'object' },
-        type: 'computer_20250101',
-      } as never],
+      tools: [{ name: 'server', description: '', input_schema: { type: 'object' } }],
     });
     const multimodal = meter.measure({
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
       ] }],
     });
-
-    expect(serverTool).toMatchObject({
-      kind: 'unavailable', reason: expect.stringContaining('unsupported server/deferred tool'),
-    });
-    expect(multimodal).toMatchObject({
-      kind: 'unavailable', reason: expect.stringContaining('unsupported content: image'),
-    });
+    expect(toolInput).toEqual({ kind: 'unavailable', reason: 'deepseek_v41_text_estimate_unavailable:tools' });
+    expect(multimodal).toEqual({ kind: 'unavailable', reason: 'deepseek_v41_text_estimate_unavailable:non_text_content' });
+    expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] }).kind).toBe('estimated');
   });
 });

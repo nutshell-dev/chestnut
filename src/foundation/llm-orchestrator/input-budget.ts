@@ -52,9 +52,7 @@ export async function observeInputBudget(
 }
 
 export function timeoutInputTokens(observation: InputBudgetObservation): number {
-  return observation.measurement.kind === 'counted' || observation.measurement.kind === 'estimated'
-    ? observation.measurement.tokens
-    : 0;
+  return observation.measurement.kind === 'estimated' ? observation.measurement.tokens : 0;
 }
 
 export function inputBudgetEvidence(error: unknown): readonly InputBudgetEvidence[] {

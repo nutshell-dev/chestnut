@@ -118,7 +118,7 @@ describe('runtime reactive trim+retry path', () => {
           contextWindow: 1_000, profile: 'legacy-cl100k-v2',
         },
         capability: { kind: 'unknown' as const },
-        measure: () => ({ kind: 'counted' as const, tokens: 100, method: 'deepseek-v41-template' as const }),
+        measure: () => ({ kind: 'estimated' as const, tokens: 100, method: 'deepseek-v41-text' as const, reason: 'test' }),
       },
     });
     return runtime;
@@ -159,7 +159,7 @@ describe('runtime reactive trim+retry path', () => {
         measureFixed: () => 0,
         measureMessage: () => 1,
       },
-      measure: vi.fn(() => ({ kind: 'counted' as const, tokens: 100, method: 'deepseek-v41-template' as const })),
+      measure: vi.fn(() => ({ kind: 'estimated' as const, tokens: 100, method: 'deepseek-v41-text' as const, reason: 'test' })),
     };
     const runtime = await makeRuntime();
     const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
@@ -186,7 +186,7 @@ describe('runtime reactive trim+retry path', () => {
     expect(prepare).toHaveBeenCalledWith({ kind: 'failure', error: expect.any(LLMContextExceededError) });
     const trimInputs = trimSpy.mock.calls[0][0];
     expect(trimInputs.measureComplete?.([])).toEqual({
-      kind: 'counted', tokens: 100, method: 'deepseek-v41-template',
+      kind: 'estimated', tokens: 100, method: 'deepseek-v41-text', reason: 'test',
     });
     // Phase 1978: trim 成功 → 恰好一条 retry 事件（无 blocked）
     const trimEvents = capture.events.filter(e => String(e.type).startsWith('context_trim_'));

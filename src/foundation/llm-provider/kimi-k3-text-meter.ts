@@ -1,8 +1,6 @@
 /** @module L1.LLMProvider.KimiK3TextMeter */
-import type * as PiAi from '@earendil-works/pi-ai';
 import { Tiktoken, type TiktokenBPE } from 'js-tiktoken/lite';
 import kimiK3Bpe from './tokenizers/kimi-k3.tiktoken.json' with { type: 'json' };
-import { CATALOG_REVISION, type CatalogResolution } from './catalog-strategy.js';
 import type {
   CompleteInput,
   CompleteInputMessage,
@@ -11,19 +9,15 @@ import type {
   MeterQualification,
   ModelInputMeter,
 } from './input-meter-types.js';
-import type { ProviderConfig } from './types.js';
 
 export const KIMI_K3_TEXT_METHOD = 'kimi-k3-text' as const;
 export const KIMI_K3_TEXT_ASSET_REVISION =
   'moonshotai/Kimi-K3:tiktoken.model:b6c497a7469b33ced9c38afb1ad6e47f03f5e5dc05f15930799210ec050c5103' as const;
-export const KIMI_K3_TEXT_PROJECTION_REVISION = 'kimi-k3-text-xtml-v1' as const;
+/** Legacy descriptor field: this meter performs no final-wire projection. */
+export const KIMI_K3_TEXT_PROJECTION_REVISION = 'estimate-only:no-final-wire-projection' as const;
 export const KIMI_K3_TEXT_PROFILE_ID = 'kimi-k3-text-v1' as const;
 
 const CONTROL_TOKENS = ['<|open|>', '<|close|>', '<|sep|>', '<|end_of_msg|>'] as const;
-type ControlToken = typeof CONTROL_TOKENS[number];
-type KimiK3TextSegment =
-  | { readonly kind: 'control'; readonly text: ControlToken }
-  | { readonly kind: 'text'; readonly text: string };
 type KimiK3Encoder = Pick<Tiktoken, 'encode'>;
 type KimiK3EncoderFactory = () => KimiK3Encoder;
 
@@ -32,7 +26,7 @@ const MAX_CACHE_ENTRIES = 32_768;
 // Conservative chunks stay below the official 400k encode limit and cap every
 // whitespace/non-whitespace run below the official 25k panic guard as well.
 const MAX_CHUNK_CODE_POINTS = 25_000;
-const TEXT_ESTIMATE_REASON = 'context_trim_only:kimi_k3_text_projection' as const;
+const TEXT_ESTIMATE_REASON = 'context_trim_only:kimi_k3_text' as const;
 
 class KimiK3TextEstimateUnsupported extends Error {
   constructor(readonly reason: string) {
@@ -45,72 +39,24 @@ function unsupported(reason: string): never {
   throw new KimiK3TextEstimateUnsupported(reason);
 }
 
-function text(value: string): readonly KimiK3TextSegment[] {
-  return value ? [{ kind: 'text', text: value }] : [];
-}
-
-function control(value: ControlToken): readonly KimiK3TextSegment[] {
-  return [{ kind: 'control', text: value }];
-}
-
-function escapeAttributeValue(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
-}
-
-function openTag(
-  tag: string,
-  attributes: readonly (readonly [string, string])[] = [],
-): readonly KimiK3TextSegment[] {
-  return [
-    ...control('<|open|>'),
-    ...text(tag),
-    ...attributes.flatMap(([key, value]) => [
-      ...text(` ${key}`),
-      ...text('="'),
-      ...text(escapeAttributeValue(value)),
-      ...text('"'),
-    ]),
-    ...control('<|sep|>'),
-  ];
-}
-
-function closeTag(tag: string): readonly KimiK3TextSegment[] {
-  return [...control('<|close|>'), ...text(tag), ...control('<|sep|>')];
-}
-
-function renderTextMessage(
-  role: 'system' | 'user' | 'assistant',
-  content: string,
-): readonly KimiK3TextSegment[] {
-  return [
-    ...openTag('message', [['role', role]]),
-    ...text(content),
-    ...closeTag('message'),
-    ...control('<|end_of_msg|>'),
-  ];
-}
-
-function renderMessage(message: CompleteInputMessage): readonly KimiK3TextSegment[] {
+function textFromMessage(message: CompleteInputMessage): string {
   const role = message.role as string;
-  if (role !== 'system' && role !== 'user' && role !== 'assistant') {
-    unsupported(`role:${role}`);
-  }
+  if (role !== 'system' && role !== 'user' && role !== 'assistant') unsupported(`role:${role}`);
   if (typeof message.content !== 'string') unsupported('non_text_content');
-  return renderTextMessage(role, message.content);
+  return message.content;
 }
 
-function renderKimiK3TextOnly(input: CompleteInput): readonly KimiK3TextSegment[] {
+/** Content-only estimate; provider chat markup is deliberately not reconstructed. */
+function textSegments(input: CompleteInput): readonly string[] {
   if (input.tools?.length) unsupported('tools');
   if (!Array.isArray(input.messages)) unsupported('messages_not_array');
-  if (input.system !== undefined && typeof input.system !== 'string') {
-    unsupported('non_text_system');
-  }
+  if (input.system !== undefined && typeof input.system !== 'string') unsupported('non_text_system');
   if (input.system !== undefined && input.messages.some(message => message.role === 'system')) {
     unsupported('duplicate_system');
   }
   return [
-    ...(input.system !== undefined ? renderTextMessage('system', input.system) : []),
-    ...input.messages.flatMap(renderMessage),
+    ...(input.system !== undefined ? [input.system] : []),
+    ...input.messages.map(textFromMessage),
   ];
 }
 
@@ -200,20 +146,13 @@ export function createKimiK3TextMeter(
     return count;
   }
 
-  function countSegment(segment: KimiK3TextSegment): number {
-    if (segment.kind === 'text') return countText(segment.text);
-    getEncoder();
-    return 1;
-  }
-
   return {
     descriptor,
     capability: { kind: 'complete_only' },
     measure(input: CompleteInput): InputMeasurement {
       try {
         getEncoder();
-        const tokens = renderKimiK3TextOnly(input)
-          .reduce((sum, segment) => sum + countSegment(segment), 0);
+        const tokens = textSegments(input).reduce((sum, text) => sum + countText(text), 0);
         return {
           kind: 'estimated',
           method: KIMI_K3_TEXT_METHOD,
@@ -231,25 +170,10 @@ export function createKimiK3TextMeter(
   };
 }
 
-const KIMI_K3_IDENTITIES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'kimi-coding': Object.freeze(['k3', 'k3-256k']),
-  moonshotai: Object.freeze(['kimi-k3']),
-  'moonshotai-cn': Object.freeze(['kimi-k3']),
-});
-
-/** Exact catalog identity and OpenAI wire required; display names never qualify. */
+/** Model-family membership is resolved centrally from the model name alone. */
 export const kimiK3TextInputProfile = Object.freeze({
   id: KIMI_K3_TEXT_PROFILE_ID,
-  matches(model: PiAi.Model<PiAi.Api>, resolution: CatalogResolution): boolean {
-    return (resolution.kind === 'catalog_model' || resolution.kind === 'metadata_only')
-      && resolution.revision === CATALOG_REVISION
-      && resolution.providerId !== undefined
-      && KIMI_K3_IDENTITIES[resolution.providerId]?.includes(resolution.modelId) === true
-      && model.id === resolution.modelId
-      && String(model.api) === 'openai-completions'
-      && resolution.wire.model === model.id
-      && resolution.wire.api === String(model.api);
-  },
+  family: 'kimi' as const,
   descriptor(): MeterQualification {
     return {
       kind: 'estimated',
@@ -260,11 +184,7 @@ export const kimiK3TextInputProfile = Object.freeze({
       limits: Object.freeze({ supportedTools: 'none' }),
     };
   },
-  create(input: {
-    readonly descriptor: Readonly<InputMeterDescriptor>;
-    readonly config: ProviderConfig;
-    readonly model: PiAi.Model<PiAi.Api>;
-  }): ModelInputMeter {
-    return createKimiK3TextMeter(input.descriptor);
+  create(descriptor: Readonly<InputMeterDescriptor>): ModelInputMeter {
+    return createKimiK3TextMeter(descriptor);
   },
 });

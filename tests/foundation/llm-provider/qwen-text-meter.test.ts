@@ -40,29 +40,25 @@ function referenceText(text: string): number {
   return text ? referenceEncoder.encode(text, { add_special_tokens: false }).ids.length : 0;
 }
 
-function referenceMessage(role: 'system' | 'user' | 'assistant', content: string): number {
-  return 1 + referenceText(`${role}\n`) + referenceText(content) + 1 + referenceText('\n');
-}
-
 function estimatedTokens(input: CompleteInput): number {
   const result = meter.measure(input);
   expect(result).toMatchObject({
-    kind: 'estimated', method: 'qwen3.8-text', reason: 'context_trim_only:qwen_text_projection',
+    kind: 'estimated', method: 'qwen3.8-text', reason: 'context_trim_only:qwen_text',
   });
   return result.kind === 'estimated' ? result.tokens : -1;
 }
 
 describe('Qwen local text meter', () => {
   it.each(['hello world', '中文与 English', '😀👨\u200d👩\u200d👧\u200d👦', 'line 1\nline 2', ''])(
-    'estimates stable mixed text %j with segmented control tokens',
+    'estimates stable mixed text %j without chat markup',
     content => {
       const input = { messages: [{ role: 'user' as const, content }] };
-      expect(estimatedTokens(input)).toBe(referenceMessage('user', content));
-      expect(estimatedTokens(input)).toBe(referenceMessage('user', content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
+      expect(estimatedTokens(input)).toBe(referenceText(content));
     },
   );
 
-  it('preserves system/user/assistant order and additive message boundaries', () => {
+  it('sums system and message content without IM markup', () => {
     const combined = {
       system: 'rules', messages: [
         { role: 'user' as const, content: 'question' },
@@ -70,9 +66,7 @@ describe('Qwen local text meter', () => {
       ],
     };
     expect(estimatedTokens(combined)).toBe(
-      referenceMessage('system', 'rules')
-      + referenceMessage('user', 'question')
-      + referenceMessage('assistant', 'answer'),
+      referenceText('rules') + referenceText('question') + referenceText('answer'),
     );
     expect(estimatedTokens({ messages: [] })).toBe(0);
   });

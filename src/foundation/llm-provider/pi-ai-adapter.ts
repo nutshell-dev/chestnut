@@ -45,8 +45,7 @@ import {
   withCombinedAbortSignal,
 } from './abort-helper.js';
 import { createPiAiEndpoint, loadPiAiRuntime, type PiAiEndpoint } from './pi-ai-support.js';
-import { createInputMeter, isDeepseekV41MeterProfile, type ModelInputMeter } from './input-meter.js';
-import { prepareDeepseekInputProjection } from './deepseek-input-projection.js';
+import { createInputMeter, type ModelInputMeter } from './input-meter.js';
 import { buildEffectiveCallOptions } from './pi-ai-call-options.js';
 import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { buildPiAiContext } from './pi-ai-wire.js';
@@ -140,7 +139,6 @@ export class PiAiAdapter implements ProviderAdapter {
   async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature'> = {}): Promise<ModelInputMeter> {
     const { model, resolution } = await this.endpoint();
     const effective = buildEffectiveCallOptions(this.config, options);
-    if (isDeepseekV41MeterProfile(model, resolution)) await prepareDeepseekInputProjection();
     return createInputMeter(this.config, model, effective, resolution);
   }
 
@@ -317,29 +315,17 @@ export class PiAiAdapter implements ProviderAdapter {
     try {
       const meter = await this.prepareInputMeter({ maxTokens: maxTokensOverride ?? options.maxTokens, temperature: options.temperature });
       descriptorRevision = meter.descriptor.revision;
-      let projectedInput: unknown = context;
-      let projectionAvailable = true;
-      try {
-        projectedInput = meter.project?.(options) ?? context;
-        inputHash = inputProjectionHash(projectedInput);
-      } catch {
-        // silent: measure() below returns the typed unavailable projection fact.
-        inputHash = undefined;
-        projectionAvailable = false;
-      }
+      inputHash = inputProjectionHash(context);
       measurement = meter.measure(options);
-      measuredInputTokens = measurement.kind === 'counted' || measurement.kind === 'estimated'
-        ? measurement.tokens : undefined;
-      if (projectionAvailable) {
-        artifactRef = await captureInputArtifact(this.options?.inputArtifactOwner, {
-          requestId,
-          provider: this.name,
-          model: model.id,
-          input: projectedInput,
-          ...(options.inputArtifactPolicy !== undefined ? { policy: options.inputArtifactPolicy } : {}),
-        });
-        inputSource = artifactRef.status === 'available' ? 'artifact' : 'unlinked';
-      }
+      measuredInputTokens = measurement.kind === 'estimated' ? measurement.tokens : undefined;
+      artifactRef = await captureInputArtifact(this.options?.inputArtifactOwner, {
+        requestId,
+        provider: this.name,
+        model: model.id,
+        input: context,
+        ...(options.inputArtifactPolicy !== undefined ? { policy: options.inputArtifactPolicy } : {}),
+      });
+      inputSource = artifactRef.status === 'available' ? 'artifact' : 'unlinked';
       emitInputMeasurement(options.onInputMeasurement, {
         kind: 'prepared',
         requestId,

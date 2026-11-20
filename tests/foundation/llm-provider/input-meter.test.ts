@@ -6,9 +6,6 @@ const { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } = llmP
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
 const { CATALOG_REVISION } = llmProviderCatalog;
-import { isDeepseekV41MeterProfile } from '../../../src/foundation/llm-provider/input-meter.js';
-import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
-import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';
 
 /** Offline meter fixture only needs a short, positive provider timeout. */
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
@@ -47,15 +44,15 @@ describe('resolved model input meter', () => {
     expect(JSON.stringify(otherKey.descriptor)).not.toContain('different-secret');
   });
 
-  it('describes the final DeepSeek projection, assets, limits, and effective options', async () => {
+  it('describes the DeepSeek family estimate, assets, limits, and effective options', async () => {
     const meter = await createLLMProvider(config).prepareInputMeter({ maxTokens: 8_192 });
     const otherBudget = await createLLMProvider(config).prepareInputMeter({ maxTokens: 4_096 });
     expect(meter.descriptor).toMatchObject({
-      profile: 'deepseek-v41-flash-1017-v1',
-      method: 'deepseek-v41-template',
-      projection: 'pi-ai@1.4.0:anthropic-messages:buildApiKeyRequest',
+      profile: 'deepseek-v41-text-v1',
+      method: 'deepseek-v41-text',
+      projection: 'estimate-only:no-final-wire-projection',
       effectiveMaxTokens: 8_192,
-      limits: { supportedTools: 'client' },
+      limits: { supportedTools: 'none' },
     });
     expect(meter.descriptor.assetRevision).toContain('deepseek-recipe@0.2.0');
     expect(meter.descriptor.assetRevision).toContain('81f64d1248a68ce3663e07ab3ee48b851e5df0e32d27cb98e4c9a268151e8d99');
@@ -63,49 +60,22 @@ describe('resolved model input meter', () => {
   });
 
   it.each([
-    ['a same-name custom model', { catalogProvider: undefined, catalogModel: undefined }],
-    ['a non-Anthropic wire protocol', { apiFormat: 'openai' as const }],
-    ['an unapproved wire alias', { model: 'deepseek-flash-latest' }],
-    ['a different resolved catalog model', { catalogModel: 'deepseek-v4-pro' }],
-    ['a different resolved provider', {
-      catalogProvider: 'fireworks',
-      catalogModel: 'accounts/fireworks/models/deepseek-v4p1-flash',
+    ['custom resolution', { catalogProvider: undefined, catalogModel: undefined }],
+    ['OpenAI protocol', { apiFormat: 'openai' as const }],
+    ['another DeepSeek model', { model: 'deepseek-flash-latest' }],
+    ['another catalog model', { catalogModel: 'deepseek-v4-pro' }],
+    ['another provider', {
+      catalogProvider: 'fireworks', catalogModel: 'accounts/fireworks/models/deepseek-v4p1-flash',
     }],
-    ['a catalog-model rather than metadata-only resolution', {
-      catalogProvider: undefined,
-      catalogModel: undefined,
-      piAiProvider: 'deepseek',
-      model: 'deepseek-flash',
-      apiFormat: 'openai' as const,
-    }],
-  ])('keeps %s on the legacy estimated path', async (_name, overrides: Partial<ProviderConfig>) => {
+  ])('keeps DeepSeek family estimation with %s', async (_name, overrides: Partial<ProviderConfig>) => {
     const meter = await createLLMProvider({ ...config, ...overrides }).prepareInputMeter();
     expect(meter.descriptor).toMatchObject({
-      profile: 'legacy-cl100k-v2',
-      method: 'legacy-cl100k',
-      projection: 'estimate-only:no-final-wire-projection',
-      assetRevision: 'js-tiktoken:cl100k_base',
-      limits: { supportedTools: 'declared' },
+      profile: 'deepseek-v41-text-v1', method: 'deepseek-v41-text',
+      projection: 'estimate-only:no-final-wire-projection', limits: { supportedTools: 'none' },
     });
-    expect(meter.project).toBeUndefined();
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
-      kind: 'estimated',
-      method: 'legacy-cl100k',
-      reason: expect.stringMatching(/^unsupported_model_or_protocol:catalog=/),
+      kind: 'estimated', method: 'deepseek-v41-text',
     });
-  });
-
-  it('requires the resolved wire identity to match the qualified model', async () => {
-    const { model, resolution } = resolvePiAiModel(await loadPiAiRuntime(), config);
-    expect(isDeepseekV41MeterProfile(model, resolution)).toBe(true);
-    expect(isDeepseekV41MeterProfile(model, {
-      ...resolution,
-      wire: { ...resolution.wire, model: 'deepseek-flash-latest' },
-    })).toBe(false);
-    expect(isDeepseekV41MeterProfile(model, {
-      ...resolution,
-      wire: { ...resolution.wire, api: 'openai-completions' },
-    })).toBe(false);
   });
 
   it('labels unknown models as estimates', async () => {

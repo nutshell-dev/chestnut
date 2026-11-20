@@ -484,9 +484,9 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         model: 'model-x',
         descriptor: {
           revision: 'rev-1', provider: 'p', model: 'model-x', api: 'openai',
-          contextWindow: 1_000_000, profile: 'deepseek-v41-flash-1017-v1',
+          contextWindow: 1_000_000, profile: 'deepseek-v41-text-v1',
         },
-        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measurement: { kind: 'estimated', tokens: 12, method: 'deepseek-v41-text', reason: 'test' },
         inputHash: 'hash-1',
         inputSource: 'unlinked',
       },
@@ -517,7 +517,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         reconciliation: 'matched',
         descriptorRevision: 'rev-1',
         inputHash: 'hash-1',
-        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measurement: { kind: 'estimated', tokens: 12, method: 'deepseek-v41-text', reason: 'test' },
       },
     });
 
@@ -525,8 +525,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       [
         'llm_input_measurement', 'request=req-1', 'phase=prepared',
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
-        'revision=rev-1', 'method=deepseek-v41-template', 'input_tokens=12', 'input_hash=hash-1', 'input_source=unlinked',
-        'measurement_kind=counted', 'measurement_reason=none',
+        'revision=rev-1', 'method=deepseek-v41-text', 'input_tokens=12', 'input_hash=hash-1', 'input_source=unlinked',
+        'measurement_kind=estimated', 'measurement_reason=test',
         'artifact_id=none', 'artifact_status=none', 'artifact_schema=none', 'artifact_hash_alg=none',
         'artifact_hash=none', 'artifact_bytes=none', 'redaction_policy=none', 'artifact_reason=none',
       ],
@@ -535,7 +535,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
         'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=none', 'effective_input_tokens=12', 'delta_tokens=0',
         'normalized_usage_input_tokens=12', 'raw_usage={"unCachedInputTokens":12,"outputTokens":3,"cacheWriteInputTokens":0,"cacheReadInputTokens":0,"totalTokens":15}',
-        'revision=rev-1', 'input_hash=hash-1', 'input_source=unlinked', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
+        'revision=rev-1', 'input_hash=hash-1', 'input_source=unlinked', 'measurement_kind=estimated', 'measurement_reason=test', 'reason=none',
         'artifact_id=none', 'artifact_status=none', 'artifact_schema=none', 'artifact_hash_alg=none',
         'artifact_hash=none', 'artifact_bytes=none', 'redaction_policy=none', 'artifact_reason=none',
       ],

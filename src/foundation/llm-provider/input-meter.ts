@@ -21,21 +21,20 @@ import { deepseekV41InputProfile } from './deepseek-input-profile.js';
 import { kimiK3TextInputProfile } from './kimi-k3-text-meter.js';
 import { glm53TextInputProfile } from './glm53-text-meter.js';
 import { qwenTextInputProfile } from './qwen-text-meter.js';
+import {
+  MODEL_FAMILY_RESOLVER_REVISION,
+  resolveModelFamily,
+  type InputModelFamily,
+} from './model-family-resolver.js';
 export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter-types.js';
 
 interface InputMeterProfile {
   readonly id: string;
-  readonly matches: (model: PiAi.Model<PiAi.Api>, resolution: CatalogResolution) => boolean;
+  readonly family: InputModelFamily;
   readonly descriptor: () => MeterQualification;
-  readonly create: (input: {
-    readonly descriptor: Readonly<InputMeterDescriptor>;
-    readonly config: ProviderConfig;
-    readonly model: PiAi.Model<PiAi.Api>;
-    readonly effective: Pick<PiAi.SimpleStreamOptions, 'maxTokens' | 'temperature' | 'reasoning' | 'thinkingBudgets'>;
-  }) => ModelInputMeter;
+  readonly create: (descriptor: Readonly<InputMeterDescriptor>) => ModelInputMeter;
 }
 
-/** Qualified profiles are explicit evidence bundles; provider names never imply membership. */
 const INPUT_METER_PROFILES = [
   deepseekV41InputProfile,
   kimiK3TextInputProfile,
@@ -43,19 +42,9 @@ const INPUT_METER_PROFILES = [
   qwenTextInputProfile,
 ] as const satisfies readonly InputMeterProfile[];
 
-function matchingProfile(
-  resolution: CatalogResolution,
-  model: PiAi.Model<PiAi.Api>,
-): InputMeterProfile | undefined {
-  return INPUT_METER_PROFILES.find(profile => profile.matches(model, resolution));
-}
-
-/** Exact resolved identity required for the fixed DeepSeek template; names alone never qualify. */
-export function isDeepseekV41MeterProfile(
-  model: PiAi.Model<PiAi.Api>,
-  resolution: CatalogResolution,
-): boolean {
-  return deepseekV41InputProfile.matches(model, resolution);
+function matchingProfile(model: PiAi.Model<PiAi.Api>): InputMeterProfile | undefined {
+  const family = resolveModelFamily(model.id);
+  return INPUT_METER_PROFILES.find(profile => profile.family === family);
 }
 
 /** Stable audit reason with resolved identity; no credentials or request content are included. */
@@ -80,16 +69,16 @@ function legacyQualification(
   };
 }
 
-/** Only a resolved identity with final-wire projection and bound assets may be counted. */
+/** Select a local estimator by model family; request wire facts never qualify it. */
 export function qualifyMeter(
   resolution: CatalogResolution,
   model: PiAi.Model<PiAi.Api>,
 ): MeterQualification {
-  return matchingProfile(resolution, model)?.descriptor()
+  return matchingProfile(model)?.descriptor()
     ?? legacyQualification(resolution, model);
 }
 
-/** Metadata and effective request options, never credentials, define the counting revision. */
+/** Descriptor facts remain auditable but do not participate in family selection. */
 export function createInputMeter(
   config: ProviderConfig,
   model: PiAi.Model<PiAi.Api>,
@@ -100,7 +89,7 @@ export function createInputMeter(
     ...effective,
     ...(effective.thinkingBudgets && { thinkingBudgets: Object.freeze({ ...effective.thinkingBudgets }) }),
   });
-  const meterProfile = matchingProfile(resolution, model);
+  const meterProfile = matchingProfile(model);
   const qualification = meterProfile?.descriptor() ?? legacyQualification(resolution, model);
   const profile = meterProfile?.id ?? 'legacy-cl100k-v2';
   const { method, projection, assetRevision, limits } = qualification;
@@ -121,6 +110,7 @@ export function createInputMeter(
     limits,
     revision: sha256Hex(JSON.stringify({
       profile, method, projection, assetRevision, limits, effectiveMaxTokens,
+      resolver: MODEL_FAMILY_RESOLVER_REVISION,
       sdk: 'pi-ai-1.4.0', provider: resolution.providerId ?? config.name,
       model: model.id, api: model.api, window: resolution.window, maxTokens: model.maxTokens,
       catalog: { kind: resolution.kind, source: resolution.source, revision: resolution.revision,
@@ -129,9 +119,7 @@ export function createInputMeter(
       dropThinkingBlocks: config.dropThinkingBlocks === true, effective: effectiveOptions,
     })),
   });
-  if (meterProfile) {
-    return meterProfile.create({ descriptor, config, model, effective: effectiveOptions });
-  }
+  if (meterProfile) return meterProfile.create(descriptor);
   const capability: MessageAdditiveInputCounter = {
     kind: 'message_additive',
     measureFixed(input) {
@@ -146,13 +134,21 @@ export function createInputMeter(
     descriptor,
     capability,
     measure(input) {
-      return {
-        kind: 'estimated',
-        method: LEGACY_CL100K_METHOD,
-        reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
-        tokens: capability.measureFixed(input)
-          + input.messages.reduce((sum, message) => sum + capability.measureMessage(message), 0),
-      };
+      try {
+        return {
+          kind: 'estimated',
+          method: LEGACY_CL100K_METHOD,
+          reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
+          tokens: capability.measureFixed(input)
+            + input.messages.reduce((sum, message) => sum + capability.measureMessage(message), 0),
+        };
+      } catch (error) {
+        // silent: local cl100k initialization/encoding failures become typed unavailable.
+        return {
+          kind: 'unavailable',
+          reason: `legacy_cl100k_estimate_unavailable:${error instanceof Error ? error.name : 'UnknownError'}`,
+        };
+      }
     },
   };
 }

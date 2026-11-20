@@ -89,7 +89,7 @@ function observingProvider(name: string): ProviderAdapter {
           revision: 'rev-observed', provider: name, model: 'model-x', api: 'openai',
           contextWindow: 1_000_000, profile: 'test-meter',
         },
-        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measurement: { kind: 'estimated', tokens: 12, method: 'deepseek-v41-text', reason: 'test' },
         inputHash: 'hash-observed',
         inputSource: 'unlinked',
       };
@@ -108,7 +108,7 @@ function observingProvider(name: string): ProviderAdapter {
         reconciliation: 'matched',
         descriptorRevision: 'rev-observed',
         inputHash: 'hash-observed',
-        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measurement: { kind: 'estimated', tokens: 12, method: 'deepseek-v41-text', reason: 'test' },
       });
       return OK_RESPONSE;
     },
@@ -125,7 +125,7 @@ function artifactObservingProvider(name: string, requestId: string, error?: Erro
     name,
     model: 'model-x',
     call: async (options) => {
-      const measurement = { kind: 'counted' as const, tokens: 12, method: 'deepseek-v41-template' as const };
+      const measurement = { kind: 'estimated' as const, tokens: 12, method: 'deepseek-v41-text' as const, reason: 'test' };
       options.onInputMeasurement?.({
         kind: 'prepared', requestId, provider: name, model: 'model-x',
         descriptor: {
@@ -165,7 +165,7 @@ function retryingObservingProvider(name: string): ProviderAdapter {
           revision: 'rev-retry', provider: name, model: 'model-x', api: 'openai',
           contextWindow: 1_000_000, profile: 'test-meter',
         },
-        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measurement: { kind: 'estimated', tokens: 12, method: 'deepseek-v41-text', reason: 'test' },
         inputHash: `hash-${requestId}`, inputSource: 'unlinked',
       };
       options.onInputMeasurement?.(prepared);
@@ -334,12 +334,12 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const providerAttemptId = `${attemptId}:request:req-observed`;
     expect(measurements.every(row => row.attempt === providerAttemptId)).toBe(true);
     expect(measurements[0]).toEqual(expect.objectContaining({
-      provider: 'observed', model: 'model-x', method: 'deepseek-v41-template', input_tokens: '12', input_source: 'unlinked',
+      provider: 'observed', model: 'model-x', method: 'deepseek-v41-text', measurement_reason: 'test', input_tokens: '12', input_source: 'unlinked',
     }));
     expect(measurements[1]).toEqual(expect.objectContaining({
       reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: 'none', delta_tokens: '0',
       effective_input_tokens: '12', normalized_usage_input_tokens: '12', revision: 'rev-observed', input_hash: 'hash-observed',
-      input_source: 'unlinked', measurement_kind: 'counted', raw_usage: '{"unCachedInputTokens":12,"outputTokens":2,"totalTokens":14}',
+      input_source: 'unlinked', measurement_kind: 'estimated', raw_usage: '{"unCachedInputTokens":12,"outputTokens":2,"totalTokens":14}',
     }));
     expect(observations).toHaveLength(2);
     expect(observations.every(fact => fact.invocationId === inv && fact.attemptId === providerAttemptId)).toBe(true);
@@ -373,7 +373,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       `${recoveryAttemptId}:request:req-retry-2`, `${recoveryAttemptId}:request:req-retry-2`,
     ]);
     expect(measurements.every(row => row.input_source === 'unlinked')).toBe(true);
-    expect(measurements[1]).toEqual(expect.objectContaining({ reason: 'transient retry', measurement_kind: 'counted' }));
+    expect(measurements[1]).toEqual(expect.objectContaining({ reason: 'transient retry', measurement_kind: 'estimated' }));
     expect(measurements[3]).toEqual(expect.objectContaining({
       raw_usage: '{"unCachedInputTokens":10,"outputTokens":2,"cacheReadInputTokens":2,"totalTokens":14}',
       effective_input_tokens: '12', normalized_usage_input_tokens: '12', reconciliation: 'matched',

@@ -1179,9 +1179,9 @@ describe('Phase 2149 bounded candidate stages and final summary measurement', ()
       return 10;
     };
     const measureComplete = vi.fn((candidate: readonly Message[]) => ({
-      kind: 'counted' as const,
+      kind: 'estimated' as const,
       tokens: candidate.reduce((sum, message) => sum + weight(message), 0),
-      method: 'deepseek-v41-template' as const,
+      method: 'deepseek-v41-text' as const, reason: 'test',
     }));
     const hasText = (name: string) => (message: Message) => message.role === 'assistant'
       && typeof message.content !== 'string'
@@ -1212,9 +1212,9 @@ describe('Phase 2149 bounded candidate stages and final summary measurement', ()
       const hasSummary = candidate.some(message => message.systemSubtype === 'context_trim_summary');
       const hasCollapsed = candidate.some(message => typeof message.content === 'string' && message.content.includes('<...>'));
       return {
-        kind: 'counted' as const,
+        kind: 'estimated' as const,
         tokens: hasSummary ? summaryTokens : hasCollapsed ? 40 : 100,
-        method: 'deepseek-v41-template' as const,
+        method: 'deepseek-v41-text' as const, reason: 'test',
       };
     };
 
