@@ -234,6 +234,7 @@ afterEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.CHESTNUT_LLM_API_KEY;
   delete process.env.MISTRAL_API_KEY;
+  delete process.env.CUSTOM_API_KEY;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
@@ -495,45 +496,77 @@ describe('start LLM gate (unit)', () => {
     expect(h.rlCreateCalls).toBe(0);
   });
 
-  it('R. 非交互 catalog provider（无 preset）：写 provider_id 不落 preset；缺 --model / 缺 key → code=2', async () => {
-    process.env.MISTRAL_API_KEY = 'sk-mistral-test';
+  it('Q2. 非交互 fixed 使用 descriptor 默认 model，unknown method fail-closed', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test-secret';
+    mockProbeOk();
+    const { runNonInteractiveFirstRun } = await import('../../src/cli/first-run-setup.js');
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    await runNonInteractiveFirstRun(deps, {
+      provider: 'anthropic', apiKeyEnv: 'ANTHROPIC_API_KEY', nonInteractive: true,
+    }, mockAudit);
+    expect(deps.llmConfiguration.store.commitExplicitProvider.mock.calls[0][1]).toMatchObject({
+      model: 'claude-3-7-sonnet-20250219', provider_id: 'custom:anthropic', api_format: 'anthropic',
+    });
+
+    const unknown = makeGateDeps(() => makeGlobal('claude-x'));
+    const error = await runNonInteractiveFirstRun(unknown, {
+      provider: 'mistral', apiKeyEnv: 'ANTHROPIC_API_KEY', nonInteractive: true,
+    }, mockAudit).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(START_USAGE_EXIT_CODE);
+    expect((error as CliError).message).toContain('Unknown configuration method');
+    expect(unknown.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+  });
+
+  it('R. 非交互 custom 与交互 editor 共用 explicit draft；缺 model/key → code=2', async () => {
+    process.env.CUSTOM_API_KEY = 'sk-custom-test';
     mockProbeOk();
     const { runNonInteractiveFirstRun } = await import('../../src/cli/first-run-setup.js');
 
-    // 完整参数：provider_id 落盘、preset 缺席、key 只写引用
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
     const outcome = await runNonInteractiveFirstRun(deps, {
-      provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+      provider: 'other', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
+      model: 'custom-model', apiKeyEnv: 'CUSTOM_API_KEY', nonInteractive: true,
     }, mockAudit);
     expect(outcome.kind).toBe('verified');
-    expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
-    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as Record<string, unknown>;
-    expect(saved.llm).toBeUndefined();
     const committed = deps.llmConfiguration.store.commitExplicitProvider.mock.calls[0][1] as Record<string, unknown>;
-    expect(committed['provider_id']).toBe('mistral');
+    expect(committed).toMatchObject({
+      provider_id: 'custom:openai', api_format: 'openai', model: 'custom-model',
+      base_url: 'https://example.test/v1', api_key: '${CUSTOM_API_KEY}',
+    });
     expect(committed['preset']).toBeUndefined();
-    expect(committed['model']).toBe('codestral-latest');
-    expect(committed['api_key']).toBe('${MISTRAL_API_KEY}');
-    expect(JSON.stringify(committed)).not.toContain('sk-mistral-test');
+    expect(JSON.stringify(committed)).not.toContain('sk-custom-test');
 
-    // 缺 --model → code=2 零落盘（catalog provider 无默认 model）
     const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
     const errNoModel = await runNonInteractiveFirstRun(deps2, {
-      provider: 'mistral', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+      provider: 'other', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
+      apiKeyEnv: 'CUSTOM_API_KEY', nonInteractive: true,
     }, mockAudit).catch((e: unknown) => e);
     expect(errNoModel).toBeInstanceOf(CliError);
     expect((errNoModel as CliError).code).toBe(START_USAGE_EXIT_CODE);
     expect((errNoModel as CliError).message).toMatch(/--model/);
     expect(deps2.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
 
-    // 缺 key（api_key 派生 profile）→ code=2 零落盘
     const deps3 = makeGateDeps(() => makeGlobal('claude-x'));
     const errNoKey = await runNonInteractiveFirstRun(deps3, {
-      provider: 'mistral', model: 'codestral-latest', nonInteractive: true,
+      provider: 'other', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
+      model: 'custom-model', nonInteractive: true,
     }, mockAudit).catch((e: unknown) => e);
     expect(errNoKey).toBeInstanceOf(CliError);
     expect((errNoKey as CliError).code).toBe(START_USAGE_EXIT_CODE);
     expect(deps3.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+
+    // 已初始化 workspace 的同一 custom 参数也经 explicit builder，而非旧 preset patch。
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+    const initialized = makeGateDeps(() => makeGlobal('claude-x'));
+    await applyStartLLMOptions(initialized, {
+      provider: 'other', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
+      model: 'custom-model', apiKeyEnv: 'CUSTOM_API_KEY', nonInteractive: true,
+    });
+    expect(initialized.llmConfiguration.patchPrimary.mock.calls[0][0]).toMatchObject({
+      provider_id: 'custom:openai', api_format: 'openai', model: 'custom-model',
+      base_url: 'https://example.test/v1', api_key: '${CUSTOM_API_KEY}',
+    });
   });
 
   it.each([
@@ -583,8 +616,11 @@ describe('start LLM gate (unit)', () => {
       provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
     });
     const patch2 = deps2.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
-    expect(patch2['preset']).toBe('anthropic');
-    expect('provider_id' in patch2 && patch2['provider_id'] === undefined).toBe(true);
+    expect(patch2['preset']).toBeUndefined();
+    expect(patch2).toMatchObject({
+      provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
+      model: 'claude-x', api_key: '${MISTRAL_API_KEY}',
+    });
   });
 });
 

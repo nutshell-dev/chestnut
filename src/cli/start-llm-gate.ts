@@ -21,7 +21,8 @@
 
 import * as readline from 'readline';
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
-const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, isCatalogProvider, deriveCatalogAuthProfile } = llmProviderCatalog;
+const { PRESETS, isCatalogProvider } = llmProviderCatalog;
+type ApiFormat = llmProviderCatalog.ApiFormat;
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createAuthenticationCapability,
@@ -34,7 +35,13 @@ import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
-import { findSetupProvider } from './setup-provider-catalog.js';
+import {
+  createExplicitSetupDraft,
+  findSetupProvider,
+  isCustomSetupChoice,
+  makeExplicitSetupProvider,
+  SETUP_PROVIDER_ORDER,
+} from './setup-provider-catalog.js';
 import { storeKeyAsCredential, type StoreKeyHooks } from './credentials-prompt.js';
 import {
   probeLLMConnection,
@@ -53,6 +60,8 @@ export interface StartLLMOptions {
   provider?: string;
   model?: string;
   baseUrl?: string;
+  /** Custom 方法的显式 wire protocol（anthropic/openai/gemini）。 */
+  apiFormat?: ApiFormat;
   /** 引用环境变量名（配置写 ${VAR}，不落明文）。 */
   apiKeyEnv?: string;
   language?: string;
@@ -80,10 +89,10 @@ interface GateDeps {
 
 /** 给了配置参数但缺 --non-interactive → 用法错误（不猜意图、不静默忽略参数）。 */
 export function validateStartLLMOptions(opts: StartLLMOptions): void {
-  const configParams = [opts.provider, opts.model, opts.baseUrl, opts.apiKeyEnv].filter(Boolean);
+  const configParams = [opts.provider, opts.model, opts.baseUrl, opts.apiFormat, opts.apiKeyEnv].filter(Boolean);
   if (configParams.length > 0 && !opts.nonInteractive) {
     throw new CliError(
-      'LLM config flags (--provider/--model/--base-url/--api-key-env) require --non-interactive; ' +
+      'LLM config flags (--provider/--model/--base-url/--api-format/--api-key-env) require --non-interactive; ' +
       'interactive start uses the setup wizard instead.',
       { code: START_USAGE_EXIT_CODE },
     );
@@ -98,41 +107,24 @@ export function validateStartLLMOptions(opts: StartLLMOptions): void {
  */
 export function missingStartLLMParams(opts: StartLLMOptions): string[] {
   const missing: string[] = [];
-  if (!opts.provider) missing.push('--provider');
-  if (opts.provider) {
-    const setup = findSetupProvider(opts.provider);
-    if (setup?.auth === 'advanced') {
-      throw new CliError(
-        'Setup provider "other" requires the interactive wizard; run "chestnut start" without non-interactive flags.',
-        { code: START_USAGE_EXIT_CODE },
-      );
-    }
-    const providerRef = setup?.target.preset ?? opts.provider;
-    const preset = PRESETS[providerRef];
-    if (preset) {
-      const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-      if (presetAuthProfile(preset) === 'api_key' && !hasKey) {
-        missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
-      }
-      if (presetRequiresBaseUrl(preset) && !opts.baseUrl) missing.push('--base-url (required for this provider)');
-    } else if (isCatalogProvider(providerRef)) {
-      // Phase 1927 Step D：显式 catalog provider（无 preset 别名）——无默认 model，
-      // 必须显式 --model；key 需求按 catalog 派生 profile（OAuth-only 免 key）。
-      if (!opts.model) missing.push('--model (required for catalog provider without preset default)');
-      const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-      if (deriveCatalogAuthProfile(providerRef) === 'api_key' && !hasKey) {
-        missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
-      }
-    } else {
-      throw new CliError(
-        `Unknown provider preset "${opts.provider}". Available: ${Object.keys(PRESETS).join(', ')}`,
-        { code: START_USAGE_EXIT_CODE },
-      );
-    }
+  if (!opts.provider) {
+    missing.push('--provider');
   } else {
-    const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-    if (!hasKey) missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
+    const setup = findSetupProvider(opts.provider);
+    if (!setup) {
+      throw new CliError(
+        `Unknown configuration method "${opts.provider}". Available: ${SETUP_PROVIDER_ORDER.join(', ')}`,
+        { code: START_USAGE_EXIT_CODE },
+      );
+    }
+    if (isCustomSetupChoice(setup)) {
+      if (!opts.apiFormat) missing.push('--api-format (required for custom provider)');
+      if (!opts.baseUrl) missing.push('--base-url (required for custom provider)');
+      if (!opts.model) missing.push('--model (required for custom provider)');
+    }
   }
+  const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
+  if (!hasKey) missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
   return missing;
 }
 
@@ -144,7 +136,7 @@ export function missingStartLLMParams(opts: StartLLMOptions): string[] {
 export async function resolveNonInteractiveApiKey(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   opts: StartLLMOptions,
-  presetId: string,
+  credential: { envVar?: string; seed: string },
   hooks?: StoreKeyHooks,
 ): Promise<string> {
   if (opts.apiKeyEnv) {
@@ -160,8 +152,7 @@ export async function resolveNonInteractiveApiKey(
       { code: START_USAGE_EXIT_CODE },
     );
   }
-  const preset = PRESETS[presetId];
-  return storeKeyAsCredential(deps, raw, { envVar: preset?.envVar, seed: presetId }, hooks);
+  return storeKeyAsCredential(deps, raw, credential, hooks);
 }
 
 /**
@@ -173,20 +164,40 @@ export async function applyStartLLMOptions(
   opts: StartLLMOptions,
 ): Promise<void> {
   const setup = opts.provider ? findSetupProvider(opts.provider) : undefined;
-  if (setup?.auth === 'advanced') {
-    throw new CliError(
-      'Setup provider "other" requires the interactive wizard; run "chestnut start" without non-interactive flags.',
-      { code: START_USAGE_EXIT_CODE },
-    );
+  if (setup && opts.provider) {
+    const missing = missingStartLLMParams(opts);
+    if (missing.length > 0) {
+      throw new CliError(`Missing required non-interactive params: ${missing.join(', ')}`, {
+        code: START_USAGE_EXIT_CODE,
+      });
+    }
+    const apiKey = await resolveNonInteractiveApiKey(deps, opts, {
+      envVar: setup.envVar,
+      seed: setup.id,
+    });
+    const draft = createExplicitSetupDraft(setup, {
+      apiKey,
+      model: opts.model ?? setup.defaultModel ?? '',
+      ...(opts.baseUrl !== undefined && { baseUrl: opts.baseUrl }),
+      ...(opts.apiFormat !== undefined && { apiFormat: opts.apiFormat }),
+    });
+    reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({
+      ...makeExplicitSetupProvider(draft),
+      preset: undefined,
+    }));
+    return;
   }
-  const presetId = setup?.target.preset ?? opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.provider_id;
-  if (!presetId) {
+  const providerRef = opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.provider_id;
+  if (!providerRef) {
     throw new CliError('--provider is required (no existing primary provider)', { code: START_USAGE_EXIT_CODE });
   }
-  // Phase 1927 Step D：catalog provider id（非 preset）走显式 provider_id 配置入口
-  const catalogProviderId = !PRESETS[presetId] && isCatalogProvider(presetId) ? presetId : undefined;
+  // Existing-workspace partial patch remains legacy-compatible; first-run uses explicit drafts.
+  const catalogProviderId = !PRESETS[providerRef] && isCatalogProvider(providerRef) ? providerRef : undefined;
   const apiKey = (opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV])
-    ? await resolveNonInteractiveApiKey(deps, opts, presetId)
+    ? await resolveNonInteractiveApiKey(deps, opts, {
+      envVar: setup?.envVar ?? PRESETS[providerRef]?.envVar,
+      seed: setup?.id ?? providerRef,
+    })
     : undefined;
 
   // provider 换边时清除互斥字段（patch 语义：undefined = 删键）

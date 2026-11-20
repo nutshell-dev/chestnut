@@ -14,9 +14,10 @@ export const ROOT_COMMAND_CATALOG = [
     id: 'start',
     summary: 'Start the system (initializes if needed) and open Motion chat',
     options: [
-      { flag: '--provider <preset>', desc: 'LLM provider preset (non-interactive setup)' },
+      { flag: '--provider <method>', desc: 'LLM configuration method (non-interactive setup)' },
       { flag: '--model <name>', desc: 'LLM model name (non-interactive setup)' },
       { flag: '--base-url <url>', desc: 'LLM API base URL (non-interactive setup)' },
+      { flag: '--api-format <format>', desc: 'Custom LLM wire protocol: anthropic, openai, or gemini' },
       { flag: '--api-key-env <var>', desc: 'Env var name holding the LLM API key (stored as ${VAR} reference)' },
       { flag: '--language <lang>', desc: 'Onboarding language (non-interactive; default auto)' },
       { flag: '--non-interactive', desc: 'No prompts: verify LLM config and fail with non-zero exit on error' },

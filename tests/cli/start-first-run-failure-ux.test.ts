@@ -195,7 +195,7 @@ afterEach(() => {
 describe('first-run wizard — 展示与提交', () => {
   it('固定服务默认 model：无 preview，单次 probe，提交 config + ready', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-xxx';
-    h.rlAnswers.queue = ['8', '', ''];
+    h.rlAnswers.queue = ['7', '', ''];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -242,7 +242,7 @@ describe('first-run wizard — 展示与提交', () => {
 
   it('固定服务自定义 model：无 preview/确认，直接 probe 提交（Phase 1983 Step B）', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-xxx';
-    h.rlAnswers.queue = ['8', '', 'custom-model'];
+    h.rlAnswers.queue = ['7', '', 'custom-model'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -255,7 +255,7 @@ describe('first-run wizard — 展示与提交', () => {
   });
 
   it('Other 服务：条件确认取消 → 零 probe、零落盘', async () => {
-    h.rlAnswers.queue = ['12', '2', 'https://example.test/v1', 'sk-other', 'gpt-x', 'n'];
+    h.rlAnswers.queue = ['10', '2', 'https://example.test/v1', 'sk-other', 'gpt-x', 'n'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -279,7 +279,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
     for (const errorType of ERROR_TYPES) {
       resetRun();
       conn.probeQueue = [{ ok: false, errorType, message: `fail-${errorType}`, provider: 'anthropic' }];
-      h.rlAnswers.queue = ['8', '', '', 'n'];
+      h.rlAnswers.queue = ['7', '', '', 'n'];
 
       const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -304,7 +304,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
       { ok: false, errorType: 'network', message: 'ECONNREFUSED', provider: 'anthropic' },
       { ok: true, model: 'claude-tested' },
     ];
-    h.rlAnswers.queue = ['8', '', '', '1'];
+    h.rlAnswers.queue = ['7', '', '', '1'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -318,7 +318,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
       { ok: false, errorType: 'auth', message: '401 bad key', provider: 'anthropic' },
       { ok: true, model: 'claude-ok' },
     ];
-    h.rlAnswers.queue = ['8', 'sk-bad-key', '', '2', 'sk-good-key'];
+    h.rlAnswers.queue = ['7', 'sk-bad-key', '', '2', 'sk-good-key'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -340,7 +340,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
       { ok: false, errorType: 'model', message: '404 model not found', provider: 'anthropic' },
       { ok: true, model: 'fixed-model' },
     ];
-    h.rlAnswers.queue = ['8', '', '', '3', 'fixed-model'];
+    h.rlAnswers.queue = ['7', '', '', '3', 'fixed-model'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -355,7 +355,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
       { ok: false, errorType: 'auth', message: '401', provider: 'anthropic' },
       { ok: true, model: 'gpt-4o' },
     ];
-    h.rlAnswers.queue = ['8', '', '', '4', '6', 'sk-openai-key', ''];
+    h.rlAnswers.queue = ['7', '', '', '4', '6', 'sk-openai-key', ''];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -366,7 +366,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
   });
 
   it('commit 后 post-write 异常保留已绑定凭据与恢复文档', async () => {
-    h.rlAnswers.queue = ['8', 'sk-post-write-bound', ''];
+    h.rlAnswers.queue = ['7', 'sk-post-write-bound', ''];
     const base = makeDeps();
     const store = base.llmConfiguration.store;
     const deps = {
@@ -396,7 +396,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
   });
 
   it('非 durable initialize 不发布 ready，但保留已提交凭据与恢复证据', async () => {
-    h.rlAnswers.queue = ['8', 'sk-degraded-bound', ''];
+    h.rlAnswers.queue = ['7', 'sk-degraded-bound', ''];
     const uncertainFsFactory = (baseDir: string) => new (class extends NodeFileSystem {
       override writeAtomicSync(relativePath: string, content: string) {
         if (this.resolve(relativePath).endsWith('.initialize.target')) {
@@ -427,7 +427,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
     conn.probeQueue = [
       { ok: false, errorType: 'auth', message: '401', provider: 'anthropic' },
     ];
-    h.rlAnswers.queue = ['8', 'sk-secret-value', '', 'n'];
+    h.rlAnswers.queue = ['7', 'sk-secret-value', '', 'n'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
@@ -445,7 +445,7 @@ describe('start command — 首次取消接线', () => {
     conn.probeQueue = [
       { ok: false, errorType: 'auth', message: '401', provider: 'anthropic' },
     ];
-    h.rlAnswers.queue = ['8', '', '', 'n'];
+    h.rlAnswers.queue = ['7', '', '', 'n'];
 
     const err = await startCommand(makeDeps(), {
       audit: mockAudit,

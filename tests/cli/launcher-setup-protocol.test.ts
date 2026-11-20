@@ -18,7 +18,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 
 const { executeLauncherSetup } = await import('../../src/cli/commands/launcher-setup.js');
 const { buildInitialRootConfig } = await import('../../src/cli/first-run-setup.js');
-const { makeExplicitSetupProvider } = await import('../../src/cli/setup-provider-catalog.js');
+const {
+  createExplicitSetupDraft,
+  findSetupProvider,
+  makeExplicitSetupProvider,
+} = await import('../../src/cli/setup-provider-catalog.js');
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 let root: string;
 let deps: ReturnType<typeof makeDeps>;
@@ -134,9 +138,9 @@ describe('launcher setup.v1', () => {
       deps.rootConfig.saveGlobalExclusive(buildInitialRootConfig());
       await deps.llmConfiguration.store.commitExplicitProvider(
         { kind: 'initialize' },
-        makeExplicitSetupProvider({
-          presetId: 'openai', model: 'winner-model', apiKey: '${OPENAI_API_KEY}',
-        }),
+        makeExplicitSetupProvider(createExplicitSetupDraft(findSetupProvider('openai')!, {
+          model: 'winner-model', apiKey: '${OPENAI_API_KEY}',
+        })),
       );
       return { ok: true, model: snapshot.config.primary.model };
     });

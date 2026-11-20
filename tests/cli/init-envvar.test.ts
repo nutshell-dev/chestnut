@@ -142,7 +142,7 @@ describe('initCommand — 服务目录与凭据', () => {
   it('Anthropic：环境变量已设置时按 Enter 使用 ${ANTHROPIC_API_KEY}', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
     // service=8 (Anthropic), key Enter, model Enter, save y
-    resetAnswers(['8', '', '', 'y']);
+    resetAnswers(['7', '', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.provider_id).toBe('custom:anthropic');
@@ -152,7 +152,7 @@ describe('initCommand — 服务目录与凭据', () => {
 
   it('手动输入 key：落凭据引用并展开', async () => {
     // service=8, key=sk-ant-manual, model Enter, save y
-    resetAnswers(['8', 'sk-ant-manual', '', 'y']);
+    resetAnswers(['7', 'sk-ant-manual', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-manual');
@@ -160,25 +160,16 @@ describe('initCommand — 服务目录与凭据', () => {
     expect(config.llm.primary.preset).toBeUndefined();
   });
 
-  it('Ollama：本地服务不索 key', async () => {
-    // service=11 (Ollama), model Enter, save y
-    resetAnswers(['11', '', 'y']);
-    await initCommand(commandDeps, true);
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.provider_id).toBe('custom:ollama');
-    expect(config.llm.primary.auth_profile).toBe('ambient');
-    expect(config.llm.primary.preset).toBeUndefined();
-    expect(config.llm.primary.api_key).toBeUndefined();
-  });
+
 
   it('Other 高级路径：格式 + baseUrl + key + model', async () => {
     // service=12, format=2 (OpenAI), baseUrl, key, model, save y
     resetAnswers([
-      '12', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'y',
+      '10', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'y',
     ]);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.provider_id).toBe('custom:custom-openai');
+    expect(config.llm.primary.provider_id).toBe('custom:openai');
     expect(config.llm.primary.preset).toBeUndefined();
     expect(config.llm.primary.api_key).toBe('sk-manual');
     expect(config.llm.primary.model).toBe('gpt-4o');
@@ -186,14 +177,14 @@ describe('initCommand — 服务目录与凭据', () => {
   });
 
   it('Other 条件确认取消：不写配置（固定服务无低信息量预览）', async () => {
-    resetAnswers(['12', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'n']);
+    resetAnswers(['10', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'n']);
     await initCommand(commandDeps, true);
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
   });
 
   it('非 TTY 交互输入 key：loud 拒绝，不回显降级', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    resetAnswers(['8', 'sk-ant-manual']);
+    resetAnswers(['7', 'sk-ant-manual']);
     await expect(initCommand(commandDeps, true)).rejects.toThrow(/requires a TTY/);
   });
 });

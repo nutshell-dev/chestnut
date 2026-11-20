@@ -1,43 +1,18 @@
 /**
- * Phase 1972: 首次初始化 / provider add 的用户服务目录。
+ * CLI-owned explicit LLM configuration methods.
  *
- * 用户只看到固定的 12 项服务；内部 preset/provider id 映射留在本模块，
- * 不从 PRESETS / catalog inventory 全量枚举。Seed 不属于独立服务；需要 Seed
- * 模型时走 OpenRouter + 高级模型输入。
+ * Normal setup never interprets legacy preset aliases. Every fixed method carries
+ * its provider identity, wire protocol, endpoint, authentication and model facts;
+ * legacy preset migration remains exclusively in L4's persistence read path.
  */
-
 import { llmProviderCatalog, llmProviderConfigContract } from '../foundation/llm-provider/index.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
-import {
-  migrateLegacyProviderConfig,
-  type LLMSetupDraft,
-} from '../core/llm-configuration/index.js';
-const {
-  PRESETS,
-  resolveThinkingDefaults,
-  isCatalogProvider,
-  presetAuthProfile,
-  presetRequiresBaseUrl,
-  deriveCatalogAuthProfile,
-} = llmProviderCatalog;
-const { llmProviderConfigSchema } = llmProviderConfigContract;
+import type { LLMSetupDraft } from '../core/llm-configuration/index.js';
 
-/**
- * Phase 1979: 条件确认预览的 effective thinking 描述（preset 默认 + model）。
- * 无 preset / 无默认 → undefined（固定服务不显示该行）。
- */
-export function describeEffectiveThinking(
-  presetId: string | undefined,
-  model: string | undefined,
-): string | undefined {
-  if (!presetId) return undefined;
-  const defaults = resolveThinkingDefaults(presetId, model);
-  if (!defaults) return undefined;
-  if (defaults.reasoning_effort) return `reasoning ${defaults.reasoning_effort}`;
-  const mode = defaults.thinking_mode ?? (defaults.thinking ? 'enabled' : 'adaptive');
-  const effort = defaults.thinking_effort ?? 'high';
-  return `${mode} (${effort})`;
-}
+const { catalogModelKnown, isCatalogProvider, resolveCatalogIdentity } = llmProviderCatalog;
+const { llmProviderConfigSchema } = llmProviderConfigContract;
+type ApiFormat = llmProviderCatalog.ApiFormat;
+type AuthProfile = llmProviderCatalog.AuthProfile;
 
 export type SetupProviderId =
   | 'deepseek'
@@ -46,131 +21,163 @@ export type SetupProviderId =
   | 'glm'
   | 'minimax'
   | 'openai'
-  | 'gemini'
   | 'anthropic'
+  | 'gemini'
   | 'grok'
-  | 'openrouter'
-  | 'ollama'
   | 'other';
 
-/**
- * Phase 1983 Step B：start/init 与 provider add 共享的「自定义配置」谓词。
- * 仅 Other（advanced auth）需要参数确认；普通目录服务（含自定义 model）不确认。
- */
+export interface SetupThinkingDefaults {
+  thinking?: boolean;
+  thinkingMode?: 'adaptive' | 'enabled';
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'max';
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'max';
+  thinkingBudgetTokens?: number;
+  dropThinkingBlocks?: boolean;
+}
+
+export interface SetupProbeCandidate {
+  readonly providerId: string;
+  readonly apiFormat: ApiFormat;
+  readonly authProfile: AuthProfile;
+  readonly model: string;
+  readonly baseUrl: string;
+  readonly label: string;
+}
+
+export interface SetupProviderChoice {
+  readonly id: SetupProviderId;
+  readonly label: string;
+  readonly description: string;
+  readonly auth: 'api_key' | 'advanced';
+  readonly providerId?: string;
+  readonly apiFormat?: ApiFormat;
+  readonly catalogApiFormat?: ApiFormat;
+  readonly authProfile?: AuthProfile;
+  readonly defaultBaseUrl?: string;
+  readonly defaultModel?: string;
+  readonly envVar?: string;
+  readonly catalogProvider?: string;
+  readonly catalogModel?: string;
+  readonly thinkingDefaults?: SetupThinkingDefaults;
+  readonly probeCandidates?: readonly SetupProbeCandidate[];
+}
+
 export function isCustomSetupChoice(choice: SetupProviderChoice): boolean {
   return choice.auth === 'advanced';
 }
 
-export interface SetupProviderTarget {
-  /** 内部 preset id（catalog preset 别名）。 */
-  preset?: string;
-  /** 显式 catalog provider id。 */
-  providerId?: string;
-}
-
-/**
- * Phase 1973 Step C：setup 多端点候选——同一 preset 下的 Anthropic baseUrl
- * 候选（地域/套餐差异），按序 probe，首胜者显式写入配置 base_url。
- */
-export interface SetupProbeCandidate {
-  /** 该候选使用的 chestnut preset id。 */
-  presetId: string;
-  /** 候选 Anthropic base URL（不含 /v1/messages）。 */
-  baseUrl: string;
-  /** CLI 进度显示名。 */
-  label: string;
-}
-
-// 五家候选端点固定顺序（Phase 1973 Step A 端点矩阵；改动需同步 design/测试）。
-const DEEPSEEK_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'deepseek', baseUrl: 'https://api.deepseek.com/anthropic', label: 'DeepSeek (Anthropic)' },
-];
-
-const KIMI_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'kimi', baseUrl: 'https://api.kimi.com/coding', label: 'Kimi Code (CN)' },
-  { presetId: 'kimi', baseUrl: 'https://api.kimi.ai/coding', label: 'Kimi Code (Global)' },
-  { presetId: 'kimi', baseUrl: 'https://api.moonshot.cn/anthropic', label: 'Kimi Open (CN)' },
-  { presetId: 'kimi', baseUrl: 'https://api.moonshot.ai/anthropic', label: 'Kimi Open (Global)' },
-];
-
-const QWEN_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'qwen', baseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic', label: 'Qwen (CN)' },
-  { presetId: 'qwen', baseUrl: 'https://dashscope-intl.aliyuncs.com/apps/anthropic', label: 'Qwen (Intl)' },
-  { presetId: 'qwen', baseUrl: 'https://dashscope-us.aliyuncs.com/apps/anthropic', label: 'Qwen (US)' },
-  { presetId: 'qwen', baseUrl: 'https://cn-hongkong.dashscope.aliyuncs.com/apps/anthropic', label: 'Qwen (HK)' },
-  { presetId: 'qwen', baseUrl: 'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic', label: 'Qwen Coding Plan (Intl)' },
-  { presetId: 'qwen', baseUrl: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic', label: 'Qwen Token Plan (Intl)' },
-  { presetId: 'qwen', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic', label: 'Qwen Token Plan (CN)' },
-];
-
-const GLM_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'zai', baseUrl: 'https://open.bigmodel.cn/api/anthropic', label: 'GLM Coding Plan (CN)' },
-  { presetId: 'zai', baseUrl: 'https://api.z.ai/api/anthropic', label: 'GLM Coding Plan (Intl)' },
-];
-
-const MINIMAX_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'minimax', baseUrl: 'https://api.minimax.cn/anthropic', label: 'MiniMax (CN)' },
-  { presetId: 'minimax', baseUrl: 'https://api.minimax.io/anthropic', label: 'MiniMax (Intl)' },
-];
-
-export interface SetupProviderChoice {
-  id: SetupProviderId;
-  label: string;
-  description: string;
-  target: SetupProviderTarget;
-  auth: 'api_key' | 'local' | 'advanced';
-  defaultModel?: string;
-  envVar?: string;
-  /**
-   * Phase 1973 Step C：存在且非空时，setup 按序 probe 候选端点，首胜者
-   * baseUrl 显式落盘；全败不保存。非五家服务缺席（保持单 endpoint 流程）。
-   */
-  probeCandidates?: readonly SetupProbeCandidate[];
-}
-
-function presetChoice(
-  id: SetupProviderId,
+function candidate(
+  providerId: string,
+  model: string,
+  baseUrl: string,
   label: string,
-  description: string,
-  presetId: string,
-  auth: 'api_key' | 'local' = 'api_key',
-  probeCandidates?: readonly SetupProbeCandidate[],
-): SetupProviderChoice {
-  const preset = PRESETS[presetId];
-  if (!preset) {
-    throw new Error(`setup provider catalog: preset "${presetId}" is not registered (id=${id})`);
-  }
-  return {
-    id,
-    label,
-    description,
-    target: { preset: presetId },
-    auth,
-    ...(preset.defaultModel !== undefined && { defaultModel: preset.defaultModel }),
-    ...(preset.envVar !== undefined && { envVar: preset.envVar }),
-    ...(probeCandidates !== undefined && { probeCandidates }),
-  };
+): SetupProbeCandidate {
+  return { providerId, apiFormat: 'anthropic', authProfile: 'api_key', model, baseUrl, label };
 }
 
-/** 用户确认的固定顺序（不要按对象/枚举顺序生成）。 */
+const DEEPSEEK_MODEL = 'deepseek-flash[1m]';
+const KIMI_MODEL = 'k3-256k';
+const QWEN_MODEL = 'qwen3.8-max';
+const GLM_MODEL = 'glm-5.3';
+const MINIMAX_MODEL = 'MiniMax-M3.1-Flash';
+
+const DEEPSEEK_CANDIDATES = [
+  candidate('deepseek', DEEPSEEK_MODEL, 'https://api.deepseek.com/anthropic', 'DeepSeek (Anthropic)'),
+] as const;
+const KIMI_CANDIDATES = [
+  candidate('kimi', KIMI_MODEL, 'https://api.kimi.com/coding', 'Kimi Code (CN)'),
+  candidate('kimi', KIMI_MODEL, 'https://api.kimi.ai/coding', 'Kimi Code (Global)'),
+  candidate('kimi', KIMI_MODEL, 'https://api.moonshot.cn/anthropic', 'Kimi Open (CN)'),
+  candidate('kimi', KIMI_MODEL, 'https://api.moonshot.ai/anthropic', 'Kimi Open (Global)'),
+] as const;
+const QWEN_CANDIDATES = [
+  candidate('qwen', QWEN_MODEL, 'https://dashscope.aliyuncs.com/apps/anthropic', 'Qwen (CN)'),
+  candidate('qwen', QWEN_MODEL, 'https://dashscope-intl.aliyuncs.com/apps/anthropic', 'Qwen (Intl)'),
+  candidate('qwen', QWEN_MODEL, 'https://dashscope-us.aliyuncs.com/apps/anthropic', 'Qwen (US)'),
+  candidate('qwen', QWEN_MODEL, 'https://cn-hongkong.dashscope.aliyuncs.com/apps/anthropic', 'Qwen (HK)'),
+  candidate('qwen', QWEN_MODEL, 'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic', 'Qwen Coding Plan (Intl)'),
+  candidate('qwen', QWEN_MODEL, 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic', 'Qwen Token Plan (Intl)'),
+  candidate('qwen', QWEN_MODEL, 'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic', 'Qwen Token Plan (CN)'),
+] as const;
+const GLM_CANDIDATES = [
+  candidate('zai', GLM_MODEL, 'https://open.bigmodel.cn/api/anthropic', 'GLM Coding Plan (CN)'),
+  candidate('zai', GLM_MODEL, 'https://api.z.ai/api/anthropic', 'GLM Coding Plan (Intl)'),
+] as const;
+const MINIMAX_CANDIDATES = [
+  candidate('minimax', MINIMAX_MODEL, 'https://api.minimax.cn/anthropic', 'MiniMax (CN)'),
+  candidate('minimax', MINIMAX_MODEL, 'https://api.minimax.io/anthropic', 'MiniMax (Intl)'),
+] as const;
+
+const ANTHROPIC_THINKING = { thinking: true, thinkingEffort: 'max' } as const;
+const ADAPTIVE_THINKING = { thinkingMode: 'adaptive', thinkingEffort: 'max' } as const;
+const REASONING_THINKING = { reasoningEffort: 'max' } as const;
+
+/** Fixed order is part of the shared start/provider-add interface contract. */
 export const SETUP_PROVIDER_CATALOG: readonly SetupProviderChoice[] = [
-  presetChoice('deepseek', 'DeepSeek', 'DeepSeek API', 'deepseek', 'api_key', DEEPSEEK_CANDIDATES),
-  presetChoice('kimi', 'Kimi', 'Moonshot AI', 'kimi', 'api_key', KIMI_CANDIDATES),
-  presetChoice('qwen', 'Qwen', 'Qwen / DashScope', 'qwen', 'api_key', QWEN_CANDIDATES),
-  presetChoice('glm', 'GLM', 'Zhipu / Z.AI', 'zai', 'api_key', GLM_CANDIDATES),
-  presetChoice('minimax', 'MiniMax', 'MiniMax API', 'minimax', 'api_key', MINIMAX_CANDIDATES),
-  presetChoice('openai', 'OpenAI', 'OpenAI API', 'openai'),
-  presetChoice('gemini', 'Gemini', 'Google Gemini API', 'gemini'),
-  presetChoice('anthropic', 'Anthropic', 'Anthropic Claude API', 'anthropic'),
-  presetChoice('grok', 'Grok', 'xAI Grok API', 'grok'),
-  presetChoice('openrouter', 'OpenRouter', 'OpenRouter API', 'openrouter'),
-  presetChoice('ollama', 'Ollama', 'Local Ollama (no API key)', 'ollama', 'local'),
   {
-    id: 'other',
-    label: 'Other',
-    description: 'Custom OpenAI/Anthropic/Gemini-compatible endpoint',
-    target: {},
-    auth: 'advanced',
+    id: 'deepseek', label: 'DeepSeek', description: 'DeepSeek API', auth: 'api_key',
+    providerId: 'deepseek', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.deepseek.com/anthropic', defaultModel: DEEPSEEK_MODEL,
+    envVar: 'DEEPSEEK_API_KEY', catalogProvider: 'deepseek', catalogModel: 'deepseek-flash',
+    thinkingDefaults: ANTHROPIC_THINKING, probeCandidates: DEEPSEEK_CANDIDATES,
+  },
+  {
+    id: 'kimi', label: 'Kimi', description: 'Moonshot AI', auth: 'api_key',
+    providerId: 'kimi', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.kimi.com/coding', defaultModel: KIMI_MODEL,
+    envVar: 'KIMI_API_KEY', catalogProvider: 'kimi-coding', catalogModel: KIMI_MODEL,
+    thinkingDefaults: ANTHROPIC_THINKING, probeCandidates: KIMI_CANDIDATES,
+  },
+  {
+    id: 'qwen', label: 'Qwen', description: 'Qwen / DashScope', auth: 'api_key',
+    providerId: 'qwen', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic', defaultModel: QWEN_MODEL,
+    envVar: 'DASHSCOPE_API_KEY', catalogProvider: 'qwen-token-plan', catalogModel: QWEN_MODEL,
+    thinkingDefaults: ANTHROPIC_THINKING, probeCandidates: QWEN_CANDIDATES,
+  },
+  {
+    id: 'glm', label: 'GLM', description: 'Zhipu / Z.AI', auth: 'api_key',
+    providerId: 'zai', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.z.ai/api/anthropic', defaultModel: GLM_MODEL,
+    envVar: 'ZAI_API_KEY', catalogProvider: 'zai', catalogModel: GLM_MODEL,
+    thinkingDefaults: ANTHROPIC_THINKING, probeCandidates: GLM_CANDIDATES,
+  },
+  {
+    id: 'minimax', label: 'MiniMax', description: 'MiniMax API', auth: 'api_key',
+    providerId: 'minimax', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.minimax.io/anthropic', defaultModel: MINIMAX_MODEL,
+    envVar: 'MINIMAX_API_KEY', catalogProvider: 'minimax', catalogModel: MINIMAX_MODEL,
+    thinkingDefaults: { ...ADAPTIVE_THINKING, dropThinkingBlocks: true },
+    probeCandidates: MINIMAX_CANDIDATES,
+  },
+  {
+    id: 'openai', label: 'OpenAI', description: 'OpenAI API', auth: 'api_key',
+    providerId: 'openai', apiFormat: 'openai', catalogApiFormat: 'openai-responses', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o', envVar: 'OPENAI_API_KEY',
+    thinkingDefaults: REASONING_THINKING,
+  },
+  {
+    id: 'anthropic', label: 'Anthropic', description: 'Anthropic Claude API', auth: 'api_key',
+    providerId: 'anthropic', apiFormat: 'anthropic', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-3-7-sonnet-20250219',
+    envVar: 'ANTHROPIC_API_KEY', thinkingDefaults: ADAPTIVE_THINKING,
+  },
+  {
+    id: 'gemini', label: 'Gemini', description: 'Google Gemini API', auth: 'api_key',
+    providerId: 'google', apiFormat: 'gemini', authProfile: 'api_key',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    defaultModel: 'gemini-2.5-pro-preview-03-25', envVar: 'GEMINI_API_KEY',
+    thinkingDefaults: REASONING_THINKING,
+  },
+  {
+    id: 'grok', label: 'Grok', description: 'xAI Grok API', auth: 'api_key',
+    providerId: 'xai', apiFormat: 'openai', catalogApiFormat: 'openai-responses', authProfile: 'api_key',
+    defaultBaseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4', envVar: 'XAI_API_KEY',
+    thinkingDefaults: REASONING_THINKING,
+  },
+  {
+    id: 'other', label: 'Other', description: 'Custom OpenAI/Anthropic/Gemini-compatible endpoint',
+    auth: 'advanced', thinkingDefaults: ADAPTIVE_THINKING,
   },
 ];
 
@@ -181,104 +188,127 @@ export function findSetupProvider(id: string): SetupProviderChoice | undefined {
   return SETUP_PROVIDER_CATALOG.find(choice => choice.id === id);
 }
 
-export function resolveExplicitSetupTarget(id: string): SetupProviderTarget | undefined {
-  const setup = findSetupProvider(id);
-  if (setup) return setup.target;
-  if (PRESETS[id]) return { preset: id };
-  if (isCatalogProvider(id)) return { providerId: id };
-  return undefined;
+export function isSetupProviderId(value: string): value is SetupProviderId {
+  return SETUP_PROVIDER_CATALOG.some(choice => choice.id === value);
 }
 
-export function describeExplicitSetupTarget(target: SetupProviderTarget): {
-  defaultModel?: string;
-  defaultBaseUrl?: string;
-  envVar?: string;
-  authProfile: 'api_key' | 'local' | 'oauth' | 'ambient';
-} {
-  const preset = target.preset ? PRESETS[target.preset] : undefined;
-  if (preset) {
-    return {
-      ...(preset.defaultModel !== undefined && { defaultModel: preset.defaultModel }),
-      ...(preset.defaultBaseUrl !== undefined && { defaultBaseUrl: preset.defaultBaseUrl }),
-      ...(preset.envVar !== undefined && { envVar: preset.envVar }),
-      authProfile: presetAuthProfile(preset),
-    };
+/** UI draft: explicit provider facts only; commit labels/targets stay outside. */
+export interface ExplicitSetupDraft {
+  readonly choice: SetupProviderChoice;
+  readonly providerId: string;
+  readonly apiFormat: ApiFormat;
+  readonly authProfile: AuthProfile;
+  readonly apiKey?: string;
+  readonly model: string;
+  readonly baseUrl?: string;
+}
+
+export function createExplicitSetupDraft(
+  choice: SetupProviderChoice,
+  input: {
+    apiKey?: string;
+    model: string;
+    baseUrl?: string;
+    apiFormat?: ApiFormat;
+    authProfile?: AuthProfile;
+  },
+): ExplicitSetupDraft {
+  const apiFormat = isCustomSetupChoice(choice) ? input.apiFormat : choice.apiFormat;
+  if (!apiFormat) throw new Error(`API format is required for ${choice.label}`);
+  const providerId = isCustomSetupChoice(choice) ? `custom:${apiFormat}` : choice.providerId;
+  if (!providerId) throw new Error(`Provider identity is required for ${choice.label}`);
+  return {
+    choice,
+    providerId,
+    apiFormat,
+    authProfile: input.authProfile ?? choice.authProfile ?? 'api_key',
+    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+    model: input.model,
+    ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl }),
+  };
+}
+
+function resolvedThinking(choice: SetupProviderChoice, model: string) {
+  const defaults = choice.thinkingDefaults;
+  if (!defaults) return undefined;
+  if (!choice.catalogProvider && choice.providerId && isCatalogProvider(choice.providerId)
+    && catalogModelKnown(choice.providerId, model)) {
+    const resolution = resolveCatalogIdentity({
+      name: choice.label,
+      model,
+      apiFormat: choice.catalogApiFormat ?? choice.apiFormat,
+      piAiProvider: choice.providerId,
+    }, 'provider_id');
+    if (resolution.metadata?.reasoning === false) return undefined;
   }
-  if (target.providerId) {
-    return { authProfile: deriveCatalogAuthProfile(target.providerId) };
-  }
-  throw new Error('Setup provider target is missing');
+  return {
+    ...(defaults.thinking !== undefined && { thinking: defaults.thinking }),
+    ...(defaults.thinkingMode !== undefined && { thinking_mode: defaults.thinkingMode }),
+    ...(defaults.thinkingEffort !== undefined && { thinking_effort: defaults.thinkingEffort }),
+    ...(defaults.reasoningEffort !== undefined && { reasoning_effort: defaults.reasoningEffort }),
+    ...(defaults.thinkingBudgetTokens !== undefined && { thinking_budget_tokens: defaults.thinkingBudgetTokens }),
+    ...(defaults.dropThinkingBlocks !== undefined && { drop_thinking_blocks: defaults.dropThinkingBlocks }),
+  };
 }
 
-export function explicitSetupTargetRequiresBaseUrl(target: SetupProviderTarget): boolean {
-  const preset = target.preset ? PRESETS[target.preset] : undefined;
-  return preset ? presetRequiresBaseUrl(preset) : false;
+export function describeEffectiveThinking(
+  choice: SetupProviderChoice,
+  model: string | undefined,
+): string | undefined {
+  if (!model) return undefined;
+  const defaults = resolvedThinking(choice, model);
+  if (!defaults) return undefined;
+  if (defaults.reasoning_effort) return `reasoning ${defaults.reasoning_effort}`;
+  const mode = defaults.thinking_mode ?? (defaults.thinking ? 'enabled' : 'adaptive');
+  const effort = defaults.thinking_effort ?? 'high';
+  return `${mode} (${effort})`;
 }
 
-export interface ExplicitSetupProviderInput {
-  presetId?: string;
-  providerId?: string;
-  label?: string;
-  apiKey?: string;
-  model: string;
-  baseUrl?: string;
-  defaultBaseUrl?: string;
-  local?: boolean;
-}
-
-/** Compatibility catalog mapping ends here: workflow drafts contain explicit fields only. */
-export function makeExplicitSetupProvider(input: ExplicitSetupProviderInput) {
-  if (input.local) {
-    const providerId = input.providerId ?? `custom:${input.presetId ?? 'local'}`;
-    return llmProviderConfigSchema.parse({
-      provider_id: providerId,
-      api_format: 'openai',
-      auth_profile: 'ambient',
-      ...(input.label !== undefined && { label: input.label }),
-      model: input.model,
-      base_url: input.baseUrl ?? input.defaultBaseUrl,
-      temperature: 0.7,
-      timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-    });
-  }
-  return llmProviderConfigSchema.parse(migrateLegacyProviderConfig({
-    ...(input.providerId !== undefined ? { provider_id: input.providerId } : { preset: input.presetId }),
+export function makeExplicitSetupProvider(input: ExplicitSetupDraft & { label?: string }) {
+  const { choice } = input;
+  const metadataOnly = choice.catalogProvider !== undefined;
+  const catalogDirect = !metadataOnly && isCatalogProvider(input.providerId)
+    && catalogModelKnown(input.providerId, input.model);
+  const providerId = metadataOnly || catalogDirect || input.providerId.startsWith('custom:')
+    ? input.providerId
+    : `custom:${choice.id}`;
+  const baseUrl = input.baseUrl ?? choice.defaultBaseUrl;
+  return llmProviderConfigSchema.parse({
+    provider_id: providerId,
+    api_format: catalogDirect ? choice.catalogApiFormat ?? input.apiFormat : input.apiFormat,
+    auth_profile: input.authProfile,
     ...(input.label !== undefined && { label: input.label }),
     ...(input.apiKey !== undefined && { api_key: input.apiKey }),
     model: input.model,
+    ...(baseUrl !== undefined && { base_url: baseUrl }),
+    ...(choice.catalogProvider !== undefined && { catalog_provider: choice.catalogProvider }),
+    ...(choice.catalogModel !== undefined && { catalog_model: choice.catalogModel }),
+    ...resolvedThinking(choice, input.model),
     temperature: 0.7,
     timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-    ...(input.baseUrl !== undefined && { base_url: input.baseUrl }),
-  }));
+  });
 }
 
 export function makeExplicitSetupDraft(
-  input: ExplicitSetupProviderInput,
-  candidates?: readonly SetupProbeCandidate[],
+  input: ExplicitSetupDraft,
+  target?: { label?: string },
 ): LLMSetupDraft {
-  const provider = makeExplicitSetupProvider(input);
-  if (candidates === undefined || candidates.length === 0) return { provider };
+  const provider = makeExplicitSetupProvider({ ...input, ...(target?.label !== undefined && { label: target.label }) });
+  const candidates = input.choice.probeCandidates;
+  // An explicitly supplied endpoint is authoritative and disables directory probing.
+  if (input.baseUrl !== undefined || !candidates?.length) return { provider };
   return {
     provider,
     candidates: candidates.map((candidate, index) => {
       const config = makeExplicitSetupProvider({
         ...input,
-        presetId: candidate.presetId,
-        providerId: undefined,
+        providerId: candidate.providerId,
+        apiFormat: candidate.apiFormat,
+        authProfile: candidate.authProfile,
         baseUrl: candidate.baseUrl,
+        ...(target?.label !== undefined && { label: target.label }),
       });
       return { identity: `${config.provider_id}#${index + 1}`, config };
     }),
   };
-}
-
-export function isSetupProviderId(value: string): value is SetupProviderId {
-  return SETUP_PROVIDER_CATALOG.some(choice => choice.id === value);
-}
-
-/** 解析用户服务 id → 内部 preset/provider；Other 返回 undefined（走高级输入）。 */
-export function resolveSetupProviderTarget(
-  id: string,
-): SetupProviderTarget | undefined {
-  return findSetupProvider(id)?.target;
 }

@@ -33,7 +33,10 @@ import {
 } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { toOrchestratorConfig } from '../assembly/index.js';
-import { FORMAT_MAP } from './provider-format-map.js';
+// Legacy reconfigure still writes a legacy document; setup uses FORMAT_MAP's explicit protocols.
+const LEGACY_CUSTOM_FORMAT_MAP: Record<string, string> = {
+  '1': 'custom-anthropic', '2': 'custom-openai', '3': 'custom-gemini',
+};
 import { passwordQuestion } from './utils/password-prompt.js';
 
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
@@ -405,7 +408,7 @@ export async function promptReconfigure(
           console.log('3. Gemini');
           const raw = await question('\n> ');
           if (raw === 'b') { step = 'pick'; continue; }
-          chosenPreset = FORMAT_MAP[raw] ?? '';
+          chosenPreset = LEGACY_CUSTOM_FORMAT_MAP[raw] ?? '';
           if (!chosenPreset) { console.log('Invalid choice.'); continue; }
           step = 'baseUrl';
 

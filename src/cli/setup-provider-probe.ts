@@ -9,14 +9,9 @@
 
 import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
-import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
-const { toProviderInput, llmProviderConfigSchema } = llmProviderConfigContract;
-type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
-import type { AuthenticationSetupCapability } from '../core/llm-configuration/setup.js';
 import {
   createAuthenticationCapability,
   isCredentialReference,
-  migrateLegacyProviderConfig,
   resolveCredentialReference,
   snapshotLLMConfigInput,
   type LLMSetupDraft,
@@ -25,7 +20,6 @@ import {
   type LLMSetupWorkflowEvent,
 } from '../core/llm-configuration/index.js';
 import {
-  checkLLMConnectionFor,
   probeLLMConnection,
   classifyLLMErrorForDisplay,
   LLM_ERROR_HINTS,
@@ -52,7 +46,7 @@ export type SetupProbeResult =
   | { ok: false; errorType: LLMErrorType; message: string; provider: string };
 
 export interface SetupProbeAttempt {
-  candidate: SetupProbeCandidate;
+  candidate: Pick<SetupProbeCandidate, 'baseUrl' | 'label'>;
   result: SetupProbeResult;
 }
 
@@ -143,51 +137,6 @@ export function formatSetupProbeFailureLines(
   return lines;
 }
 
-export interface SetupCandidateProbeInput {
-  label: string;
-  /** 可能是 `${REF}` 引用——probe 前经 resolveKey 解析。 */
-  apiKey?: string;
-  model: string;
-}
-
-/**
- * 单个候选的 probe closure：用用户 key/model + 候选 baseUrl 构造 runtime
- * config，bounded timeout 走既有 checkLLMConnectionFor（不新建 provider 栈）。
- * credential 引用解析失败直接抛 CliError，不发起 probe。
- */
-export function makeSetupCandidateProbe(
-  input: SetupCandidateProbeInput,
-  deps: {
-    resolveKey: (ref: string) => string | undefined;
-    authentication?: AuthenticationSetupCapability;
-  },
-): (candidate: SetupProbeCandidate) => Promise<SetupProbeResult> {
-  return async (candidate) => {
-    const candidateConfig: LLMProviderConfig = llmProviderConfigSchema.parse(migrateLegacyProviderConfig({
-      preset: candidate.presetId,
-      label: input.label,
-      ...(input.apiKey !== undefined && { api_key: input.apiKey }),
-      model: input.model,
-      base_url: candidate.baseUrl,
-      temperature: 0.7,
-      timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-    }));
-    if (candidateConfig.api_key !== undefined) {
-      const resolved = deps.resolveKey(candidateConfig.api_key);
-      if (resolved === undefined) {
-        throw new CliError(
-          `API key reference ${input.apiKey} could not be resolved ` +
-          `(not in process env, credentials file, or .env fallbacks)`,
-        );
-      }
-      candidateConfig.api_key = resolved;
-    }
-    candidateConfig.timeout_ms = Math.min(candidateConfig.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS, SETUP_PROBE_TIMEOUT_MS);
-    return checkLLMConnectionFor(toProviderInput(candidateConfig), {
-      ...(deps.authentication !== undefined && { authentication: deps.authentication }),
-    });
-  };
-}
 
 
 interface SetupWorkflowProbeDeps {

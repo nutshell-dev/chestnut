@@ -7,11 +7,14 @@ import { probeSetupCandidates } from '../../src/cli/setup-provider-probe.js';
 import type { SetupProbeCandidate } from '../../src/cli/setup-provider-catalog.js';
 
 const KIMI_CANDIDATES: readonly SetupProbeCandidate[] = [
-  { presetId: 'kimi', baseUrl: 'https://api.kimi.com/coding', label: 'Kimi Code (CN)' },
-  { presetId: 'kimi', baseUrl: 'https://api.kimi.ai/coding', label: 'Kimi Code (Global)' },
-  { presetId: 'kimi', baseUrl: 'https://api.moonshot.cn/anthropic', label: 'Kimi Open (CN)' },
-  { presetId: 'kimi', baseUrl: 'https://api.moonshot.ai/anthropic', label: 'Kimi Open (Global)' },
-];
+  'https://api.kimi.com/coding',
+  'https://api.kimi.ai/coding',
+  'https://api.moonshot.cn/anthropic',
+  'https://api.moonshot.ai/anthropic',
+].map((baseUrl, index) => ({
+  providerId: 'kimi', apiFormat: 'anthropic' as const, authProfile: 'api_key' as const,
+  model: 'k3-256k', baseUrl, label: `Kimi ${index + 1}`,
+}));
 
 describe('probeSetupCandidates', () => {
   it('首胜即停：后续候选不再调用', async () => {

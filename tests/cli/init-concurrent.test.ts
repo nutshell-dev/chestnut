@@ -120,7 +120,7 @@ describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => 
       },
     );
 
-    rlAnswers.queue = ['8', '', ''];
+    rlAnswers.queue = ['7', '', ''];
     const first = initCommand(commandDeps, true, { audit: mockAudit });
     // 等 first 完成交互 + 进入 probe 等待（尚未提交）
     await vi.waitUntil(() => connMock.probeLLMConnection.mock.calls.length > 0);
@@ -147,7 +147,7 @@ describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => 
 
   it('事后重放：已初始化 → 直接返回（pre-check 不回归）', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'model-winner' });
-    rlAnswers.queue = ['8', '', 'model-winner', 'y'];
+    rlAnswers.queue = ['7', '', 'model-winner', 'y'];
     await initCommand(commandDeps, true, { audit: mockAudit });
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('model-winner');
 
@@ -165,7 +165,7 @@ describe('initCommand — root-only intent 恢复', () => {
     commandDeps.rootConfig.saveGlobalExclusive({ version: '1' });
     expect(commandDeps.rootConfig.getInitializationState()).toBe('in_progress');
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-resumed' });
-    rlAnswers.queue = ['8', '', 'claude-resumed'];
+    rlAnswers.queue = ['7', '', 'claude-resumed'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 

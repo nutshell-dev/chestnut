@@ -149,79 +149,24 @@ describe('missingStartLLMParams — Phase 1926 Step D profile 规则', () => {
       .toEqual(['--api-key-env (or env CHESTNUT_LLM_API_KEY)']);
   });
 
-  it('ambient profile（amazon-bedrock）：无 key 无 base-url 即完整', () => {
-    expect(missingStartLLMParams({ provider: 'amazon-bedrock', nonInteractive: true })).toEqual([]);
+  it('legacy ambient/OAuth/catalog ids 不再作为正常 setup 方法', () => {
+    for (const provider of ['amazon-bedrock', 'openai-codex', 'google-vertex']) {
+      expect(() => missingStartLLMParams({ provider, nonInteractive: true }))
+        .toThrow(/Unknown configuration method/);
+    }
   });
 
-  it('oauth profile（openai-codex）：无 key 即完整（凭证缺失由 probe fail-closed exit 3）', () => {
-    expect(missingStartLLMParams({ provider: 'openai-codex', nonInteractive: true })).toEqual([]);
-  });
-
-  it('custom preset：base-url 仍必需', () => {
+  it('custom 方法要求显式 protocol/base URL/model', () => {
     const missing = missingStartLLMParams({
-      provider: 'custom-openai',
-      apiKeyEnv: 'MY_KEY',
-      nonInteractive: true,
+      provider: 'other', apiKeyEnv: 'MY_KEY', nonInteractive: true,
     });
-    expect(missing).toEqual(['--base-url (required for this provider)']);
+    expect(missing).toEqual([
+      '--api-format (required for custom provider)',
+      '--base-url (required for custom provider)',
+      '--model (required for custom provider)',
+    ]);
   });
 
-  it('catalog preset（google-vertex）：无默认 baseUrl 也不要求 --base-url', () => {
-    expect(missingStartLLMParams({ provider: 'google-vertex', nonInteractive: true })).toEqual([]);
-  });
-});
-
-/* ── config provider add：ambient preset 无 key 流程 ───────────────────────── */
-
-describe('config provider add — ambient preset（Phase 1926 Step D）', () => {
-  beforeEach(() => {
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    // provider add 要求已初始化（loadGlobal 既有配置）
-    const configDir = path.join(tempDir, '.chestnut');
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.yaml'),
-      `llm:\n  primary:\n    preset: anthropic\n    api_key: sk-ant-old\n`,
-    );
-  });
-
-  it('amazon-bedrock：不索 API key、配置不落 api_key、probe 配置带 authProfile', async () => {
-    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'anthropic.claude-sonnet-4-6' });
-    // service 13 = Advanced；preset #15 = amazon-bedrock（Phase 1973 新增 qwen 后后移一位）；label 默认；无 key；model 默认；role fallback；position 默认；save y
-    rlAnswers.queue = ['13', '15', '', '', '2', '', 'y'];
-
-    const cmd = createConfigCommand(commandDeps);
-    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
-
-    // 未曾询问 API Key
-    const prompts = mockRl.question.mock.calls.map((c) => String(c[0]));
-    expect(prompts.some((p) => p.includes('API Key'))).toBe(false);
-
-    // probe 配置：无 apiKey、ambient profile、catalog provider
-    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
-    const probeConfig = connMock.checkLLMConnectionFor.mock.calls[0][0];
-    expect(probeConfig.authentication).toMatchObject({ kind: 'capability' });
-    expect(llmProviderCall.describeProviderInput(probeConfig).authProfile).toBe('ambient');
-    expect(probeConfig).not.toHaveProperty('piAiProvider');
-    expect(probeConfig.model).toBe('anthropic.claude-sonnet-4-6');
-
-    // 落盘配置无 api_key 字段
-    const config = loadGlobalConfig({ fsFactory });
-    const added = (config.llm.fallbacks ?? []).find((f) => f.provider_id === 'amazon-bedrock');
-    expect(added).toBeDefined();
-    expect(added!.api_key).toBeUndefined();
-  });
-
-  it('api_key preset 仍必索 key（back-compat）', async () => {
-    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
-    rlAnswers.queue = ['13', '1', 'second-anthropic', 'sk-ant-x', '', '2', '', 'y'];
-
-    const cmd = createConfigCommand(commandDeps);
-    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
-
-    const prompts = mockRl.question.mock.calls.map((c) => String(c[0]));
-    expect(prompts.some((p) => p.includes('API Key'))).toBe(true);
-  });
 });
 
 /* ── config provider login / logout ────────────────────────────────────────── */
@@ -301,5 +246,4 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
   });
 });
 
-// Phase 1972: init 首屏固定 12 项服务；ambient/OAuth 不再从 init 进入，
-// 相关配置走 `config provider add` 的 Advanced 入口（上面的测试覆盖）。
+// Phase 2207: ambient/OAuth 旧文档仍由 migration/login 支持，但不进入统一 setup 方法目录。

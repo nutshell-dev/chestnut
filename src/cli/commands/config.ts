@@ -19,8 +19,7 @@ import {
 } from '../../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
 import { llmProviderCatalog } from '../../foundation/llm-provider/index.js';
-const { PRESETS, presetRequiresBaseUrl, catalogProvidersWithoutPreset } = llmProviderCatalog;
-// Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
+const { PRESETS } = llmProviderCatalog;
 
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
@@ -28,14 +27,13 @@ import { CliError } from '../errors.js';
 import { fitLine } from '../../viewport/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
-import { FORMAT_MAP } from '../provider-format-map.js';
 import {
   resolveClawDaemonDir,
   MOTION_CLAW_ID,
   requireMotionAccess,
 } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
@@ -47,39 +45,31 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import {
   CONFIG_RELOAD_NOTICE,
-  SETUP_OTHER_FORMAT_LINES,
   SETUP_CANCELLED,
-  SETUP_CONFIRM_PROMPT,
   SETUP_PROBE_FAILED_NOT_SAVED,
-  setupApiKeyPrompt,
   setupConnectingLine,
-  setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 2206 Step C：明文 key 不落 root config —— 经 Credentials owner 落 workspace 凭据文件、配置写 `${REF}`。
-import { storeKeyAsCredential } from '../credentials-prompt.js';
 import {
   discardCreatedCredentials,
   promptRepairAction,
-  recordCreatedCredential,
   type StoredCredential,
 } from '../first-run-setup.js';
 import {
-  SETUP_PROVIDER_CATALOG,
-  describeEffectiveThinking,
-  isCustomSetupChoice,
   makeExplicitSetupDraft,
-  describeExplicitSetupTarget,
-  explicitSetupTargetRequiresBaseUrl,
-  type SetupProviderChoice,
+  type ExplicitSetupDraft,
 } from '../setup-provider-catalog.js';
+import {
+  collectExplicitLLMConfig,
+  repairExplicitLLMConfig,
+} from '../llm-config-editor.js';
 import {
   emitLLMSetupWorkflowAudit,
   formatSetupProbeFailureLines,
   makeLLMSetupWorkflowProbe,
   recheckLLMSetupIdentity,
 } from '../setup-provider-probe.js';
-import { passwordQuestion } from '../utils/password-prompt.js';
 import { question } from '../utils/prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
@@ -190,65 +180,6 @@ export async function notifyRunningDaemons(
   }
 }
 
-// Preset choices for interactive selection
-const PRESET_CHOICES = Object.entries(PRESETS).map(([id, preset], index) => ({
-  num: index + 1,
-  id,
-  displayName: preset.displayName,
-  // Phase 1926 Step D：catalog preset（piAiProvider）endpoint 由 catalog 裁决，不索 baseUrl
-  needsBaseUrl: presetRequiresBaseUrl(preset),
-}));
-
-// Phase 1927 Step D：无 preset 别名的 catalog provider 附加在选择尾部（inventory 单源
-// 派生，消除 provider universe 与 PRESETS 双重封闭）；catalog 选择无默认 model。
-const CATALOG_CHOICES = catalogProvidersWithoutPreset().map((id, index) => ({
-  num: PRESET_CHOICES.length + index + 1,
-  id,
-}));
-
-// Helper to create readline interface
-function createRL() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-}
-
-// Select preset interactively
-// Phase 1927 Step D：返回判别选择（preset 别名 或 显式 catalog provider id）。
-async function selectPreset(rl: readline.Interface): Promise<{ kind: 'preset'; id: string } | { kind: 'catalog'; id: string }> {
-  console.log('\nSelect preset:');
-  // Display in two columns
-  const half = Math.ceil(PRESET_CHOICES.length / 2);
-  for (let i = 0; i < half; i++) {
-    const left = PRESET_CHOICES[i];
-    const right = PRESET_CHOICES[i + half];
-    const leftStr = `${left.num}. ${left.id.padEnd(18)}`;
-    const rightStr = right ? `${right.num}. ${right.id}` : '';
-    console.log(`  ${leftStr}  ${rightStr}`);
-  }
-  if (CATALOG_CHOICES.length > 0) {
-    console.log('  ── pi-ai catalog providers (explicit provider_id, model required) ──');
-    const halfC = Math.ceil(CATALOG_CHOICES.length / 2);
-    for (let i = 0; i < halfC; i++) {
-      const left = CATALOG_CHOICES[i];
-      const right = CATALOG_CHOICES[i + halfC];
-      const leftStr = `${left.num}. ${left.id.padEnd(28)}`;
-      const rightStr = right ? `${right.num}. ${right.id}` : '';
-      console.log(`  ${leftStr}  ${rightStr}`);
-    }
-  }
-
-  const answer = await question(rl, '\n> ');
-  const num = parseInt(answer, 10);
-  if (isNaN(num)) { throw new CliError('Invalid choice: not a number'); }
-  const choice = PRESET_CHOICES.find(c => c.num === num);
-  if (choice) return { kind: 'preset', id: choice.id };
-  const catalogChoice = CATALOG_CHOICES.find(c => c.num === num);
-  if (catalogChoice) return { kind: 'catalog', id: catalogChoice.id };
-  throw new CliError('Invalid selection');
-}
-
 function requireProviderReference(
   config: LLMGlobalConfigView,
   reference: string,
@@ -269,218 +200,13 @@ function configAudit(deps: ConfigCommandDeps): AuditLog {
   return actionAuditFor(getChestnutRoot(), deps);
 }
 
-// provider add command
-async function selectSetupService(
-  rl: readline.Interface,
-): Promise<{ kind: 'setup'; choice: SetupProviderChoice } | { kind: 'advanced' }> {
-  console.log('\nSelect service:');
-  SETUP_PROVIDER_CATALOG.forEach((choice, index) => {
-    console.log(`  ${index + 1}. ${choice.label} — ${choice.description}`);
-  });
-  console.log(`  ${SETUP_PROVIDER_CATALOG.length + 1}. Advanced (all presets / catalog providers / custom endpoint)`);
-  const raw = await question(rl, '\n> ');
-  const num = parseInt(raw, 10);
-  if (Number.isNaN(num)) throw new CliError('Invalid choice: not a number');
-  const choice = SETUP_PROVIDER_CATALOG[num - 1];
-  if (choice) return { kind: 'setup', choice };
-  if (num === SETUP_PROVIDER_CATALOG.length + 1) return { kind: 'advanced' };
-  throw new CliError('Invalid selection');
+function createRL() {
+  return readline.createInterface({ input: process.stdin, output: process.stdout });
 }
 
-type ProviderAddService = Awaited<ReturnType<typeof selectSetupService>>;
-
-type ProviderAddAuthProfile = 'api_key' | 'local' | 'oauth' | 'ambient';
-
-interface ProviderAddDraft {
-  service: ProviderAddService;
-  presetId?: string;
-  providerId?: string;
-  serviceName: string;
-  authProfile: ProviderAddAuthProfile;
-  defaultModel?: string;
-  defaultBaseUrl?: string;
-  envVar?: string;
-  label: string;
-  apiKey?: string;
-  baseUrl?: string;
-  model: string;
-}
-
-async function promptProviderAddApiKey(
-  deps: ConfigCommandDeps,
-  rl: readline.Interface,
-  input: Pick<ProviderAddDraft, 'authProfile' | 'envVar' | 'serviceName' | 'presetId'>,
-  label: string,
-  created: StoredCredential[],
-  forceKeyPrompt: boolean = false,
-): Promise<string | undefined> {
-  const { authProfile, envVar, serviceName, presetId } = input;
-  if (authProfile === 'local' && forceKeyPrompt) {
-    console.log(`ℹ ${serviceName}: local provider, no API key required.`);
-    return undefined;
-  }
-  if (authProfile === 'api_key' || forceKeyPrompt) {
-    const envReady = Boolean(envVar && process.env[envVar]);
-    // Phase 1984 Step B：提示同时说明两种行为——回车=读环境变量，输入=使用输入值。
-    const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt(envReady ? envVar : undefined)}: `);
-    if (!rawKey && envReady && envVar) {
-      console.log(`✓ Will read from ${envVar} at runtime`);
-      return '${' + envVar + '}';
-    }
-    if (!rawKey) throw new CliError('API Key is required');
-    // env 同名已设置时，typed key 改用派生 ref 保存（不被 env 遮蔽）；派生 ref 仍被
-    // 遮蔽则 loud 失败。env 未设置时保持 preset envVar ref。
-    const storeCtx = envReady
-      ? { seed: label, onShadowedEnv: 'error' as const }
-      : { envVar, seed: label, onShadowedEnv: 'error' as const };
-    return storeKeyAsCredential(deps, rawKey, storeCtx, {
-      onStored: (ref, info) => recordCreatedCredential(created, ref, info),
-    });
-  }
-  if (authProfile === 'local') {
-    console.log(`ℹ ${serviceName}: local provider, no API key required.`);
-  } else if (presetId) {
-    const preset = PRESETS[presetId];
-    console.log(`\nℹ ${preset?.displayName ?? serviceName} 认证来源：${preset?.authHint ?? authProfile}`);
-  } else {
-    console.log(`\nℹ ${serviceName} 为 OAuth provider——配置后运行 "chestnut config provider login ${label}" 完成登录。`);
-  }
-  return undefined;
-}
-
-async function collectProviderAddDraft(
-  deps: ConfigCommandDeps,
-  rl: readline.Interface,
-  config: LLMGlobalConfigView,
-  created: StoredCredential[],
-  preservedLabel?: string,
-): Promise<ProviderAddDraft> {
-  const service = await selectSetupService(rl);
-
-  let presetId: string | undefined;
-  let providerId: string | undefined;
-  let serviceName: string;
-  let authProfile: ProviderAddAuthProfile = 'api_key';
-  let defaultModel: string | undefined;
-  let defaultBaseUrl: string | undefined;
-  let envVar: string | undefined;
-
-  if (service.kind === 'setup') {
-    const choice = service.choice;
-    serviceName = choice.label;
-    if (choice.auth === 'advanced') {
-      SETUP_OTHER_FORMAT_LINES.forEach(line => console.log(line));
-      const fmt = await question(rl, '> ', '2');
-      presetId = FORMAT_MAP[fmt] ?? '';
-      if (!presetId) throw new CliError('Invalid API format');
-    } else {
-      presetId = choice.target.preset;
-      providerId = choice.target.providerId;
-      const target = describeExplicitSetupTarget(choice.target);
-      defaultModel = choice.defaultModel ?? target.defaultModel;
-      defaultBaseUrl = target.defaultBaseUrl;
-      envVar = choice.envVar ?? target.envVar;
-      authProfile = choice.auth === 'local' ? 'local' : target.authProfile;
-    }
-  } else {
-    const adv = await selectPreset(rl);
-    const preset = adv.kind === 'preset' ? PRESETS[adv.id] : undefined;
-    presetId = adv.kind === 'preset' ? adv.id : undefined;
-    providerId = adv.kind === 'catalog' ? adv.id : undefined;
-    serviceName = preset?.displayName ?? adv.id;
-    const target = describeExplicitSetupTarget({
-      ...(presetId !== undefined && { preset: presetId }),
-      ...(providerId !== undefined && { providerId }),
-    });
-    defaultModel = target.defaultModel;
-    defaultBaseUrl = target.defaultBaseUrl;
-    envVar = target.envVar;
-    authProfile = target.authProfile;
-  }
-
-  const defaultLabel = presetId ?? providerId ?? 'provider';
-  const labelInput = preservedLabel ?? await question(rl, '\nLabel (press Enter to use service name)', defaultLabel);
-  const label = labelInput || defaultLabel;
-
-  if (providerLabelExists(config, label)) {
-    throw new CliError(`A provider with label "${label}" already exists`);
-  }
-
-  const apiKey = await promptProviderAddApiKey(
-    deps,
-    rl,
-    { authProfile, envVar, serviceName, presetId },
-    label,
-    created,
-  );
-
-  let baseUrl: string | undefined;
-  if (presetId && explicitSetupTargetRequiresBaseUrl({ preset: presetId })) {
-    baseUrl = await question(rl, 'Base URL');
-    if (!baseUrl) throw new CliError('Base URL is required for this provider');
-  }
-
-  let model: string;
-  if (providerId) {
-    model = await question(rl, 'Model');
-    if (!model) throw new CliError('Model is required for catalog providers');
-  } else {
-    model = await question(rl, 'Model', defaultModel || undefined);
-    if (!model) throw new CliError('Model is required');
-  }
-
-  return {
-    service,
-    ...(presetId !== undefined && { presetId }),
-    ...(providerId !== undefined && { providerId }),
-    serviceName,
-    authProfile,
-    ...(defaultModel !== undefined && { defaultModel }),
-    ...(defaultBaseUrl !== undefined && { defaultBaseUrl }),
-    ...(envVar !== undefined && { envVar }),
-    label,
-    ...(apiKey !== undefined && { apiKey }),
-    ...(baseUrl !== undefined && { baseUrl }),
-    model,
-  };
-}
-
-function providerAddSetupDraft(draft: ProviderAddDraft) {
-  const probeCandidates =
-    draft.service.kind === 'setup' ? draft.service.choice.probeCandidates : undefined;
-  return makeExplicitSetupDraft({
-    ...(draft.presetId !== undefined && { presetId: draft.presetId }),
-    ...(draft.providerId !== undefined && { providerId: draft.providerId }),
-    label: draft.label,
-    ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }),
-    model: draft.model,
-    ...(draft.baseUrl !== undefined && { baseUrl: draft.baseUrl }),
-    defaultBaseUrl: draft.defaultBaseUrl,
-    local: draft.authProfile === 'local',
-  }, probeCandidates);
-}
-
-async function confirmProviderAddDraft(
-  rl: readline.Interface,
-  draft: ProviderAddDraft,
-  role: 'primary' | 'fallback',
-): Promise<boolean> {
-  const custom =
-    draft.service.kind === 'advanced' ||
-    (draft.service.kind === 'setup' && isCustomSetupChoice(draft.service.choice));
-  if (!custom) return true;
-  const thinking = describeEffectiveThinking(draft.presetId, draft.model);
-  setupDraftPreviewLines({
-    label: draft.label,
-    model: draft.model,
-    auth: draft.authProfile === 'local' ? 'local' : draft.authProfile === 'api_key' ? 'API key' : draft.authProfile,
-    role,
-    ...(thinking !== undefined && { thinking }),
-    ...(draft.baseUrl && { baseUrl: draft.baseUrl }),
-    ...(draft.apiKey && { keyRef: draft.apiKey }),
-  }).forEach(line => console.log(line));
-  const confirm = await question(rl, `\n${SETUP_CONFIRM_PROMPT}`, 'Y');
-  return confirm.toLowerCase() !== 'n';
+// provider add command: the editor owns configuration fields; this adapter owns label/target.
+function providerAddSetupDraft(draft: ExplicitSetupDraft, label: string) {
+  return makeExplicitSetupDraft(draft, { label });
 }
 
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
@@ -490,11 +216,25 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   const config = deps.llmConfiguration.loadGlobal();
   const rl = createRL();
   const created: StoredCredential[] = [];
+  // A provider-add credential belongs to this new entry, not to another label/method.
+  const editorOptions = { credentialSeed: `provider-add-${newUuid()}` };
   let commitAttempted = false;
   let committed = false;
 
   try {
-    let draft = await collectProviderAddDraft(deps, rl, config, created);
+    const collected = await collectExplicitLLMConfig(deps, rl,
+      (prompt, defaultValue) => question(rl, prompt, defaultValue), created, editorOptions);
+    if (collected.kind === 'cancelled') {
+      console.log(SETUP_CANCELLED);
+      return;
+    }
+    let draft = collected.draft;
+    const defaultLabel = draft.choice.id;
+    const labelInput = await question(rl, '\nLabel (press Enter to use service name)', defaultLabel);
+    const label = labelInput || defaultLabel;
+    if (providerLabelExists(config, label)) {
+      throw new CliError(`A provider with label "${label}" already exists`);
+    }
 
     console.log('\nRole:');
     console.log('1. primary');
@@ -507,7 +247,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       const currentPrimary = config.llm.primary;
       // Phase 1980 Step B：Primary 确认包含即将加入的 service/model。
       console.log(
-        `\nAdd ${draft.serviceName} (${draft.model}) as primary? ` +
+        `\nAdd ${draft.choice.label} (${draft.model}) as primary? ` +
         `Current primary (${currentPrimary.label || currentPrimary.provider_id}) will become fallback #1.`,
       );
       const confirm = await question(rl, 'Confirm?', 'N');
@@ -530,17 +270,9 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       positionFromPrompt = position;
     }
 
-    // Phase 1983 Step B：仅 Other/Advanced 自定义配置显示脱敏参数预览 + 确认
-    // （与 start/init 同一谓词、同一文案）；普通服务（含自定义 model）不确认。
-    // 顺序：Primary 降级确认（上方角色分支）→ 参数确认 → Connecting → probe。
-    if (!(await confirmProviderAddDraft(rl, draft, role))) {
-      console.log(SETUP_CANCELLED);
-      return;
-    }
-
-    const probeCandidates =
-      draft.service.kind === 'setup' ? draft.service.choice.probeCandidates : undefined;
-    console.log(setupConnectingLine(draft.serviceName, draft.model));
+    // Custom preview/confirmation already happened inside the shared editor.
+    const probeCandidates = draft.choice.probeCandidates;
+    console.log(setupConnectingLine(draft.choice.label, draft.model));
     if (draft.baseUrl) console.log(`  Endpoint: ${draft.baseUrl}`);
     console.log('\nTesting connection...');
     if (probeCandidates !== undefined && probeCandidates.length > 0) {
@@ -570,12 +302,12 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
           }
         },
       },
-      providerAddSetupDraft(draft),
+      providerAddSetupDraft(draft, label),
       role === 'primary' ? { kind: 'primary' } : { kind: 'fallback', position: positionFromPrompt },
       async (attempt) => {
         if (attempt.candidates.some(candidate => candidate.kind === 'candidate')) {
           formatSetupProbeFailureLines(attempt.candidates.map(candidate => ({
-            candidate: { presetId: '', baseUrl: candidate.url ?? '', label: candidate.identity },
+            candidate: { baseUrl: candidate.url ?? '', label: candidate.identity },
             result: candidate.result.ok
               ? { ok: true as const, model: candidate.result.model }
               : {
@@ -597,24 +329,13 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         const action = await promptRepairAction((prompt, defaultValue) => question(rl, prompt, defaultValue));
         if (action === 'cancel') return { kind: 'cancel', reason: 'user_cancelled' };
         if (action === 'retry') return { kind: 'retry' };
-        if (action === 'edit-provider') {
-          const next = await collectProviderAddDraft(deps, rl, config, created, draft.label);
-          if (!(await confirmProviderAddDraft(rl, next, role))) {
-            return { kind: 'cancel', reason: 'user_cancelled' };
-          }
-          draft = next;
-        } else if (action === 'edit-key') {
-          const apiKey = await promptProviderAddApiKey(deps, rl, draft, draft.label, created, true);
-          draft = { ...draft, ...(apiKey !== undefined && { apiKey }) };
-        } else {
-          const model = await question(rl, 'Model', draft.defaultModel || undefined);
-          if (!model) throw new CliError('Model is required');
-          draft = { ...draft, model };
-        }
-        if (draft.service.kind === 'setup' && draft.service.choice.probeCandidates !== undefined) {
-          draft = { ...draft, baseUrl: undefined };
-        }
-        return { kind: 'repair', draft: providerAddSetupDraft(draft) };
+        const repaired = await repairExplicitLLMConfig(
+          action, deps, rl, (prompt, defaultValue) => question(rl, prompt, defaultValue), draft, created,
+          editorOptions,
+        );
+        if (repaired.kind === 'cancelled') return { kind: 'cancel', reason: repaired.reason };
+        draft = repaired.draft;
+        return { kind: 'repair', draft: providerAddSetupDraft(draft, label) };
       },
       config.revision?.revision,
     );
@@ -626,9 +347,9 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     committed = true;
 
     reportDegradedConfigWrite('LLM global config', outcome.commit.write);
-    if (role === 'primary') console.log(`\n✓ Provider "${draft.label}" is now primary`);
-    else console.log(`\n✓ Provider "${draft.label}" added as fallback`);
-    setupAudit.write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${draft.label}`, `role=${role}`);
+    if (role === 'primary') console.log(`\n✓ Provider "${label}" is now primary`);
+    else console.log(`\n✓ Provider "${label}" added as fallback`);
+    setupAudit.write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     await notifyRunningDaemons(deps, 'add', outcome.commit.revision);
     console.log(`✓ ${outcome.verified.model}`);
 

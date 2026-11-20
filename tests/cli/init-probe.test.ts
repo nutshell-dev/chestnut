@@ -138,7 +138,7 @@ describe('initCommand — probe success path', () => {
   it('固定服务默认 model → 单次 probe → config + ready 提交', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', ''];
+    rlAnswers.queue = ['7', '', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -166,7 +166,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
     connMock.probeLLMConnection
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401 Unauthorized' })
       .mockResolvedValue({ ok: true, model: 'claude-test' });
-    rlAnswers.queue = ['8', 'sk-ant-bad', '', '2', 'sk-ant-good'];
+    rlAnswers.queue = ['7', 'sk-ant-bad', '', '2', 'sk-ant-good'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -188,7 +188,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
 
   it('auth 失败 → 用户取消 → 不发布 config/ready，清理本次新建凭据', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
-    rlAnswers.queue = ['8', 'sk-ant-bad', '', 'n'];
+    rlAnswers.queue = ['7', 'sk-ant-bad', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -209,7 +209,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
     connMock.probeLLMConnection
       .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'ECONNREFUSED' })
       .mockResolvedValue({ ok: true, model: 'claude-test' });
-    rlAnswers.queue = ['8', 'sk-ant-xxx', '', '1'];
+    rlAnswers.queue = ['7', 'sk-ant-xxx', '', '1'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -224,7 +224,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
   it('长错误消息 → 经 audit.message 截断', async () => {
     const longMsg = 'X'.repeat(500);
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: longMsg });
-    rlAnswers.queue = ['8', 'sk-ant-xxx', '', 'n'];
+    rlAnswers.queue = ['7', 'sk-ant-xxx', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -251,7 +251,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
   it('env 已设置 + typed key → 派生 ref 生效，输入值落凭据文件', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    rlAnswers.queue = ['8', 'typed-key', ''];
+    rlAnswers.queue = ['7', 'typed-key', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -276,7 +276,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
   it('env 已设置 + 空输入 → ${ENV}，不写凭据', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    rlAnswers.queue = ['8', '', ''];
+    rlAnswers.queue = ['7', '', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -295,7 +295,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
 
   it('env 未设置 + typed key → 原 envVar ref（行为保持）', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
-    rlAnswers.queue = ['8', 'typed-key', ''];
+    rlAnswers.queue = ['7', 'typed-key', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -311,7 +311,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
     vi.stubEnv('CHESTNUT_ANTHROPIC_API_KEY', 'derived-env-key');
-    rlAnswers.queue = ['8', 'typed-key', ''];
+    rlAnswers.queue = ['7', 'typed-key', ''];
 
     await expect(initCommand(commandDeps, true, { audit: mockAudit })).rejects.toThrow(
       /Unset CHESTNUT_ANTHROPIC_API_KEY/,
@@ -390,7 +390,7 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
   it('非五家（Anthropic）保持单 endpoint 流程', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', ''];
+    rlAnswers.queue = ['7', '', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
