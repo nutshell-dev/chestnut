@@ -27,6 +27,7 @@ import {
 } from '../../../src/foundation/llm-provider/model-family-resolver.js';
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
 import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';
+import type { CompleteInput } from '../../../src/foundation/llm-provider/input-meter-types.js';
 
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 const config: ProviderConfig = {
@@ -110,7 +111,7 @@ describe('model-family input meter matrix', () => {
         projection: 'estimate-only:no-final-wire-projection', assetRevision: family.assetRevision,
         reason: `context_trim_only:${family.family === 'deepseek' ? 'deepseek_v41_text'
           : family.family === 'kimi' ? 'kimi_k3_text' : family.family === 'qwen' ? 'qwen_text' : 'glm53_text'}`,
-        limits: { supportedTools: 'none' },
+        limits: { supportedTools: 'declared' },
       });
     }
     const meters = variants.map((candidate, index) => createInputMeter(
@@ -158,6 +159,63 @@ describe('model-family input meter matrix', () => {
     });
   });
 
+  it.each(FAMILIES)('estimates common text, tools, tool results, and thinking for $family', family => {
+    const candidate = candidates(family.model);
+    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const input: CompleteInput = {
+      system: 'rules',
+      tools: [{ name: 'weather', description: 'read weather', input_schema: {
+        type: 'object', properties: { city: { type: 'string' } }, required: ['city'],
+      } }],
+      messages: [
+        { role: 'user', content: [
+          { type: 'text', text: 'What is the weather?' },
+          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'sunny' }] },
+        ] },
+        { role: 'assistant', content: [
+          { type: 'thinking', thinking: 'use the weather tool' },
+          { type: 'tool_use', id: 'call-1', name: 'weather', input: { city: 'Paris' } },
+        ] },
+      ],
+    };
+    const first = meter.measure(input);
+    expect(first).toMatchObject({ kind: 'estimated', method: family.method });
+    expect(first.kind === 'estimated' ? first.tokens : 0).toBeGreaterThan(0);
+    expect(meter.measure(input)).toEqual(first);
+    expect(meter.descriptor.limits).toMatchObject({ supportedTools: 'declared' });
+  });
+
+  it.each(FAMILIES)('keeps image, audio, binary, and unknown parts unavailable for $family', family => {
+    const candidate = candidates(family.model);
+    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const parts = [
+      { type: 'image', source: { type: 'base64', data: 'AA==' } },
+      { type: 'audio', source: { type: 'base64', data: 'AA==' } },
+      { type: 'binary', data: new Uint8Array([1, 2]) },
+      { type: 'unknown', value: 'do not stringify me' },
+    ];
+    for (const part of parts) {
+      const result = meter.measure({ messages: [{ role: 'user', content: [part] }] });
+      expect(result).toEqual({ kind: 'unavailable', reason: expect.stringMatching(/:non_text_content$/u) });
+      expect(result).not.toMatchObject({ kind: 'counted', tokens: 0 });
+    }
+  });
+
+  it.each(FAMILIES)('bounds message and tool collections for $family', family => {
+    const candidate = candidates(family.model);
+    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const messages = Array.from({ length: 4_097 }, () => ({ role: 'user' as const, content: '' }));
+    const tools = Array.from({ length: 257 }, (_, index) => ({
+      name: `tool-${index}`, description: '', input_schema: { type: 'object' },
+    }));
+    expect(meter.measure({ messages })).toEqual({
+      kind: 'unavailable', reason: expect.stringMatching(/:messages_limit_exceeded$/u),
+    });
+    expect(meter.measure({ messages: [], tools })).toEqual({
+      kind: 'unavailable', reason: expect.stringMatching(/:tools_limit_exceeded$/u),
+    });
+  });
+
   it('keeps descriptor identity facts separate from tokenizer qualification', () => {
     const first = createInputMeter(config, model, {}, resolution);
     const otherResolution = { ...resolution, revision: 'other-revision', providerId: 'other-provider' };
@@ -167,7 +225,7 @@ describe('model-family input meter matrix', () => {
     expect(first.descriptor.revision).not.toBe(second.descriptor.revision);
   });
 
-  it('returns stable unavailable for unsupported specialized-meter inputs', async () => {
+  it('estimates declared tools but returns stable unavailable for multimodal input', async () => {
     const meter = await createLLMProvider(config).prepareInputMeter();
     const toolInput = meter.measure({
       messages: [{ role: 'user', content: 'hello' }],
@@ -178,7 +236,7 @@ describe('model-family input meter matrix', () => {
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
       ] }],
     });
-    expect(toolInput).toEqual({ kind: 'unavailable', reason: 'deepseek_v41_text_estimate_unavailable:tools' });
+    expect(toolInput).toMatchObject({ kind: 'estimated', method: 'deepseek-v41-text', tokens: expect.any(Number) });
     expect(multimodal).toEqual({ kind: 'unavailable', reason: 'deepseek_v41_text_estimate_unavailable:non_text_content' });
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] }).kind).toBe('estimated');
   });

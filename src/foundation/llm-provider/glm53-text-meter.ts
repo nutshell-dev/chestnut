@@ -3,12 +3,13 @@ import { Tokenizer } from '@huggingface/tokenizers';
 import glmTokenizerSpec from './tokenizers/glm53.tokenizer.json' with { type: 'json' };
 import type {
   CompleteInput,
-  CompleteInputMessage,
   InputMeasurement,
   InputMeterDescriptor,
   MeterQualification,
   ModelInputMeter,
 } from './input-meter-types.js';
+import { COMMON_INPUT_PROJECTION_REVISION, commonInputTextSegments, CommonInputProjectionUnsupported } from './common-input-projection.js';
+import { acquireInputMeterAsset } from './input-meter-asset.js';
 
 export const GLM53_TEXT_METHOD = 'glm5.3-text' as const;
 export const GLM53_TEXT_ASSET_REVISION =
@@ -31,8 +32,6 @@ const PLAIN_TEXT_CONFLICTS = Object.freeze(
 type Glm53TextEncoder = Pick<InstanceType<typeof Tokenizer>, 'encode'>;
 type Glm53TextEncoderFactory = () => Glm53TextEncoder;
 
-const MAX_CACHE_BYTES = 16 * 1024 * 1024;
-const MAX_CACHE_ENTRIES = 32_768;
 const MAX_CHUNK_CODE_POINTS = 25_000;
 const TEXT_ESTIMATE_REASON = 'context_trim_only:glm53_text' as const;
 
@@ -47,26 +46,8 @@ function unsupported(reason: string): never {
   throw new Glm53TextEstimateUnsupported(reason);
 }
 
-function textFromMessage(message: CompleteInputMessage): string {
-  const role = message.role as string;
-  if (role !== 'system' && role !== 'user' && role !== 'assistant') unsupported(`role:${role}`);
-  if (typeof message.content !== 'string') unsupported('non_text_content');
-  return message.content;
-}
-
-/** Content-only estimate; provider chat markup is deliberately not reconstructed. */
-function textSegments(input: CompleteInput): readonly string[] {
-  if (input.tools?.length) unsupported('tools');
-  if (!Array.isArray(input.messages)) unsupported('messages_not_array');
-  if (input.system !== undefined && typeof input.system !== 'string') unsupported('non_text_system');
-  if (input.system !== undefined && input.messages.some(message => message.role === 'system')) {
-    unsupported('duplicate_system');
-  }
-  return [
-    ...(input.system !== undefined ? [input.system] : []),
-    ...input.messages.map(textFromMessage),
-  ];
-}
+/** Common-input estimate; provider chat markup is deliberately not reconstructed. */
+const textSegments = commonInputTextSegments;
 
 /** Split on Unicode code-point boundaries without quadratic string concatenation. */
 function* textChunks(textValue: string): Generator<string> {
@@ -86,7 +67,9 @@ function* textChunks(textValue: string): Generator<string> {
 }
 
 function stableReason(error: unknown): string {
-  if (error instanceof Glm53TextEstimateUnsupported) return error.reason;
+  if (error instanceof Glm53TextEstimateUnsupported || error instanceof CommonInputProjectionUnsupported) {
+    return error.reason;
+  }
   return `encoding_failed:${error instanceof Error ? error.name : 'UnknownError'}`;
 }
 
@@ -95,19 +78,22 @@ function defaultEncoderFactory(): Glm53TextEncoder {
   return new Tokenizer({ ...glmTokenizerSpec, added_tokens: [] }, {});
 }
 
-/** Local text-only estimate; never a provider usage or final-wire count. */
+/** Local common-input estimate; never a provider usage or final-wire count. */
 export function createGlm53TextMeter(
   descriptor: Readonly<InputMeterDescriptor>,
   encoderFactory: Glm53TextEncoderFactory = defaultEncoderFactory,
 ): ModelInputMeter {
-  const cache = new Map<string, number>();
-  let cacheBytes = 0;
-  let encoder: Glm53TextEncoder | undefined;
+  const asset = acquireInputMeterAsset<Glm53TextEncoder>(
+    descriptor.profile,
+    GLM53_TEXT_ASSET_REVISION,
+    COMMON_INPUT_PROJECTION_REVISION,
+    encoderFactory,
+  );
   let assetError: unknown;
 
   function getEncoder(): Glm53TextEncoder {
     if (assetError !== undefined) throw new Glm53TextEstimateUnsupported('asset_initialization_failed');
-    if (!encoder) {
+    if (!asset.encoder) {
       try {
         for (const token of PROJECTION_CONTROLS) {
           const added = glmTokenizerSpec.added_tokens.find(candidate => candidate.content === token);
@@ -115,43 +101,28 @@ export function createGlm53TextMeter(
             throw new Error(`Invalid Glm53 control token: ${token}`);
           }
         }
-        encoder = encoderFactory();
+        asset.encoder = encoderFactory();
       } catch (error) {
         // silent: retained as meter-local state and exposed as typed unavailable on every measure.
         assetError = error;
         throw new Glm53TextEstimateUnsupported('asset_initialization_failed');
       }
     }
-    return encoder;
+    return asset.encoder;
   }
 
   function countText(textValue: string): number {
     const controlInText = PLAIN_TEXT_CONFLICTS.find(token => textValue.includes(token));
     if (controlInText) unsupported(`control_token_in_text:${controlInText}`);
     if (!textValue) return 0;
-    const key = `${GLM53_TEXT_ASSET_REVISION}\0${GLM53_TEXT_PROJECTION_REVISION}\0${textValue}`;
-    const hit = cache.get(key);
-    if (hit !== undefined) {
-      cache.delete(key);
-      cache.set(key, hit);
-      return hit;
-    }
+    const hit = asset.textCache.read(textValue);
+    if (hit !== undefined) return hit;
     const activeEncoder = getEncoder();
     let count = 0;
     for (const chunk of textChunks(textValue)) {
       count += activeEncoder.encode(chunk, { add_special_tokens: false }).ids.length;
     }
-    const bytes = Buffer.byteLength(key, 'utf8');
-    if (bytes <= MAX_CACHE_BYTES) {
-      while (cacheBytes + bytes > MAX_CACHE_BYTES || cache.size >= MAX_CACHE_ENTRIES) {
-        const oldest = cache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        cacheBytes -= Buffer.byteLength(oldest, 'utf8');
-        cache.delete(oldest);
-      }
-      cache.set(key, count);
-      cacheBytes += bytes;
-    }
+    asset.textCache.write(textValue, count);
     return count;
   }
 
@@ -192,7 +163,7 @@ export const glm53TextInputProfile = Object.freeze({
       projection: GLM53_TEXT_PROJECTION_REVISION,
       assetRevision: GLM53_TEXT_ASSET_REVISION,
       reason: TEXT_ESTIMATE_REASON,
-      limits: Object.freeze({ supportedTools: 'none' }),
+      limits: Object.freeze({ supportedTools: 'declared' }),
     };
   },
   create(descriptor: Readonly<InputMeterDescriptor>): ModelInputMeter {

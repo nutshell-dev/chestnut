@@ -72,9 +72,7 @@ describe('Qwen local text meter', () => {
   });
 
   it.each([
-    ['tools', { messages: [{ role: 'user', content: 'hello' }], tools: [{ name: 'x', description: '', input_schema: {} }] }],
     ['non_text_content', { messages: [{ role: 'user', content: [{ type: 'image', source: { url: 'https://invalid' } }] }] }],
-    ['non_text_content', { messages: [{ role: 'assistant', content: [{ type: 'thinking', thinking: 'hidden' }] }] }],
     ['non_text_content', { messages: [{ role: 'user', content: [{ type: 'unknown', value: 'x' }] }] }],
     ['role:tool', { messages: [{ role: 'tool', content: 'result' }] }],
     ['control_token_in_text:<|im_start|>', { messages: [{ role: 'user', content: 'literal <|im_start|> text' }] }],
@@ -148,7 +146,7 @@ describe('Qwen local text meter', () => {
       method: 'qwen3.8-text',
       projection: QWEN3_8_TEXT_PROJECTION_REVISION,
       assetRevision: QWEN3_8_TEXT_ASSET_REVISION,
-      limits: { supportedTools: 'none' },
+      limits: { supportedTools: 'declared' },
     });
     const assetBytes = fs.readFileSync(new URL('../../../src/foundation/llm-provider/tokenizers/qwen3.8.tokenizer.json', import.meta.url));
     expect(createHash('sha256').update(assetBytes).digest('hex')).toBe(provenance.source.tokenizerSha256);

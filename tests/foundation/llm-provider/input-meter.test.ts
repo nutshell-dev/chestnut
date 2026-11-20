@@ -52,7 +52,7 @@ describe('resolved model input meter', () => {
       method: 'deepseek-v41-text',
       projection: 'estimate-only:no-final-wire-projection',
       effectiveMaxTokens: 8_192,
-      limits: { supportedTools: 'none' },
+      limits: { supportedTools: 'declared' },
     });
     expect(meter.descriptor.assetRevision).toContain('deepseek-recipe@0.2.0');
     expect(meter.descriptor.assetRevision).toContain('81f64d1248a68ce3663e07ab3ee48b851e5df0e32d27cb98e4c9a268151e8d99');
@@ -71,7 +71,7 @@ describe('resolved model input meter', () => {
     const meter = await createLLMProvider({ ...config, ...overrides }).prepareInputMeter();
     expect(meter.descriptor).toMatchObject({
       profile: 'deepseek-v41-text-v1', method: 'deepseek-v41-text',
-      projection: 'estimate-only:no-final-wire-projection', limits: { supportedTools: 'none' },
+      projection: 'estimate-only:no-final-wire-projection', limits: { supportedTools: 'declared' },
     });
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
       kind: 'estimated', method: 'deepseek-v41-text',
@@ -89,16 +89,15 @@ describe('resolved model input meter', () => {
     });
   });
 
-  it('keeps multimodal content on the explicitly estimated fallback', async () => {
+  it('keeps multimodal content explicitly unavailable on the fallback', async () => {
     const meter = await createLLMProvider({ ...config, catalogProvider: undefined,
       catalogModel: undefined, model: 'unknown-model' }).prepareInputMeter();
     const measurement = meter.measure({ messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
     ] }] });
-    expect(measurement).toMatchObject({
-      kind: 'estimated',
-      method: 'legacy-cl100k',
-      reason: expect.stringContaining('model=unknown-model'),
+    expect(measurement).toEqual({
+      kind: 'unavailable',
+      reason: 'legacy_cl100k_estimate_unavailable:non_text_content',
     });
   });
 

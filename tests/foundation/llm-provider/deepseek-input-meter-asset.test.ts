@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Tokenizer } from '@huggingface/tokenizers';
 
 const tokenizerAsset = vi.hoisted(() => ({
   fail: false,
@@ -19,6 +20,7 @@ vi.mock('@huggingface/tokenizers', () => ({
 
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
+import { createDeepseekV41Meter } from '../../../src/foundation/llm-provider/deepseek-v41-meter.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
 /** Offline asset fixture only needs a short, positive provider timeout. */
@@ -49,6 +51,22 @@ describe('DeepSeek V4.1 tokenizer assets and cache', () => {
     });
     expect(second).toEqual(first);
     expect(first).not.toMatchObject({ tokens: 0 });
+  });
+
+  it('reuses tokenizer initialization and exact text counts across meter views', async () => {
+    const prepared = await createLLMProvider(config).prepareInputMeter();
+    const factory = vi.fn(() => new Tokenizer({}));
+    const first = createDeepseekV41Meter(prepared.descriptor, factory);
+    const second = createDeepseekV41Meter({ ...prepared.descriptor, revision: 'other-generation' }, factory);
+    const input = { messages: [{ role: 'user' as const, content: 'shared deepseek view' }] };
+
+    const measurement = first.measure(input);
+    expect(factory).toHaveBeenCalledTimes(1);
+    const calls = tokenizerAsset.encode.mock.calls.length;
+    expect(second.measure(input)).toEqual(measurement);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(tokenizerAsset.encode).toHaveBeenCalledTimes(calls);
+    expect(second.descriptor.revision).toBe('other-generation');
   });
 
   it('evicts bounded cache entries instead of retaining every full input', async () => {

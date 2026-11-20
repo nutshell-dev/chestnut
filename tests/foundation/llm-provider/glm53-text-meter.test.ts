@@ -72,9 +72,7 @@ describe('Glm53 local text meter', () => {
   });
 
   it.each([
-    ['tools', { messages: [{ role: 'user', content: 'hello' }], tools: [{ name: 'x', description: '', input_schema: {} }] }],
     ['non_text_content', { messages: [{ role: 'user', content: [{ type: 'image', source: { url: 'https://invalid' } }] }] }],
-    ['non_text_content', { messages: [{ role: 'assistant', content: [{ type: 'thinking', thinking: 'hidden' }] }] }],
     ['non_text_content', { messages: [{ role: 'user', content: [{ type: 'unknown', value: 'x' }] }] }],
     ['role:tool', { messages: [{ role: 'tool', content: 'result' }] }],
     ['control_token_in_text:<|user|>', { messages: [{ role: 'user', content: 'literal <|user|> text' }] }],
@@ -150,7 +148,7 @@ describe('Glm53 local text meter', () => {
       method: 'glm5.3-text',
       projection: GLM53_TEXT_PROJECTION_REVISION,
       assetRevision: GLM53_TEXT_ASSET_REVISION,
-      limits: { supportedTools: 'none' },
+      limits: { supportedTools: 'declared' },
     });
     const assetBytes = fs.readFileSync(new URL('../../../src/foundation/llm-provider/tokenizers/glm53.tokenizer.json', import.meta.url));
     const assetSha256 = createHash('sha256').update(assetBytes).digest('hex');

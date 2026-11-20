@@ -23,7 +23,7 @@ export const deepseekV41InputProfile = Object.freeze({
       projection: 'estimate-only:no-final-wire-projection',
       assetRevision: DEEPSEEK_V41_ASSET_REVISION,
       reason: 'context_trim_only:deepseek_v41_text',
-      limits: Object.freeze({ supportedTools: 'none' }),
+      limits: Object.freeze({ supportedTools: 'declared' }),
     };
   },
   create(descriptor: Readonly<InputMeterDescriptor>): ModelInputMeter {

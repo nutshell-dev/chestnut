@@ -81,7 +81,6 @@ describe('Kimi K3 local text meter', () => {
   });
 
   it.each([
-    ['tools', { messages: [{ role: 'user', content: 'hello' }], tools: [{ name: 'x', description: '', input_schema: {} }] }],
     ['non_text_content', { messages: [{ role: 'user', content: [{ type: 'image', source: { url: 'https://invalid' } }] }] }],
     ['role:tool', { messages: [{ role: 'tool', content: 'result' }] }],
     ['control_token_in_text:<|open|>', { messages: [{ role: 'user', content: 'literal <|open|> text' }] }],
@@ -105,6 +104,23 @@ describe('Kimi K3 local text meter', () => {
     expect(broken.measure({ messages: [{ role: 'user', content: 'hello' }] })).toEqual(expected);
     expect(broken.measure({ messages: [{ role: 'user', content: 'hello' }] })).toEqual(expected);
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] }).kind).toBe('estimated');
+  });
+
+  it('reuses one encoder and exact text cache across descriptor-bound meter views', () => {
+    const encoder = new Tiktoken(kimiK3Bpe);
+    const factory = vi.fn(() => encoder);
+    const encodeSpy = vi.spyOn(encoder, 'encode');
+    const first = createKimiK3TextMeter(meter.descriptor, factory);
+    const second = createKimiK3TextMeter({ ...meter.descriptor, revision: 'other-config-generation' }, factory);
+    const input = { messages: [{ role: 'user' as const, content: 'shared across meter views' }] };
+
+    const measurement = first.measure(input);
+    expect(factory).toHaveBeenCalledTimes(1);
+    const calls = encodeSpy.mock.calls.length;
+    expect(second.measure(input)).toEqual(measurement);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(encodeSpy).toHaveBeenCalledTimes(calls);
+    expect(second.descriptor.revision).toBe('other-config-generation');
   });
 
   it('does not fetch, refresh credentials, or write files while measuring', () => {
@@ -147,7 +163,7 @@ describe('Kimi K3 local text meter', () => {
       method: 'kimi-k3-text',
       projection: KIMI_K3_TEXT_PROJECTION_REVISION,
       assetRevision: KIMI_K3_TEXT_ASSET_REVISION,
-      limits: { supportedTools: 'none' },
+      limits: { supportedTools: 'declared' },
     });
     expect(provenance.source.modelSha256).toBe(KIMI_K3_TEXT_ASSET_REVISION.split(':').at(-1));
   });

@@ -17,6 +17,7 @@ import {
   LEGACY_CL100K_UNSUPPORTED_REASON,
 } from './token-estimator.js';
 import type { CatalogResolution } from './catalog-strategy.js';
+import { commonInputTextSegments, CommonInputProjectionUnsupported } from './common-input-projection.js';
 import { deepseekV41InputProfile } from './deepseek-input-profile.js';
 import { kimiK3TextInputProfile } from './kimi-k3-text-meter.js';
 import { glm53TextInputProfile } from './glm53-text-meter.js';
@@ -135,6 +136,7 @@ export function createInputMeter(
     capability,
     measure(input) {
       try {
+        commonInputTextSegments(input);
         return {
           kind: 'estimated',
           method: LEGACY_CL100K_METHOD,
@@ -146,7 +148,8 @@ export function createInputMeter(
         // silent: local cl100k initialization/encoding failures become typed unavailable.
         return {
           kind: 'unavailable',
-          reason: `legacy_cl100k_estimate_unavailable:${error instanceof Error ? error.name : 'UnknownError'}`,
+          reason: `legacy_cl100k_estimate_unavailable:${error instanceof CommonInputProjectionUnsupported
+            ? error.reason : error instanceof Error ? error.name : 'UnknownError'}`,
         };
       }
     },

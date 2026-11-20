@@ -17,6 +17,7 @@ describe('LLMProvider model-family meter boundary', () => {
     for (const name of [
       'input-meter.ts', 'deepseek-input-profile.ts', 'deepseek-v41-meter.ts',
       'kimi-k3-text-meter.ts', 'qwen-text-meter.ts', 'glm53-text-meter.ts', 'pi-ai-adapter.ts',
+      'common-input-projection.ts', 'input-meter-asset.ts',
     ]) {
       const text = source(name);
       expect(text).not.toMatch(/deepseek-input-projection|buildApiKeyRequest|renderDeepseekV41/u);
@@ -24,5 +25,16 @@ describe('LLMProvider model-family meter boundary', () => {
     }
     expect(existsSync(new URL('deepseek-input-projection.ts', providerRoot))).toBe(false);
     expect(existsSync(new URL('deepseek-v41-renderer.ts', providerRoot))).toBe(false);
+  });
+
+  it('keeps common projection offline, bounded, and separate from credentials or usage', () => {
+    const projection = source('common-input-projection.ts');
+    const assets = source('input-meter-asset.ts');
+    for (const text of [projection, assets]) {
+      expect(text).not.toMatch(/ProviderUsage|apiKey|baseUrl|fetch\(|writeFile|pi-ai/u);
+    }
+    expect(projection).toMatch(/MAX_TOOLS|MAX_CONTENT_PARTS|MAX_STRUCTURED_DEPTH|maxInputBytes|maxMessages/u);
+    expect(assets).toMatch(/MAX_CACHE_BYTES|MAX_CACHE_ENTRIES|MAX_ASSET_OWNERS/u);
+    expect(assets).toContain('${profile}\\0${assetRevision}\\0${projectionRevision}');
   });
 });

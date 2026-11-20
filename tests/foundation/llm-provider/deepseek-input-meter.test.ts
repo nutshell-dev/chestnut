@@ -39,12 +39,15 @@ describe('DeepSeek V4.1 input meter', () => {
     });
   });
 
-  it('returns unavailable for tools', async () => {
+  it('coarsely estimates declared tool fields without reconstructing wire markup', async () => {
     const meter = await createLLMProvider(config).prepareInputMeter();
     expect(meter.measure({
       messages: [{ role: 'user', content: 'hello' }],
       tools: [{ name: 'server', description: '', input_schema: { type: 'object' } }],
-    })).toEqual({ kind: 'unavailable', reason: 'deepseek_v41_text_estimate_unavailable:tools' });
+    })).toEqual({
+      kind: 'estimated', method: 'deepseek-v41-text', reason: 'context_trim_only:deepseek_v41_text',
+      tokens: referenceText('hello') + referenceText('server') + referenceText('{"type":"object"}'),
+    });
   });
 
   it('returns unavailable rather than estimating unsupported multimodal content', async () => {
