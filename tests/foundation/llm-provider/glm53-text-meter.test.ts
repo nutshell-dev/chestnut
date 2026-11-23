@@ -40,6 +40,36 @@ function referenceText(text: string): number {
   return text ? referenceEncoder.encode(text, { add_special_tokens: false }).ids.length : 0;
 }
 
+function independentChunkSum(text: string): number {
+  const points = Array.from(text);
+  let total = 0;
+  for (let start = 0; start < points.length; start += 25_000) {
+    total += referenceText(points.slice(start, start + 25_000).join(''));
+  }
+  return total;
+}
+
+const TEXT_CHUNKING = {
+  unit: 'unicode-code-point',
+  maxCodePoints: 25_000,
+  scope: 'each-common-input-text-segment',
+  aggregation: 'sum-independent-encodings',
+  wholeTextEquivalence: 'not-guaranteed',
+} as const;
+
+const CHUNK_BOUNDARY_CASES = [
+  { name: 'below', text: 'a '.repeat(12_499) + 'x', codePoints: 24_999, chunkedTokens: 12_500, wholeTokens: 12_500 },
+  { name: 'at', text: 'a '.repeat(12_500), codePoints: 25_000, chunkedTokens: 12_501, wholeTokens: 12_501 },
+  { name: 'above', text: 'a '.repeat(12_500) + 'x', codePoints: 25_001, chunkedTokens: 12_502, wholeTokens: 12_501 },
+  { name: 'ascii-merge', text: 'a '.repeat(12_499) + 'hello world', codePoints: 25_009, chunkedTokens: 12_503, wholeTokens: 12_501 },
+  { name: 'cjk-merge', text: 'a '.repeat(12_499) + '中华人民共和国', codePoints: 25_005, chunkedTokens: 12_501, wholeTokens: 12_500 },
+  { name: 'whitespace-run', text: 'a '.repeat(12_499) + '    x', codePoints: 25_003, chunkedTokens: 12_502, wholeTokens: 12_501 },
+  { name: 'non-bmp-at-edge', text: 'a '.repeat(12_499) + 'x😀end', codePoints: 25_003, chunkedTokens: 12_502, wholeTokens: 12_502 },
+  { name: 'zwj-cross-edge', text: 'a '.repeat(12_499) + '👨\u200d👩\u200d👧\u200d👦end', codePoints: 25_008, chunkedTokens: 12_508, wholeTokens: 12_508 },
+  { name: 'combining-cross-edge', text: 'a '.repeat(12_499) + 'xe\u0301end', codePoints: 25_004, chunkedTokens: 12_502, wholeTokens: 12_502 },
+  { name: 'multiple-chunks', text: 'a '.repeat(24_999) + 'hello world', codePoints: 50_009, chunkedTokens: 25_004, wholeTokens: 25_001 },
+] as const;
+
 function estimatedTokens(input: CompleteInput): number {
   const result = meter.measure(input);
   expect(result).toMatchObject({
@@ -173,6 +203,62 @@ describe('Glm53 local text meter', () => {
       '<|user|>': 154827,
       '<|assistant|>': 154828,
     });
+  });
+
+  it('declares the bounded chunk approximation in runtime provenance', () => {
+    expect(provenance.runtime.textChunking).toEqual(TEXT_CHUNKING);
+  });
+
+  it.each(CHUNK_BOUNDARY_CASES)('matches the independent real-BPE chunk sum for $name', fixture => {
+    const points = Array.from(fixture.text);
+    expect(points).toHaveLength(fixture.codePoints);
+    const chunks: string[] = [];
+    for (let start = 0; start < points.length; start += 25_000) {
+      chunks.push(points.slice(start, start + 25_000).join(''));
+    }
+    expect(chunks.join('')).toBe(fixture.text);
+    for (const chunk of chunks) {
+      expect(/^[\uD800-\uDBFF]$/u.test(chunk.at(-1) ?? '')).toBe(false);
+      expect(/^[\uDC00-\uDFFF]$/u.test(chunk.at(0) ?? '')).toBe(false);
+    }
+
+    const chunked = independentChunkSum(fixture.text);
+    const whole = referenceText(fixture.text);
+    expect(chunked).toBe(fixture.chunkedTokens);
+    expect(whole).toBe(fixture.wholeTokens);
+    if (fixture.codePoints <= 25_000) expect(chunked).toBe(whole);
+
+    const input = { messages: [{ role: 'user' as const, content: fixture.text }] };
+    const result = meter.measure(input);
+    expect(result).toMatchObject({
+      kind: 'estimated', method: 'glm5.3-text',
+      reason: 'context_trim_only:glm53_text', tokens: chunked,
+    });
+    expect(meter.measure(input)).toEqual(result);
+  });
+
+  it('restarts chunk boundaries for each common-input message segment', () => {
+    const first = 'a '.repeat(12_500);
+    const second = 'x';
+    const expected = independentChunkSum(first) + independentChunkSum(second);
+    expect(expected).not.toBe(referenceText(first + second));
+    const input = { messages: [
+      { role: 'user' as const, content: first },
+      { role: 'assistant' as const, content: second },
+    ] };
+    const result = meter.measure(input);
+    expect(result).toMatchObject({ kind: 'estimated', tokens: expected });
+    expect(meter.measure(input)).toEqual(result);
+  });
+
+  it('rejects a control token spanning an artificial chunk boundary', () => {
+    const input = { messages: [{ role: 'user' as const, content: 'a '.repeat(12_499) + '<|user|>' + 'tail' }] };
+    const result = meter.measure(input);
+    expect(result).toEqual({
+      kind: 'unavailable',
+      reason: 'glm53_text_estimate_unavailable:control_token_in_text:<|user|>',
+    });
+    expect(result).not.toHaveProperty('tokens');
   });
 
   it('evicts oversized bounded-cache entries and never splits Unicode code points', () => {

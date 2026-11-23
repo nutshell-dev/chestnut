@@ -114,5 +114,13 @@ One asset covers GLM model family names as a **model-family approximation**,
 independent of provider, API protocol, wire model, or endpoint. GLM-4.x and
 GLM-5.x vocabularies differ, so results remain **`estimated`** for context
 trimming and never become post-call `ProviderUsage`. Runtime downloads, remote
-token APIs, and final-wire projections are prohibited. The upstream
-[GLM-5.3 License](LICENSE.glm53) notice is preserved with the asset.
+token APIs, and final-wire projections are prohibited.
+
+Each common-input text segment is encoded independently in chunks of at most
+25,000 Unicode code points, and the chunk counts are summed. Splitting preserves
+every code point and its order without normalization: valid surrogate pairs stay
+intact, although grapheme clusters may cross a boundary. Tokenizer merges and
+pre-tokenization cannot cross these artificial boundaries, so whole-text
+equivalence and any error bound are not guaranteed; results never represent
+provider usage. The upstream [GLM-5.3 License](LICENSE.glm53) notice is
+preserved with the asset.
