@@ -138,8 +138,11 @@ const startDeps = () => ({
     patchPrimary: vi.fn(),
     // Phase 1911 Step D：typed 初始化状态面（本测试治监督边界，非 init 协议，
     // mock 保持「config 在 = ready」的旧语义）
-    getInitializationState: () =>
-      fs.existsSync(path.join(h.workspaceRoot, '.chestnut', 'config.yaml')) ? 'ready' as const : 'absent' as const,
+    inspectInitialization: () => ({
+      state: fs.existsSync(path.join(h.workspaceRoot, '.chestnut', 'config.yaml'))
+        ? 'ready' as const
+        : 'absent' as const,
+    }),
     completeInitialization: vi.fn(),
   },
 });

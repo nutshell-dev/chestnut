@@ -353,6 +353,7 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/foundation/messaging/claim-reference.integration.test.ts',
   // Phase 2116 Step C: real directory-import capture, live rejection and exit recovery
   'tests/cli/claw-import-process-reference.integration.test.ts',
+  'tests/cli/config-repair-missing-credentials.integration.test.ts',
 ];
 
 /**

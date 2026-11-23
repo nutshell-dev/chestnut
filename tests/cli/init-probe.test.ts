@@ -55,6 +55,13 @@ const MOCK_LABELS: Record<string, string> = {
   unknown: 'Unrecognized provider error',
 };
 
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: connMock.probeLLMConnection,
+  LLM_ERROR_LABELS: MOCK_LABELS,
+  LLM_ERROR_HINTS: { model: 'Check that model name matches provider docs exactly.' },
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
+}));
+
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: connMock.probeLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,

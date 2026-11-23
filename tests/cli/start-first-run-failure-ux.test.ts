@@ -66,6 +66,13 @@ const conn = vi.hoisted(() => ({
   checkLLMConnectionFor: vi.fn(async (provider: { model: string }) => ({ ok: true, model: provider.model })),
 }));
 
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: conn.probeLLMConnection,
+  LLM_ERROR_LABELS: MOCK_LABELS,
+  LLM_ERROR_HINTS: {},
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
+}));
+
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: conn.probeLLMConnection,
   checkLLMConnectionFor: conn.checkLLMConnectionFor,

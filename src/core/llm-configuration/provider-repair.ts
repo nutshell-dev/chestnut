@@ -82,10 +82,11 @@ export function snapshotLLMProviderDraft(
     ...expanded,
     ...(options.timeoutMs !== undefined ? { timeout_ms: options.timeoutMs } : {}),
   });
+  const circuitBreaker = { failure_threshold: 3, reset_timeout_ms: 60_000 } as const;
   const snapshot = snapshotLLMConfigInput(
-    { llm: { primary: provider } },
+    { llm: { primary: provider, circuit_breaker: circuitBreaker } },
     {
-      resolvedInput: { llm: { primary: resolvedProvider } },
+      resolvedInput: { llm: { primary: resolvedProvider, circuit_breaker: circuitBreaker } },
       credentials: createAuthenticationCapability(deps),
       credentialSources,
       credentialFacts,

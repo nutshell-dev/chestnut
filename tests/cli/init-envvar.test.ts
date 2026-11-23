@@ -33,6 +33,14 @@ vi.mock('readline', () => ({
   createInterface: vi.fn(() => mockRl),
 }));
 
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
+    ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }),
+  LLM_ERROR_LABELS: {},
+  LLM_ERROR_HINTS: {},
+  classifyLLMErrorForDisplay: () => 'unknown',
+}));
+
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
     ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }),

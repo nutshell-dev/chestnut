@@ -8,6 +8,12 @@ import { createLLMConfiguration } from '../../src/core/llm-configuration/index.j
 import { LAUNCHER_SETUP_PROTOCOL, parseLauncherSetupRequest } from '../../src/cli-protocol/launcher-setup.js';
 
 const probe = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: probe.fn,
+  classifyLLMErrorForDisplay: vi.fn(() => 'unknown'),
+  LLM_ERROR_LABELS: {},
+  LLM_ERROR_HINTS: {},
+}));
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: probe.fn,
   checkLLMConnectionFor: vi.fn(),
