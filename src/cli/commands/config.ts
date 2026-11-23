@@ -8,10 +8,11 @@ import { Command } from 'commander';
 import type { RootConfigAdmin } from '../../assembly/index.js';
 import type {
   LLMConfigurationAdmin,
-  LLMGlobalConfigView,
+  LLMRawConfigView,
 } from '../../core/llm-configuration/index.js';
 import {
   createAuthenticationCapability,
+  LLMConfigurationCredentialUnavailableError,
   createLLMNotificationStore,
   classifyApiKeyConfigValue,
   runLLMSetupWorkflow,
@@ -50,7 +51,7 @@ import {
   SETUP_PROBE_FAILED_NOT_SAVED,
   setupConnectingLine,
 } from '../../templates/messages/index.js';
-import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
+import { promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 2206 Step C：明文 key 不落 root config —— 经 Credentials owner 落 workspace 凭据文件、配置写 `${REF}`。
 import {
   discardCreatedCredentials,
@@ -94,6 +95,20 @@ function reportDegradedConfigWrite(target: string, write: AtomicWriteResult): vo
   if (write.kind === 'durable') return;
   const errorSummary = formatErr(write.error).replace(/\s+/g, ' ').trim().slice(0, 240);
   console.error(`⚠ ${target} committed with degraded durability (kind=${write.kind}): ${errorSummary}`);
+}
+
+function reportRuntimeReadiness(deps: ConfigCommandDeps): void {
+  try {
+    deps.llmConfiguration.store.readSnapshot();
+  } catch (error) {
+    if (error instanceof LLMConfigurationCredentialUnavailableError) {
+      console.error(
+        `⚠ Configuration saved, but LLM runtime is not ready: credential unavailable (${error.ref}).`,
+      );
+      return;
+    }
+    console.error(`⚠ Configuration saved, but runtime readiness check failed: ${formatErr(error)}`);
+  }
 }
 
 /**
@@ -188,7 +203,7 @@ export async function notifyRunningDaemons(
 
 function emitProviderAmbiguityAudit(
   audit: AuditLog,
-  config: LLMGlobalConfigView,
+  config: LLMRawConfigView,
   resolution: Extract<ProviderReferenceResolution, { kind: 'ambiguous_provider_reference' }>,
 ): void {
   audit.write(
@@ -204,7 +219,7 @@ function emitProviderAmbiguityAudit(
 }
 
 function requireProviderReference(
-  config: LLMGlobalConfigView,
+  config: LLMRawConfigView,
   reference: string,
   notFoundMessage = `Provider "${reference}" not found`,
   audit?: AuditLog,
@@ -241,7 +256,7 @@ interface ProviderMutationGuard {
 }
 
 function captureProviderMutationGuard(
-  config: LLMGlobalConfigView,
+  config: LLMRawConfigView,
   found: ResolvedProviderReference,
 ): ProviderMutationGuard {
   if (config.revision === undefined) throw new ProviderTargetDriftError();
@@ -252,7 +267,7 @@ function captureProviderMutationGuard(
 }
 
 function requireStableProviderReference(
-  fresh: LLMGlobalConfigView,
+  fresh: LLMRawConfigView,
   reference: string,
   expected: ProviderMutationGuard,
   audit: AuditLog,
@@ -285,7 +300,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   const rl = createRL();
   const created: StoredCredential[] = [];
   // A provider-add credential belongs to this new entry, not to another label/method.
@@ -427,6 +442,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     setupAudit.write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     await notifyRunningDaemons(deps, 'add', outcome.commit.revision);
     console.log(`✓ ${outcome.verified.model}`);
+    reportRuntimeReadiness(deps);
 
   } finally {
     if (!committed && !commitAttempted) await discardCreatedCredentials(deps, created);
@@ -485,7 +501,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   
   const found = requireProviderReference(config, label, undefined, configAudit(deps));
   if (found.candidate.role === 'primary') {
@@ -521,7 +537,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   
   const found = requireProviderReference(config, label, undefined, configAudit(deps));
   if (found.candidate.role === 'primary') {
@@ -573,7 +589,10 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
 
   // phase 451: 改 primary 必 probe
   console.log('\nTesting new primary connection...');
-  const probe = await checkLLMConnection(deps);
+  const probe = await makeLLMSetupWorkflowProbe(deps)(
+    { provider: deps.llmConfiguration.store.read().primary },
+    { kind: 'direct' },
+  );
   if (probe.ok) {
     console.log(`✓ ${probe.model}`);
   } else {
@@ -599,7 +618,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   
   const found = requireProviderReference(config, label, undefined, configAudit(deps));
   if (found.candidate.role === 'primary') {
@@ -652,7 +671,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
  * Phase 1926 Step D：provider 登录/登出（pi-ai 原生 login 流）。
  * label → config 里的 canonical provider（primary/fallback）→ login metadata；
  * --type 缺省取 provider 首选（oauth 优先，其次 api_key 交互登录）。
- * loadGlobal 先执行（Credentials owner backend 注册同点，见 config-load.ts）。
+ * Raw target selection does not require the current login credential to exist.
  */
 function loginMetadataForEntry(entry: ReturnType<typeof providerEntryFor>) {
   const providerId = entry.provider_id;
@@ -667,7 +686,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   const hit = requireProviderReference(
     config,
     label,
@@ -722,7 +741,7 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.loadRaw();
   const hit = requireProviderReference(
     config,
     label,
@@ -756,7 +775,7 @@ interface ConfigCommandDeps {
   rootConfig: Pick<RootConfigAdmin, 'migrateLLMConfiguration'>;
   llmConfiguration: Pick<
     LLMConfigurationAdmin,
-    'loadGlobal' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision' |
+    'loadGlobal' | 'loadRaw' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision' |
     'migrateLegacyApiKeys' | 'store'
   >;
 }
@@ -785,25 +804,25 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
   const providerCmd = shapeCommand(new Command('provider'), configSpec('config/provider'));
 
   shapeCommand(providerCmd.command('add'), configSpec('config/provider/add'))
-    .action(action('required', () => providerAdd(deps)));
+    .action(action('disabled', () => providerAdd(deps)));
 
   shapeCommand(providerCmd.command('list'), configSpec('config/provider/list'))
     .action(action('observe_only', () => providerList(deps)));
 
   shapeCommand(providerCmd.command('remove <label>'), configSpec('config/provider/remove'))
-    .action(action('required', (label: string) => providerRemove(deps, label)));
+    .action(action('disabled', (label: string) => providerRemove(deps, label)));
 
   shapeCommand(providerCmd.command('set-primary <label>'), configSpec('config/provider/set-primary'))
-    .action(action('required', (label: string) => providerSetPrimary(deps, label)));
+    .action(action('disabled', (label: string) => providerSetPrimary(deps, label)));
 
   shapeCommand(providerCmd.command('move <label> <position>'), configSpec('config/provider/move'))
-    .action(action('required', (label: string, position: string) => providerMove(deps, label, position)));
+    .action(action('disabled', (label: string, position: string) => providerMove(deps, label, position)));
 
   shapeCommand(providerCmd.command('login <label>'), configSpec('config/provider/login'))
-    .action(action('required', (label: string, opts: { type?: string }) => providerLogin(deps, label, opts)));
+    .action(action('disabled', (label: string, opts: { type?: string }) => providerLogin(deps, label, opts)));
 
   shapeCommand(providerCmd.command('logout <label>'), configSpec('config/provider/logout'))
-    .action(action('required', (label: string) => providerLogout(deps, label)));
+    .action(action('disabled', (label: string) => providerLogout(deps, label)));
 
   configCommand.addCommand(providerCmd);
   return configCommand;

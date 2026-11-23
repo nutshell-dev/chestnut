@@ -36,9 +36,12 @@ vi.mock('readline', () => ({ createInterface: vi.fn(() => mockRl) }));
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
+  probeLLMConnection: connMock.checkLLMConnectionFor,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
   LLM_ERROR_HINTS: {},
+  LLM_ERROR_LABELS: {},
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 vi.mock('../../src/watchdog/ensure.js', () => ({
   ensureWatchdog: vi.fn().mockResolvedValue(undefined),
@@ -129,7 +132,7 @@ beforeEach(() => {
   });
   rlAnswers.queue = [];
   connMock.checkLLMConnection.mockReset();
-  connMock.checkLLMConnectionFor.mockReset();
+  connMock.checkLLMConnectionFor.mockReset().mockResolvedValue({ ok: true, model: 'probe-model' });
   connMock.promptReconfigure.mockReset();
   mockRl.question.mockClear();
   mockRl.close.mockClear();
@@ -475,7 +478,7 @@ fallbacks:
     expect(logLines.join('\n')).toContain(
       '✓ Provider (label="(no label)" label_state=missing role=primary match=provider_id) is now primary',
     );
-    expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
   });
 
   it('move reports the actual target and preserves the resolved entry', async () => {
@@ -539,9 +542,9 @@ fallbacks:
     model: last-model
     base_url: https://last.test
 `);
-    let committed: ReturnType<typeof configDeps.llmConfiguration.loadGlobal> | undefined;
+    let committed: ReturnType<typeof configDeps.llmConfiguration.loadRaw> | undefined;
     vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockImplementation(async mutator => {
-      const fresh = configDeps.llmConfiguration.loadGlobal();
+      const fresh = configDeps.llmConfiguration.loadRaw();
       fresh.llm.fallbacks!.splice(1, 1);
       mutator(fresh);
       committed = fresh;

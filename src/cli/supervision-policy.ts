@@ -8,7 +8,7 @@
  * Policy 语义（冻结）：
  * - required:      已初始化工作区的普通业务 action，action 前调用 ensureWatchdog
  * - observe_only:  纯状态/审计查询，读取存活状态但不启动
- * - disabled:      init / stop 等命令，不恢复 Watchdog
+ * - disabled:      init / stop / 配置管理等不依赖运行时存活的命令，不恢复 Watchdog
  * - internal:      daemon / watchdog 子进程入口，禁止递归 ensure
  *
  * phase 1280：兼具 bootstrap 与业务语义的复合命令（`start`）不走 required，

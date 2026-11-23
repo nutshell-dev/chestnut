@@ -45,6 +45,7 @@ const { connMock } = vi.hoisted(() => ({
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
+  probeLLMConnection: connMock.checkLLMConnectionFor,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
   LLM_ERROR_LABELS: {
@@ -123,13 +124,13 @@ describe('config provider set-primary — probe', () => {
   afterEach(() => teardownTempDir());
 
   it('swaps primary and probes the new primary on success', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-4o' });
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'gpt-4o' });
     rlAnswers.queue = ['y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'set-primary', 'my-openai']);
 
-    expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
 
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.provider_id).toBe('openai');
@@ -147,14 +148,14 @@ describe('config provider set-primary — probe', () => {
   });
 
   it('new primary probe fails auth → enters reconfigure', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'openai' });
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'openai' });
     connMock.promptReconfigure.mockResolvedValue(undefined);
     rlAnswers.queue = ['y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'set-primary', 'my-openai']);
 
-    expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     expect(connMock.promptReconfigure).toHaveBeenCalledOnce();
     expect(connMock.promptReconfigure).toHaveBeenCalledWith(
       expect.anything(),
