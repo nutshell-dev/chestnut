@@ -33,7 +33,7 @@
  */
 
 import { existsSync, statSync, readdirSync, rmSync } from 'node:fs';
-import * as fs from 'node:fs';
+import fs from 'node:fs';
 import { spawnSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -81,6 +81,17 @@ function runBuild(cwd: string, reason: string): void {
 
 const RUN_ROOT_PREFIX = 'chestnut-run-';
 const STALE_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const RESOURCE_FAILURE_MARKER = 'test-resource-failures.jsonl';
+
+function hasResourceFailureMarker(runRoot: string): boolean {
+  try {
+    fs.lstatSync(path.join(runRoot, RESOURCE_FAILURE_MARKER));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
 
 export interface RunManifest {
   invocationId: string;
@@ -120,7 +131,7 @@ function createRunRoot(): RunManifest {
   return manifest;
 }
 
-function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): void {
+export function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): void {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(hostTmpdir, { withFileTypes: true });
@@ -148,6 +159,17 @@ function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): 
 
     // 核 owner 是否存活 + 过期
     if (isOwnerAlive(manifest) || !isRunRootStale(runPath)) continue;
+
+    // 未解决的资源失败证据不能被后续运行按年龄回收；检查异常同样保守保留。
+    try {
+      if (hasResourceFailureMarker(runPath)) {
+        process.stderr.write(`[vitest-globalSetup] preserving resource-failure run root: ${runPath}\n`);
+        continue;
+      }
+    } catch (err) {
+      process.stderr.write(`[vitest-globalSetup] cannot inspect resource-failure marker; preserving ${runPath}: ${err}\n`);
+      continue;
+    }
 
     // 回收
     try {
@@ -222,8 +244,18 @@ function isRunRootStale(runPath: string): boolean {
 
 export function createRunRootTeardown(manifest: RunManifest): () => Promise<void> {
   return async function teardown() {
-    const failureMarker = path.join(manifest.runRoot, 'test-resource-failures.jsonl');
-    if (existsSync(failureMarker)) {
+    const failureMarker = path.join(manifest.runRoot, RESOURCE_FAILURE_MARKER);
+    let hasFailureMarker: boolean;
+    try {
+      hasFailureMarker = hasResourceFailureMarker(manifest.runRoot);
+    } catch (err) {
+      throw new Error(
+        `[vitest-teardown] Failed to inspect resource failure marker ${failureMarker}; ` +
+        `preserving run root ${manifest.runRoot}: ${err}`,
+        { cause: err },
+      );
+    }
+    if (hasFailureMarker) {
       throw new Error(
         `[vitest-teardown] Unconfirmed child process resources recorded at ${failureMarker}; ` +
         `preserving run root: ${manifest.runRoot}`,
