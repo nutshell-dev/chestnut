@@ -38,6 +38,7 @@ import { spawnSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { inspectRetention, RETENTION_RECORD_FILENAME } from '../tests/utils/resource-retention.js';
 
 // 在重定向 TMPDIR 前保存真实系统 tmpdir，供 teardown/reclaim 使用。
 // watch 热重载时复用首次捕获的 CHESTNUT_HOST_TMPDIR，防止二次重定向到 run root。
@@ -81,18 +82,6 @@ function runBuild(cwd: string, reason: string): void {
 
 const RUN_ROOT_PREFIX = 'chestnut-run-';
 const STALE_AGE_MS = 10 * 60 * 1000; // 10 minutes
-const RESOURCE_FAILURE_MARKER = 'test-resource-failures.jsonl';
-
-function hasResourceFailureMarker(runRoot: string): boolean {
-  try {
-    fs.lstatSync(path.join(runRoot, RESOURCE_FAILURE_MARKER));
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
 export interface RunManifest {
   invocationId: string;
   pid: number;
@@ -161,13 +150,16 @@ export function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: st
     if (isOwnerAlive(manifest) || !isRunRootStale(runPath)) continue;
 
     // 未解决的资源失败证据不能被后续运行按年龄回收；检查异常同样保守保留。
-    try {
-      if (hasResourceFailureMarker(runPath)) {
-        process.stderr.write(`[vitest-globalSetup] preserving resource-failure run root: ${runPath}\n`);
-        continue;
-      }
-    } catch (err) {
-      process.stderr.write(`[vitest-globalSetup] cannot inspect resource-failure marker; preserving ${runPath}: ${err}\n`);
+    const retention = inspectRetention(runPath);
+    if (retention.kind === 'preserve') {
+      process.stderr.write(
+        `[vitest-globalSetup] preserving resource-failure run root: ${runPath} ` +
+        `scopes=${retention.scopeIds.join(',') || 'legacy'} reasons=${retention.reasons.join(',')}\n`,
+      );
+      continue;
+    }
+    if (retention.kind === 'indeterminate') {
+      process.stderr.write(`[vitest-globalSetup] cannot inspect retention; preserving ${runPath}: ${retention.error}\n`);
       continue;
     }
 
@@ -244,21 +236,20 @@ function isRunRootStale(runPath: string): boolean {
 
 export function createRunRootTeardown(manifest: RunManifest): () => Promise<void> {
   return async function teardown() {
-    const failureMarker = path.join(manifest.runRoot, RESOURCE_FAILURE_MARKER);
-    let hasFailureMarker: boolean;
-    try {
-      hasFailureMarker = hasResourceFailureMarker(manifest.runRoot);
-    } catch (err) {
+    const failureMarker = path.join(manifest.runRoot, RETENTION_RECORD_FILENAME);
+    const retention = inspectRetention(manifest.runRoot);
+    if (retention.kind === 'indeterminate') {
       throw new Error(
-        `[vitest-teardown] Failed to inspect resource failure marker ${failureMarker}; ` +
-        `preserving run root ${manifest.runRoot}: ${err}`,
-        { cause: err },
+        `[vitest-teardown] Failed to inspect retention ${failureMarker}; ` +
+        `preserving run root ${manifest.runRoot}: ${retention.error}`,
+        { cause: retention.error },
       );
     }
-    if (hasFailureMarker) {
+    if (retention.kind === 'preserve') {
       throw new Error(
-        `[vitest-teardown] Unconfirmed child process resources recorded at ${failureMarker}; ` +
-        `preserving run root: ${manifest.runRoot}`,
+        `[vitest-teardown] Resource retention requires preserving run root ${manifest.runRoot}; ` +
+        `record=${failureMarker} scopes=${retention.scopeIds.join(',') || 'legacy'} ` +
+        `reasons=${retention.reasons.join(',')}`,
       );
     }
 

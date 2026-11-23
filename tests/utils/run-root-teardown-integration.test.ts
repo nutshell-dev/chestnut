@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getHostTmpDir } from './run-root.js';
+import { beginRetentionScope } from './resource-retention.js';
 
 function createSandbox(): string {
   // 优先放在当前 invocation 的 run root 下，使异常中断时能被 teardown/reclaim 回收
@@ -86,6 +87,14 @@ describe('run-root teardown integration', () => {
     expect(exitedOwner.status).toBe(0);
     const marked = createHistoricalRunRoot(sandbox, 'marked-history', exitedOwner.pid, true);
     const unmarked = createHistoricalRunRoot(sandbox, 'unmarked-history', exitedOwner.pid, false);
+    const completed = createHistoricalRunRoot(sandbox, 'completed-history', exitedOwner.pid, false);
+    beginRetentionScope({
+      runRoot: completed.root,
+      protectedPaths: [completed.fixturePath],
+      label: 'completed integration history',
+    }).complete();
+    const staleCompleted = new Date(Date.now() - RECLAIM_STALE_FIXTURE_AGE_MS);
+    fs.utimesSync(completed.root, staleCompleted, staleCompleted);
     const markerBytes = fs.readFileSync(marked.markerPath);
     const fixtureBytes = fs.readFileSync(marked.fixturePath);
     try {
@@ -98,6 +107,7 @@ describe('run-root teardown integration', () => {
         expect(fs.readFileSync(marked.markerPath)).toEqual(markerBytes);
         expect(fs.readFileSync(marked.fixturePath)).toEqual(fixtureBytes);
         expect(fs.existsSync(unmarked.root)).toBe(false);
+        expect(fs.existsSync(completed.root)).toBe(false);
       }
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true });

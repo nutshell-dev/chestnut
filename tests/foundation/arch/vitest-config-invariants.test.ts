@@ -491,6 +491,7 @@ describe('vitest project collection conservation invariant (phase 2217)', () => 
   };
 
   const EXPECTED_RESOURCE_FILES = [
+    'tests/utils/resource-retention.test.ts',
     'tests/cli/program-top-level-help-claw-term.test.ts',
     'tests/cli/dispatch-skill-command.test.ts',
     'tests/cli/skill-install-version.test.ts',
@@ -545,6 +546,7 @@ describe('vitest project collection conservation invariant (phase 2217)', () => 
       RESOURCE_FILES?: string[];
     };
     expect(mod.RESOURCE_FILES).toEqual(EXPECTED_RESOURCE_FILES);
+    expect(fs.existsSync(path.join(repoRoot, 'tests/fixtures/resource-retention-child.mjs'))).toBe(true);
 
     const rootExclude = mod.default?.test?.exclude ?? [];
     const projects = mod.default?.test?.projects ?? [];

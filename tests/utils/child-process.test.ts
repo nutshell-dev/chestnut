@@ -11,7 +11,8 @@ import {
   withCleanupPreservingError,
 } from './child-process.js';
 import { getRunRoot } from './run-root.js';
-import { createTrackedTempDir, cleanupTempDir } from './temp.js';
+import { createTrackedTempDir, cleanupTempDir, untrackTempDir } from './temp.js';
+import { inspectRetention } from './resource-retention.js';
 
 const CHILD_TIMEOUT_MS = 100;
 const CHILD_KILL_GRACE_MS = 100;
@@ -362,16 +363,15 @@ describe('test child process lifecycle', () => {
     expect(failure.details.errors).toHaveLength(1);
   });
 
-  it('aggregates the primary timeout with evidence recording failure and reaps the owned child', async () => {
+  it('fails retention begin before spawn and never starts the protected operation', async () => {
     const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
     const missingRunRoot = path.join(getRunRoot()!, `missing-run-root-${randomUUID()}`);
+    const handshake = path.join(getRunRoot()!, `unexpected-spawn-${randomUUID()}`);
     process.env.CHESTNUT_RUN_ROOT = missingRunRoot;
-    vi.spyOn(ChildProcess.prototype, 'kill').mockReturnValue(false);
-    let childPid: number | undefined;
     try {
       const failure = await captureFailure(runChildProcess(
         process.execPath,
-        ['-e', `setInterval(() => {}, ${KEEP_ALIVE_INTERVAL_MS})`],
+        ['-e', `require('node:fs').writeFileSync(${JSON.stringify(handshake)}, 'started')`],
         {
           timeoutMs: CHILD_TIMEOUT_MS,
           killGraceMs: CHILD_KILL_GRACE_MS,
@@ -379,27 +379,17 @@ describe('test child process lifecycle', () => {
         },
       ));
 
-      if (failure instanceof AggregateError && failure.errors[0] instanceof ChildProcessTimeoutError) {
-        childPid = failure.errors[0].details.pid;
-      }
-      expect(failure).toBeInstanceOf(AggregateError);
-      if (!(failure instanceof AggregateError)) throw new Error('expected AggregateError');
-      expect(failure.errors[0]).toBeInstanceOf(ChildProcessTimeoutError);
-      const primary = failure.errors[0] as ChildProcessTimeoutError;
-      expect(primary.details.directChild).toEqual({ state: 'unconfirmed' });
-      expect(primary.details.stdio).toBe('detached');
-      expect(primary.details.resourceEvidence).toEqual({
-        state: 'failed',
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain('Cannot begin direct-child retention before spawn');
+      expect((failure as Error).cause).toMatchObject({
+        name: 'RetentionWriteError',
+        publication: 'not_published',
         path: path.join(missingRunRoot, 'test-resource-failures.jsonl'),
       });
-      expect(failure.errors.length).toBeGreaterThan(1);
-      expect(failure.cause).toBe(primary);
+      expect(fs.existsSync(handshake)).toBe(false);
     } finally {
-      vi.restoreAllMocks();
       if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
       else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
-      if (childPid && isOwnedProcessAlive(childPid)) process.kill(childPid, 'SIGKILL');
-      if (childPid) await waitForOwnedProcessExit(childPid);
     }
   });
 
@@ -477,6 +467,10 @@ describe('test child process lifecycle', () => {
       });
       expect(fs.existsSync(fixtureDir)).toBe(true);
       expect(fs.existsSync(path.join(evidenceRoot, 'test-resource-failures.jsonl'))).toBe(true);
+      expect(inspectRetention(evidenceRoot)).toMatchObject({
+        kind: 'preserve',
+        reasons: ['unconfirmed_direct_child'],
+      });
     } finally {
       vi.restoreAllMocks();
       if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
@@ -484,7 +478,8 @@ describe('test child process lifecycle', () => {
       if (childPid && isOwnedProcessAlive(childPid)) process.kill(childPid, 'SIGKILL');
       if (childPid) await waitForOwnedProcessExit(childPid);
       await cleanupTempDir(fixtureDir);
-      await cleanupTempDir(evidenceRoot);
+      fs.rmSync(evidenceRoot, { recursive: true, force: true });
+      untrackTempDir(evidenceRoot);
     }
   });
 

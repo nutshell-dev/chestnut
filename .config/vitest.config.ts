@@ -330,6 +330,7 @@ const VI_GLOBALS_FILES: string[] = [];
  * migration list, not a claim that every other filesystem test is lightweight.
  */
 const RESOURCE_FILES = [
+  'tests/utils/resource-retention.test.ts',
   'tests/cli/program-top-level-help-claw-term.test.ts',
   'tests/cli/dispatch-skill-command.test.ts',
   'tests/cli/skill-install-version.test.ts',
@@ -346,6 +347,7 @@ const RESOURCE_FILES = [
  * These run in a dedicated vitest project with isolate:true and limited concurrency.
  */
 const INTEGRATION_PROCESS_FILES = [
+  'tests/utils/resource-retention.integration.test.ts',
   'tests/cli/launcher-motion-access.test.ts',
   'tests/cli/workspace-motion-access.test.ts',
   'tests/cli/watchdog-motion-access.test.ts',

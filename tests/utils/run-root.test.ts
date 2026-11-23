@@ -9,6 +9,7 @@ import {
 import type { RunManifest } from '../../.config/vitest-global-setup.js';
 import { getRunRoot, getRunSubDir, getHostTmpDir } from './run-root.js';
 import { createTrackedTempDir, cleanupTempDir } from './temp.js';
+import { beginRetentionScope } from './resource-retention.js';
 
 const RESOURCE_FAILURE_MARKER = 'test-resource-failures.jsonl';
 const RECLAIM_STALE_FIXTURE_AGE_MS = 11 * 60 * 1000;
@@ -132,7 +133,7 @@ describe('run-root utils', () => {
       try {
         await withKeepTestTmp(keep, async () => {
           await expect(createRunRootTeardown(createManifest(runRoot))()).rejects.toThrow(
-            /Unconfirmed child process resources.*preserving run root/,
+            /Resource retention requires preserving run root.*unconfirmed-direct-child/,
           );
         });
         expect(fs.existsSync(runRoot)).toBe(true);
@@ -163,7 +164,7 @@ describe('run-root utils', () => {
     async keep => {
       const runRoot = await createTrackedTempDir('marker-inspection-error-run-root-');
       const inspectionError = Object.assign(new Error('injected marker EIO'), { code: 'EIO' });
-      const lstatSpy = vi.spyOn(fs, 'lstatSync').mockImplementationOnce(() => {
+      const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => {
         throw inspectionError;
       });
       try {
@@ -174,13 +175,13 @@ describe('run-root utils', () => {
           ));
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toMatch(
-          /Failed to inspect resource failure marker.*preserving run root/,
+          /Failed to inspect retention.*preserving run root/,
         );
         expect((error as Error).cause).toBe(inspectionError);
-        expect(lstatSpy).toHaveBeenCalledWith(path.join(runRoot, RESOURCE_FAILURE_MARKER));
+        expect(readSpy).toHaveBeenCalledWith(path.join(runRoot, RESOURCE_FAILURE_MARKER), 'utf8');
         expect(fs.existsSync(runRoot)).toBe(true);
       } finally {
-        lstatSpy.mockRestore();
+        readSpy.mockRestore();
         await cleanupTempDir(runRoot);
       }
     },
@@ -228,6 +229,32 @@ describe('run-root utils', () => {
     });
   });
 
+  it('teardown and reclaim release an all-completed scope stream', async () => {
+    const runRoot = await createTrackedTempDir('completed-run-root-');
+    const scope = beginRetentionScope({
+      runRoot,
+      protectedPaths: [path.join(runRoot, 'fixture')],
+      label: 'completed unit scope',
+    });
+    scope.complete();
+    await withKeepTestTmp(false, () =>
+      expect(createRunRootTeardown(createManifest(runRoot))()).resolves.toBeUndefined());
+    expect(fs.existsSync(runRoot)).toBe(false);
+    await cleanupTempDir(runRoot);
+
+    return withReclaimHost('completed-history', (hostTmpdir, fixture) => {
+      const historical = beginRetentionScope({
+        runRoot: fixture.runRoot,
+        protectedPaths: [fixture.fixturePath],
+        label: 'completed historical scope',
+      });
+      historical.complete();
+      makeRunRootStale(fixture.runRoot);
+      reclaimStaleRunRoots(hostTmpdir, CURRENT_INVOCATION_ID);
+      expect(fs.existsSync(fixture.runRoot)).toBe(false);
+    });
+  });
+
   it('reclaim removes a stale dead-owner root when the marker is absent', () => {
     return withReclaimHost('unmarked', (hostTmpdir, fixture) => {
       makeRunRootStale(fixture.runRoot);
@@ -242,17 +269,18 @@ describe('run-root utils', () => {
     return withReclaimHost('inspection-error', (hostTmpdir, fixture) => {
       makeRunRootStale(fixture.runRoot);
       const inspectionError = Object.assign(new Error('injected reclaim marker EIO'), { code: 'EIO' });
-      const lstatSpy = vi.spyOn(fs, 'lstatSync').mockImplementationOnce(() => {
-        throw inspectionError;
-      });
+      const originalRead = fs.readFileSync;
+      const readSpy = vi.spyOn(fs, 'readFileSync')
+        .mockImplementationOnce(originalRead)
+        .mockImplementationOnce(() => { throw inspectionError; });
       try {
         expect(() => reclaimStaleRunRoots(hostTmpdir, CURRENT_INVOCATION_ID)).not.toThrow();
 
-        expect(lstatSpy).toHaveBeenCalledWith(fixture.markerPath);
+        expect(readSpy).toHaveBeenCalledWith(fixture.markerPath, 'utf8');
         expect(fs.existsSync(fixture.runRoot)).toBe(true);
         expect(fs.readFileSync(fixture.fixturePath)).toEqual(FIXTURE_BYTES);
       } finally {
-        lstatSpy.mockRestore();
+        readSpy.mockRestore();
       }
     });
   });

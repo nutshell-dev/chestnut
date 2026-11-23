@@ -1,14 +1,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ChildProcessLifecycleError,
   runChildProcess,
   withCleanupPreservingError,
 } from './child-process.js';
-import { cleanupTempDir, createTrackedTempDirSync } from './temp.js';
+import {
+  cleanupTempDir,
+  createScopedTempDirSync,
+  createTrackedTempDir,
+  untrackTempDir,
+} from './temp.js';
+import type { RetentionScope } from './resource-retention.js';
 
 const SAMPLE_TIMEOUT_MS = 25_000;
+const EXTERNAL_CONSUMER_TIMEOUT_MS = 10_000;
+const RECLAIM_STALE_AGE_MS = 11 * 60 * 1000;
+function externalGlobalSetupModuleUrl(runRoot: string): string {
+  const configDir = path.join(runRoot, '.config');
+  const utilsDir = path.join(runRoot, 'tests/utils');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(utilsDir, { recursive: true });
+  const globalSetup = fs.readFileSync(
+    path.resolve(__dirname, '../../.config/vitest-global-setup.ts'), 'utf8',
+  ).replace('../tests/utils/resource-retention.js', '../tests/utils/resource-retention.ts');
+  fs.writeFileSync(path.join(configDir, 'vitest-global-setup.ts'), globalSetup);
+  fs.copyFileSync(
+    path.resolve(__dirname, 'resource-retention.ts'),
+    path.join(utilsDir, 'resource-retention.ts'),
+  );
+  return pathToFileURL(path.join(configDir, 'vitest-global-setup.ts')).href;
+}
 
 interface WorkerConfiguration {
   maxWorkers: number;
@@ -63,8 +88,12 @@ function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
 }
 
-function createSampleRepository(repoRoot: string): { sampleRoot: string; hostTmpDir: string } {
-  const sampleRoot = createTrackedTempDirSync('test-cost-workers-');
+function createSampleRepository(repoRoot: string): {
+  sampleRoot: string;
+  hostTmpDir: string;
+  retention: RetentionScope;
+} {
+  const { dir: sampleRoot, retention } = createScopedTempDirSync('test-cost-workers-');
   for (const entry of ['.config', 'scripts', 'tests', 'src', 'dist', 'node_modules']) {
     fs.symlinkSync(path.join(repoRoot, entry), path.join(sampleRoot, entry), 'dir');
   }
@@ -73,7 +102,7 @@ function createSampleRepository(repoRoot: string): { sampleRoot: string; hostTmp
   }
   const hostTmpDir = path.join(sampleRoot, 'nested-host-tmp');
   fs.mkdirSync(hostTmpDir);
-  return { sampleRoot, hostTmpDir };
+  return { sampleRoot, hostTmpDir, retention };
 }
 
 async function runSample(
@@ -189,26 +218,91 @@ function unconfirmedChildFailure(): ChildProcessLifecycleError {
   }, new Error('controlled cancellation'));
 }
 
+async function finishProtectedCase<T>(
+  dir: string,
+  retention: RetentionScope,
+  runAndConfirm: () => Promise<T>,
+): Promise<T> {
+  const retainAndThrow = (primary: unknown): never => {
+    try {
+      retention.retain({ code: 'test_failed', error: primary });
+    } catch (recording) {
+      throw new AggregateError(
+        [primary, recording],
+        'Test and retention recording failed',
+        { cause: primary },
+      );
+    }
+    throw primary;
+  };
+  return withCleanupPreservingError(async () => {
+    try {
+      const value = await runAndConfirm();
+      retention.complete();
+      return value;
+    } catch (primary) {
+      return retainAndThrow(primary);
+    }
+  }, async () => {
+    try {
+      await cleanupTempDir(dir);
+    } catch (cleanup) {
+      return retainAndThrow(cleanup);
+    }
+  });
+}
+
 async function runSampleCase(
   sample: SampleCase,
   signal: AbortSignal,
   execute: typeof runChildProcess = runChildProcess,
 ): Promise<string> {
   const repoRoot = path.resolve(__dirname, '../..');
-  const { sampleRoot, hostTmpDir } = createSampleRepository(repoRoot);
-  let preserveSample = false;
-  return withCleanupPreservingError(async () => {
-    try {
-      const runDir = await runSample(sample, signal, sampleRoot, hostTmpDir, execute);
-      expectWorkerFacts(runDir, sample);
-      return sampleRoot;
-    } catch (error) {
-      preserveSample = true;
-      throw error;
-    }
-  }, async () => {
-    if (!preserveSample) await cleanupTempDir(sampleRoot);
+  const { sampleRoot, hostTmpDir, retention } = createSampleRepository(repoRoot);
+  return finishProtectedCase(sampleRoot, retention, async () => {
+    const runDir = await runSample(sample, signal, sampleRoot, hostTmpDir, execute);
+    expectWorkerFacts(runDir, sample);
+    return sampleRoot;
   });
+}
+
+function expectIndependentTeardownAndReclaimPreserve(runRoot: string, sampleRoot: string): void {
+  const sampleBytes = fs.readFileSync(path.join(sampleRoot, 'package.json'));
+  const owner = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
+  expect(owner.status).toBe(0);
+  const manifest = {
+    invocationId: 'controlled-cost-failure',
+    pid: owner.pid,
+    worktree: path.join(runRoot, 'removed-worktree'),
+    startedAt: new Date().toISOString(),
+    runRoot,
+  };
+  fs.writeFileSync(path.join(runRoot, 'manifest.json'), JSON.stringify(manifest));
+  const teardownSource = `
+    import fs from 'node:fs';
+    import { createRunRootTeardown } from ${JSON.stringify(externalGlobalSetupModuleUrl(runRoot))};
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+    await createRunRootTeardown(manifest)();
+  `;
+  const teardown = spawnSync(process.execPath, [
+    '--experimental-transform-types', '--input-type=module', '-e', teardownSource,
+    path.join(runRoot, 'manifest.json'),
+  ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
+  expect(teardown.status, `${teardown.stdout}\n${teardown.stderr}`).toBe(1);
+  expect(teardown.stderr).toContain('test_failed');
+  expect(fs.readFileSync(path.join(sampleRoot, 'package.json'))).toEqual(sampleBytes);
+
+  const stale = new Date(Date.now() - RECLAIM_STALE_AGE_MS);
+  fs.utimesSync(runRoot, stale, stale);
+  const reclaimSource = `
+    import { reclaimStaleRunRoots } from ${JSON.stringify(externalGlobalSetupModuleUrl(runRoot))};
+    reclaimStaleRunRoots(process.argv[1], 'next-invocation');
+  `;
+  const reclaim = spawnSync(process.execPath, [
+    '--experimental-transform-types', '--input-type=module', '-e', reclaimSource, path.dirname(runRoot),
+  ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
+  expect(reclaim.status, `${reclaim.stdout}\n${reclaim.stderr}`).toBe(0);
+  expect(fs.readFileSync(path.join(sampleRoot, 'package.json'))).toEqual(sampleBytes);
 }
 
 describe('test-cost resolved worker facts', () => {
@@ -240,19 +334,29 @@ describe('test-cost resolved worker facts', () => {
     ['unconfirmed child exit', unconfirmedChildFailure()],
     ['failed sample assertion', new Error('controlled sample assertion failure')],
   ])('preserves the caller-owned sample root after %s', async (_name, failure) => {
+    const isolatedRunRoot = await createTrackedTempDir('cost-controlled-retention-');
+    const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
+    process.env.CHESTNUT_RUN_ROOT = isolatedRunRoot;
     let sampleRoot = '';
     const execute: typeof runChildProcess = async (_command, _args, options) => {
       sampleRoot = options.cwd ?? '';
       throw failure;
     };
 
-    await expect(runSampleCase(cases[0], new AbortController().signal, execute)).rejects.toBe(failure);
-    expect(sampleRoot).not.toBe('');
     try {
+      await expect(runSampleCase(cases[0], new AbortController().signal, execute)).rejects.toBe(failure);
+      expect(sampleRoot).not.toBe('');
       expect(fs.existsSync(sampleRoot)).toBe(true);
+      expectIndependentTeardownAndReclaimPreserve(isolatedRunRoot, sampleRoot);
     } finally {
-      // The injected executor started no real process, so this controlled fixture is safe to remove.
-      await cleanupTempDir(sampleRoot);
+      // The injected executor started no real process; remove this deliberately retained sandbox directly.
+      if (sampleRoot) {
+        fs.rmSync(sampleRoot, { recursive: true, force: true });
+        untrackTempDir(sampleRoot);
+      }
+      if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
+      else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
+      await cleanupTempDir(isolatedRunRoot);
     }
   });
 });

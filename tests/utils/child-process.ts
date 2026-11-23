@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
+import {
+  beginRetentionScope,
+  RETENTION_RECORD_FILENAME,
+  type RetentionScope,
+} from './resource-retention.js';
 
 /** Test-infrastructure budget for confirming exit/stdio after termination. */
 export const DEFAULT_TEST_CHILD_EXIT_CONFIRM_MS = 1_000;
@@ -169,16 +174,20 @@ function lifecycleError(details: ChildProcessFailureDetails, cause: Error): Chil
   return new ChildProcessLifecycleError(details, cause);
 }
 
-function serializedError(error: unknown): unknown {
-  if (!(error instanceof Error)) return error;
-  const errno = error as NodeJS.ErrnoException;
-  return {
-    name: error.name,
-    message: error.message,
-    stack: error.stack,
-    code: errno.code,
-    syscall: errno.syscall,
-  };
+function canonicalForComparison(candidate: string): string {
+  try {
+    return realpathSync(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+function isWithinRunRoot(runRoot: string, candidate: string): boolean {
+  const relative = path.relative(
+    canonicalForComparison(runRoot),
+    canonicalForComparison(candidate),
+  );
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 function ignoreLateError(): void {
@@ -201,6 +210,20 @@ export async function runChildProcess(
     );
   }
 
+  const runRoot = process.env.CHESTNUT_RUN_ROOT;
+  let retention: RetentionScope | undefined;
+  if (runRoot) {
+    try {
+      retention = beginRetentionScope({
+        runRoot,
+        protectedPaths: options.cwd && isWithinRunRoot(runRoot, options.cwd) ? [options.cwd] : [],
+        label: `direct-child:${command}`,
+      });
+    } catch (error) {
+      throw new Error(`Cannot begin direct-child retention before spawn: ${command}`, { cause: error });
+    }
+  }
+
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(command, args, {
@@ -210,10 +233,20 @@ export async function runChildProcess(
     });
   } catch (error) {
     const processError = asError(error);
-    throw lifecycleError(
+    const primary = lifecycleError(
       initialFailureDetails(command, args, options, 'spawn_error', processError),
       processError,
     );
+    try {
+      retention?.complete();
+    } catch (recording) {
+      throw new AggregateError(
+        [primary, recording],
+        'Child process and retention completion both failed',
+        { cause: primary },
+      );
+    }
+    throw primary;
   }
 
   return new Promise<ChildProcessResult>((resolve, reject) => {
@@ -306,45 +339,47 @@ export async function runChildProcess(
       details: ChildProcessFailureDetails,
       additionalErrors: unknown[],
     ): void => {
-      if (details.directChild.state === 'exited') {
-        details.resourceEvidence = { state: 'not_required', reason: 'exit_confirmed' };
+      const evidencePath = runRoot ? path.join(runRoot, RETENTION_RECORD_FILENAME) : undefined;
+      if (details.directChild.state === 'exited' || details.pid === undefined) {
+        details.resourceEvidence = details.directChild.state === 'exited'
+          ? { state: 'not_required', reason: 'exit_confirmed' }
+          : { state: 'not_required', reason: 'pid_unavailable' };
+        try {
+          retention?.complete();
+        } catch (error) {
+          if (evidencePath) details.resourceEvidence = { state: 'failed', path: evidencePath };
+          additionalErrors.push(error);
+        }
         return;
       }
-      if (details.pid === undefined) {
-        details.resourceEvidence = { state: 'not_required', reason: 'pid_unavailable' };
-        return;
-      }
-      const runRoot = process.env.CHESTNUT_RUN_ROOT;
-      if (!runRoot) {
+      if (!retention || !evidencePath) {
         details.resourceEvidence = { state: 'not_configured' };
         return;
       }
-      const evidencePath = path.join(runRoot, 'test-resource-failures.jsonl');
-      const evidence = {
-        type: 'unconfirmed-direct-child',
-        recordedAt: new Date().toISOString(),
-        invocationId: process.env.CHESTNUT_INVOCATION_ID,
-        command: details.command,
-        args: details.args,
-        pid: details.pid,
-        reason: details.reason,
-        timeoutMs: details.timeoutMs,
-        killGraceMs: details.killGraceMs,
-        exitConfirmMs: details.exitConfirmMs,
-        status: details.status,
-        signal: details.signal,
-        directChild: details.directChild,
-        stdio: details.stdio,
-        outputTruncated: details.outputTruncated,
-        outputTruncatedAt: details.outputTruncatedAt,
-        killAttempts: details.killAttempts.map(attempt => ({
-          ...attempt,
-          error: serializedError(attempt.error),
-        })),
-        errors: details.errors.map(serializedError),
-      };
       try {
-        appendFileSync(evidencePath, `${JSON.stringify(evidence)}\n`, 'utf8');
+        retention.retain({
+          code: 'unconfirmed_direct_child',
+          error: firstCause,
+          evidence: {
+            invocationId: process.env.CHESTNUT_INVOCATION_ID,
+            command: details.command,
+            args: details.args,
+            pid: details.pid,
+            reason: details.reason,
+            timeoutMs: details.timeoutMs,
+            killGraceMs: details.killGraceMs,
+            exitConfirmMs: details.exitConfirmMs,
+            status: details.status,
+            signal: details.signal,
+            directChild: details.directChild,
+            stdio: details.stdio,
+            outputTruncated: details.outputTruncated,
+            outputTruncatedAt: details.outputTruncatedAt,
+            killAttempts: details.killAttempts,
+            killErrors: details.killErrors,
+            errors: details.errors,
+          },
+        });
         details.resourceEvidence = { state: 'recorded', path: evidencePath };
       } catch (error) {
         details.resourceEvidence = { state: 'failed', path: evidencePath };
@@ -397,6 +432,12 @@ export async function runChildProcess(
       clearTimers();
       removeAbortListener();
       cleanupListeners(false);
+      try {
+        retention?.complete();
+      } catch (error) {
+        reject(error);
+        return;
+      }
       resolve(result());
     };
     const startConfirmation = (): void => {

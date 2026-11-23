@@ -13,8 +13,16 @@
 import { promises as fs } from 'node:fs';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { rmSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getRunRoot } from './run-root.js';
+import {
+  beginRetentionScope,
+  inspectRetention,
+  type RetentionDecision,
+  type RetentionScope,
+} from './resource-retention.js';
 
 export async function createTempDir(prefix = 'chestnut-test-'): Promise<string> {
   return createTrackedTempDir(prefix);
@@ -48,15 +56,64 @@ export function createTrackedTempDirSync(prefix = 'chestnut-test-'): string {
   return dir;
 }
 
+/** Persist protection before creating the directory it covers. */
+export function createScopedTempDirSync(prefix = 'chestnut-test-'): {
+  dir: string;
+  retention: RetentionScope;
+} {
+  const runRoot = getRunRoot();
+  if (!runRoot) throw new Error('createScopedTempDirSync requires CHESTNUT_RUN_ROOT');
+  if (prefix.includes('/') || prefix.includes('\\') || prefix === '.' || prefix === '..') {
+    throw new Error(`Scoped temp prefix must stay directly under the run root: ${prefix}`);
+  }
+  const dir = path.join(runRoot, `${prefix}${randomUUID()}`);
+  if (path.dirname(path.resolve(dir)) !== path.resolve(runRoot)) {
+    throw new Error(`Scoped temp path escapes run root: ${dir}`);
+  }
+  const retention = beginRetentionScope({
+    runRoot,
+    protectedPaths: [dir],
+    label: `temp:${prefix}`,
+  });
+  mkdirSync(dir);
+  trackedDirs.add(dir);
+  return { dir, retention };
+}
+
 /** 从登记表移除（手动 cleanup 后调用） */
 export function untrackTempDir(dir: string): void {
   trackedDirs.delete(dir);
+}
+
+function retentionFor(tempDir: string): RetentionDecision {
+  const runRoot = getRunRoot();
+  return runRoot ? inspectRetention(runRoot, tempDir) : { kind: 'allow' };
+}
+
+function reportPreserved(tempDir: string, decision: Extract<RetentionDecision, { kind: 'preserve' }>): void {
+  console.warn(
+    `[test cleanup] Preserved ${tempDir} by retention scopes=${decision.scopeIds.join(',') || 'legacy'} ` +
+    `reasons=${decision.reasons.join(',')}`,
+  );
+}
+
+function indeterminateCleanupError(tempDir: string, error: unknown): Error {
+  return new Error(`Cannot determine whether temp dir ${tempDir} is safe to clean`, { cause: error });
 }
 
 /** 清理所有已登记目录。由 vitest teardown 或 afterAll 调用。 */
 export async function cleanupAllTrackedDirs(): Promise<void> {
   const errors: Array<{ dir: string; error: string }> = [];
   for (const dir of trackedDirs) {
+    const decision = retentionFor(dir);
+    if (decision.kind === 'preserve') {
+      reportPreserved(dir, decision);
+      continue;
+    }
+    if (decision.kind === 'indeterminate') {
+      errors.push({ dir, error: String(decision.error) });
+      continue;
+    }
     try {
       await fs.rm(dir, { recursive: true, force: true });
       trackedDirs.delete(dir);
@@ -81,6 +138,12 @@ export function getTrackedDirs(): ReadonlySet<string> {
 }
 
 export async function cleanupTempDir(tempDir: string): Promise<void> {
+  const decision = retentionFor(tempDir);
+  if (decision.kind === 'preserve') {
+    reportPreserved(tempDir, decision);
+    return;
+  }
+  if (decision.kind === 'indeterminate') throw indeterminateCleanupError(tempDir, decision.error);
   try {
     await fs.rm(tempDir, { recursive: true, force: true });
     untrackTempDir(tempDir);
@@ -99,6 +162,12 @@ export async function cleanupTempDir(tempDir: string): Promise<void> {
 }
 
 export function cleanupTempDirSync(tempDir: string): void {
+  const decision = retentionFor(tempDir);
+  if (decision.kind === 'preserve') {
+    reportPreserved(tempDir, decision);
+    return;
+  }
+  if (decision.kind === 'indeterminate') throw indeterminateCleanupError(tempDir, decision.error);
   try {
     rmSync(tempDir, { recursive: true, force: true });
     untrackTempDir(tempDir);
