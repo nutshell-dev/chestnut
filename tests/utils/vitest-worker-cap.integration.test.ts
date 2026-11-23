@@ -121,16 +121,13 @@ function expectResolvedConfiguration(observation: Observation, workerCase: Worke
 }
 
 describe('resolved Vitest project worker caps', () => {
-  let defaultFiles: Observation['files'] | undefined;
-
   for (const workerCase of CASES) {
     it(workerCase.name, async context => {
       const observation = await observe(workerCase, context);
       expectResolvedConfiguration(observation, workerCase);
-      if (workerCase.name === 'default') defaultFiles = observation.files;
       if (workerCase.name === 'env=4') {
-        expect(defaultFiles).toBeDefined();
-        expect(observation.files).toEqual(defaultFiles);
+        const defaultObservation = await observe({ name: 'default' }, context);
+        expect(observation.files).toEqual(defaultObservation.files);
       }
     });
   }
