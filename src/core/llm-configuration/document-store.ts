@@ -27,7 +27,13 @@ import {
   type CredentialSource,
   type ResolvedCredential,
 } from './legacy-credentials/index.js';
-import type { SharedLLM, SharedLLMInput } from './selection.js';
+import type {
+  LLMProviderSlot,
+  LLMRawConfigView,
+  SharedLLM,
+  SharedLLMInput,
+} from './selection.js';
+import { LLMConfigurationCredentialUnavailableError } from './credential-errors.js';
 import { assertNoLegacyPlaintextApiKey } from './key-input.js';
 import {
   migrateLegacyApiKeysAtPath,
@@ -66,7 +72,8 @@ export type ExplicitLLMProviderConfig = z.input<typeof llmProviderConfigSchema>;
 export type LLMSetupCommitTarget =
   | { readonly kind: 'initialize' }
   | { readonly kind: 'primary' }
-  | { readonly kind: 'fallback'; readonly position?: number };
+  | { readonly kind: 'fallback'; readonly position?: number }
+  | { readonly kind: 'replace'; readonly slot: LLMProviderSlot };
 
 export interface LLMConfigurationCommitResult {
   readonly target: LLMSetupCommitTarget;
@@ -118,6 +125,8 @@ export interface LLMConfigurationDocumentStore {
 
 export interface LLMConfigurationAdmin {
   loadGlobal(): import('./selection.js').LLMGlobalConfigView;
+  /** Raw management reads never resolve credentials or materialize defaults. */
+  loadRaw(): LLMRawConfigView;
   /** 配置与 revision 同次磁盘读取，禁止把旧配置登记成新 revision。 */
   loadSnapshot(): {
     llm: SharedLLM;
@@ -128,7 +137,7 @@ export interface LLMConfigurationAdmin {
     credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   mutateGlobalLocked(
-    mutator: (config: { llm: SharedLLM; revision: LLMConfigurationRevision }) => void,
+    mutator: (config: { llm: SharedLLMInput; revision: LLMConfigurationRevision }) => void,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
   commitExplicitProvider(
@@ -297,7 +306,8 @@ export function createLLMConfigurationDocumentStore(deps: {
                 identityRef: name,
               };
             }
-            return hit?.value;
+            if (hit === undefined) throw new LLMConfigurationCredentialUnavailableError(name);
+            return hit.value;
           },
           validateRaw: (value) => {
             assertNoLegacyPlaintextApiKey(value);
@@ -689,6 +699,8 @@ export function createLLMConfigurationDocumentStore(deps: {
     // Normal setup accepts only the explicit schema. Legacy presets must have
     // already crossed the explicit migration boundary; never resolve them here.
     const provider = llmProviderConfigSchema.parse(explicitConfig);
+    // Replacement validates defaults but persists the explicit raw fields only.
+    const rawProvider = target.kind === 'replace' ? explicitConfig : provider;
     if (target.kind === 'initialize') {
       if (expectedRevision !== undefined && expectedRevision !== 0) {
         throw new LLMConfigurationRevisionConflictError(expectedRevision, 0);
@@ -733,9 +745,20 @@ export function createLLMConfigurationDocumentStore(deps: {
       if (expectedRevision !== undefined && fresh.revision !== expectedRevision) {
         throw new LLMConfigurationRevisionConflictError(expectedRevision, fresh.revision);
       }
-      const label = provider.label;
+      if (target.kind === 'replace' && expectedRevision === undefined) {
+        throw new Error('LLM provider replacement requires an expected revision');
+      }
+      if (target.kind === 'replace' && target.slot.role === 'fallback'
+        && (!Number.isInteger(target.slot.index) || target.slot.index < 0
+          || target.slot.index >= (fresh.fallbacks?.length ?? 0))) {
+        throw new Error(`LLM provider target is unavailable: fallback[${target.slot.index}]`);
+      }
+      const label = rawProvider.label;
+      const replacedIndex = target.kind === 'replace'
+        ? target.slot.role === 'primary' ? 0 : target.slot.index + 1
+        : -1;
       if (label !== undefined && [fresh.primary, ...(fresh.fallbacks ?? [])]
-        .some(entry => entry.label === label)) {
+        .some((entry, index) => index !== replacedIndex && entry.label === label)) {
         throw new LLMProviderLabelAlreadyExistsError(label);
       }
       const current = documentConfig(fresh);
@@ -743,22 +766,32 @@ export function createLLMConfigurationDocumentStore(deps: {
       if (target.kind === 'primary') {
         next = {
           ...current,
-          primary: provider,
+          primary: rawProvider,
           fallbacks: [fresh.primary, ...(fresh.fallbacks ?? [])],
         };
-      } else {
+      } else if (target.kind === 'fallback') {
         const position = target.position ?? (fresh.fallbacks?.length ?? 0);
         if (!Number.isInteger(position) || position < 0) {
           throw new Error(`Invalid fallback position: ${String(position)}`);
         }
         const fallbacks = [...(fresh.fallbacks ?? [])];
-        fallbacks.splice(Math.min(position, fallbacks.length), 0, provider);
+        fallbacks.splice(Math.min(position, fallbacks.length), 0, rawProvider);
+        next = { ...current, fallbacks };
+      } else if (target.slot.role === 'primary') {
+        next = { ...current, primary: rawProvider };
+      } else {
+        if (!Number.isInteger(target.slot.index) || target.slot.index < 0
+          || target.slot.index >= (fresh.fallbacks?.length ?? 0)) {
+          throw new Error(`LLM provider target is unavailable: fallback[${target.slot.index}]`);
+        }
+        const fallbacks = [...(fresh.fallbacks ?? [])];
+        fallbacks[target.slot.index] = rawProvider;
         next = { ...current, fallbacks };
       }
       const validated = llmOrchestratorConfigSchema.parse(next);
       const revision = fresh.revision + 1;
       const write = writeYamlConfig(deps, configPath, {
-        ...validated,
+        ...(target.kind === 'replace' ? next : validated),
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision,
       });
@@ -812,6 +845,14 @@ export function createLLMConfiguration(deps: {
       });
       return view;
     },
+    loadRaw: () => {
+      const document = store().read();
+      return {
+        llm: documentConfig(document),
+        revision: { id: String(document.revision), revision: document.revision },
+        workspaceRoot: getChestnutRoot(),
+      };
+    },
     loadSnapshot: () => {
       const document = store().readSnapshot();
       return {
@@ -825,7 +866,7 @@ export function createLLMConfiguration(deps: {
     },
     mutateGlobalLocked: (mutator) => store().mutate((fresh) => {
       const view = {
-        llm: documentConfig(fresh) as SharedLLM,
+        llm: documentConfig(fresh),
         revision: { id: String(fresh.revision), revision: fresh.revision },
       };
       mutator(view);

@@ -13,6 +13,15 @@ type ProviderInput = llmProviderConfigContract.ProviderInput;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
 export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;
+export type LLMProviderSlot =
+  | { readonly role: 'primary' }
+  | { readonly role: 'fallback'; readonly index: number };
+
+export interface LLMRawConfigView {
+  llm: SharedLLMInput;
+  revision: { readonly id: string; readonly revision: number };
+  workspaceRoot?: string;
+}
 
 export interface LLMGlobalConfigView {
   llm: SharedLLM;

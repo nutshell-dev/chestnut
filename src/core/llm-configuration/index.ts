@@ -17,11 +17,13 @@ export { llmOrchestratorConfigSchema } from './config-schema.js';
 export { resolveLLMConfig } from './selection.js';
 export type {
   LLMGlobalConfigView,
+  LLMRawConfigView,
   LLMClawConfigView,
   LLMConfigInput,
   LLMResolvedConfiguration,
   SharedLLM,
   SharedLLMInput,
+  LLMProviderSlot,
 } from './selection.js';
 export {
   snapshotLLMConfig,
@@ -72,6 +74,13 @@ export {
   LLMConfigurationRevisionConflictError,
   LLMProviderLabelAlreadyExistsError,
 } from './document-store.js';
+export {
+  LLMConfigurationCredentialUnavailableError,
+  providerAtLLMSlot,
+  snapshotLLMProviderDraft,
+  snapshotLLMProviderTarget,
+} from './provider-repair.js';
+export type { LLMProviderSnapshot } from './provider-repair.js';
 export {
   createLLMApplicationStore,
   createLLMNotificationStore,

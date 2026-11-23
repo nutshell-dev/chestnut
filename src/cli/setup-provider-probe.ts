@@ -7,13 +7,9 @@
  * 运行时不再 probe——重启直接使用落盘的显式 endpoint/base URL。
  */
 
-import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import {
-  createAuthenticationCapability,
-  isCredentialReference,
-  resolveCredentialReference,
-  snapshotLLMConfigInput,
+  snapshotLLMProviderDraft,
   type LLMSetupDraft,
   type LLMSetupProbeResult,
   type LLMSetupVerified,
@@ -148,36 +144,14 @@ function setupDraftSnapshot(
   draft: LLMSetupDraft,
   probeCandidate: boolean,
 ) {
-  const resolvedProvider = { ...draft.provider };
-  if (resolvedProvider.api_key !== undefined && isCredentialReference(resolvedProvider.api_key)) {
-    const resolved = resolveCredentialReference(createAuthenticationSetup(deps), resolvedProvider.api_key);
-    if (resolved === undefined) {
-      throw new CliError(
-        `API key reference ${resolvedProvider.api_key} is not set ` +
-        '(not in process env, credentials file, or .env fallbacks)',
-      );
-    }
-    resolvedProvider.api_key = resolved;
-  }
-  if (probeCandidate) {
-    resolvedProvider.timeout_ms = Math.min(
-      resolvedProvider.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS,
-      SETUP_PROBE_TIMEOUT_MS,
-    );
-  }
-  return snapshotLLMConfigInput(
-    { llm: {
-      primary: draft.provider,
-      circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
-    } },
-    {
-      resolvedInput: { llm: {
-        primary: resolvedProvider,
-        circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
-      } },
-      credentials: createAuthenticationCapability(deps),
-    },
-  );
+  return snapshotLLMProviderDraft(deps, draft.provider, {
+    ...(probeCandidate ? {
+      timeoutMs: Math.min(
+        draft.provider.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS,
+        SETUP_PROBE_TIMEOUT_MS,
+      ),
+    } : {}),
+  }).snapshot;
 }
 
 /** The single CLI probe adapter used by initialize/primary/fallback workflows. */

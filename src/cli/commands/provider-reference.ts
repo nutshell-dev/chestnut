@@ -1,8 +1,9 @@
-import type { LLMGlobalConfigView } from '../../core/llm-configuration/index.js';
+import type { SharedLLMInput } from '../../core/llm-configuration/index.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 
-type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
+type LLMProviderConfig = SharedLLMInput['primary'];
+type ProviderReferenceConfig = { llm: SharedLLMInput; revision?: { readonly id: string } };
 const { PROVIDER_NO_LABEL_SENTINEL } = llmProviderConfigContract;
 
 export type ProviderRole = 'primary' | 'fallback';
@@ -50,7 +51,7 @@ function candidate(
 }
 
 /** Primary first, then fallback order: stable and independent of object key order. */
-function candidates(config: LLMGlobalConfigView): ProviderCandidate[] {
+function candidates(config: ProviderReferenceConfig): ProviderCandidate[] {
   return [
     candidate('primary', -1, config.llm.primary),
     ...(config.llm.fallbacks ?? []).map((entry, index) => candidate('fallback', index, entry)),
@@ -69,7 +70,7 @@ function resolved(
  * Exact labels are authoritative; preset/provider_id are unique-only fallbacks.
  */
 export function resolveProviderReference(
-  config: LLMGlobalConfigView,
+  config: ProviderReferenceConfig,
   reference: string,
 ): ProviderReferenceResolution {
   const all = candidates(config);
@@ -93,12 +94,12 @@ export function resolveProviderReference(
 }
 
 /** Add deduplication is label-only; a new label may legally equal another preset. */
-export function providerLabelExists(config: LLMGlobalConfigView, label: string): boolean {
+export function providerLabelExists(config: ProviderReferenceConfig, label: string): boolean {
   return candidates(config).some(hit => hit.label === label);
 }
 
 export function providerEntryFor(
-  config: LLMGlobalConfigView,
+  config: ProviderReferenceConfig,
   hit: ProviderCandidate,
 ): LLMProviderConfig {
   return hit.role === 'primary'
@@ -170,7 +171,7 @@ function stableValue(value: unknown): string {
 
 /** Stable identity digest for lock replay; secrets may be hashed but never exposed. */
 export function providerTargetFingerprint(
-  config: LLMGlobalConfigView,
+  config: ProviderReferenceConfig,
   hit: ResolvedProviderReference,
 ): string {
   // Raw lock replay omits schema defaults while loadGlobal resolves credential refs.
