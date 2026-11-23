@@ -9,7 +9,12 @@ describe('LLMProvider model-family meter boundary', () => {
     const resolver = source('model-family-resolver.ts');
     expect(resolver).not.toMatch(/CatalogResolution|ProviderConfig|PiAi|baseUrl|resolution\./u);
     const registry = source('input-meter.ts');
-    expect(registry).toContain('resolveModelFamily(model.id)');
+    expect(registry).toContain('function matchingProfile(configuredModel: string)');
+    expect(registry).toContain('resolveModelFamily(configuredModel)');
+    expect(registry).toContain('matchingProfile(configuredModel)');
+    expect(registry).toContain('matchingProfile(config.model)');
+    expect(registry).not.toContain('matchingProfile(model)');
+    expect(registry).not.toContain('resolveModelFamily(model.id)');
     expect(registry).not.toContain('profile.matches(');
   });
 

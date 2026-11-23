@@ -94,17 +94,31 @@ describe('model-family input meter matrix', () => {
     expect(normalizeModelFamilyName('k3-256k')).toBe('k3-256k');
   });
 
+  it.each([
+    ['configured Kimi with DeepSeek wire', 'kimi-k3', 'deepseek-flash[1m]', KIMI_K3_TEXT_PROFILE_ID],
+    ['unknown configuration with Kimi wire', 'unknown-model', 'kimi-k3', 'legacy-cl100k-v2'],
+    ['configured Qwen with unknown wire', 'qwen3.8-max', 'unknown-model', QWEN3_8_TEXT_PROFILE_ID],
+  ])('selects from configuration for %s', (_name, configuredModel, wireModel, expectedProfile) => {
+    const candidate = candidates(wireModel);
+    const meter = createInputMeter(
+      { ...config, model: configuredModel }, candidate.model, {}, candidate.resolution,
+    );
+    expect(meter.descriptor.profile).toBe(expectedProfile);
+  });
+
   it.each(FAMILIES)('keeps $family selection invariant across provider, API, wire, and base URL', family => {
-    const base = candidates(family.model);
+    const base = candidates('deepseek-flash[1m]');
     const variants = [
       base,
-      { model: { ...base.model, api: 'openai-completions' } as typeof model,
+      { model: { ...base.model, id: 'kimi-k3', api: 'openai-completions' } as typeof model,
         resolution: { ...base.resolution, providerId: 'qwen-token-plan', revision: 'other-revision' } },
-      { model: base.model,
+      { model: { ...base.model, id: 'unknown-model' },
         resolution: { ...base.resolution, kind: 'custom', providerId: undefined, modelId: 'unrelated-catalog-model',
           wire: { model: 'unrelated-wire-model', api: 'unrelated-wire-api' } } as CatalogResolution },
+      { model: { ...base.model, id: 'glm-5.3' },
+        resolution: { ...base.resolution, modelId: 'qwen3.8-max', wire: { ...base.resolution.wire, model: 'qwen3.8-max' } } },
     ];
-    const qualifications = variants.map(candidate => qualifyMeter(candidate.resolution, candidate.model));
+    const qualifications = variants.map(candidate => qualifyMeter(family.model, candidate.resolution, candidate.model));
     for (const qualification of qualifications) {
       expect(qualification).toEqual({
         kind: 'estimated', method: family.method,
@@ -115,10 +129,11 @@ describe('model-family input meter matrix', () => {
       });
     }
     const meters = variants.map((candidate, index) => createInputMeter(
-      { ...config, name: `provider-${index}`, baseUrl: `https://provider-${index}.invalid` },
+      { ...config, model: family.model, name: `provider-${index}`, baseUrl: `https://provider-${index}.invalid` },
       candidate.model, {}, candidate.resolution,
     ));
-    expect(meters.map(meter => meter.descriptor.profile)).toEqual([family.profile, family.profile, family.profile]);
+    expect(meters.map(meter => meter.descriptor.profile)).toEqual(Array.from({ length: 4 }, () => family.profile));
+    expect(meters.map(meter => meter.descriptor.configuredModel)).toEqual(Array.from({ length: 4 }, () => family.model));
     for (const meter of meters) {
       expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
         kind: 'estimated', method: family.method,
@@ -126,16 +141,19 @@ describe('model-family input meter matrix', () => {
     }
   });
 
-  it('changes the selected family when only the model name changes', () => {
-    const methods = FAMILIES.map(family => {
-      const candidate = candidates(family.model);
-      return qualifyMeter(candidate.resolution, candidate.model).method;
-    });
+  it('changes the selected family when only the configured model name changes', () => {
+    const candidate = candidates('deepseek-flash[1m]');
+    const methods = FAMILIES.map(family =>
+      qualifyMeter(family.model, candidate.resolution, candidate.model).method);
+    const profiles = FAMILIES.map(family => createInputMeter(
+      { ...config, model: family.model }, candidate.model, {}, candidate.resolution,
+    ).descriptor.profile);
     expect(methods).toEqual(FAMILIES.map(family => family.method));
+    expect(profiles).toEqual(FAMILIES.map(family => family.profile));
     expect(new Set(methods).size).toBe(FAMILIES.length);
   });
 
-  it('resolves Qwen gateway models by their own names instead of the gateway provider', () => {
+  it('resolves Qwen gateway models by configured names instead of the gateway provider', () => {
     const expected = new Map([
       ['deepseek-v4-pro', 'deepseek-v41-text'],
       ['glm-5.3', 'glm5.3-text'],
@@ -143,16 +161,19 @@ describe('model-family input meter matrix', () => {
       ['qwen3.8-max', 'qwen3.8-text'],
       ['MiniMax-M2.5', 'legacy-cl100k'],
     ]);
-    for (const [modelId, method] of expected) {
-      const candidate = candidates(modelId);
-      candidate.resolution = { ...candidate.resolution, providerId: 'qwen-token-plan' };
-      expect(qualifyMeter(candidate.resolution, candidate.model)).toMatchObject({ kind: 'estimated', method });
+    const candidate = candidates('deepseek-flash[1m]');
+    candidate.resolution = { ...candidate.resolution, providerId: 'qwen-token-plan' };
+    for (const [configuredModel, method] of expected) {
+      expect(qualifyMeter(configuredModel, candidate.resolution, candidate.model)).toMatchObject({ kind: 'estimated', method });
+      expect(createInputMeter(
+        { ...config, model: configuredModel }, candidate.model, {}, candidate.resolution,
+      ).descriptor.method).toBe(method);
     }
   });
 
-  it('uses cl100k only for an unknown model family', () => {
-    const unknown = candidates('unknown-model');
-    expect(qualifyMeter(unknown.resolution, unknown.model)).toMatchObject({
+  it('uses cl100k for an unknown configured family even when the wire model is known', () => {
+    const knownWire = candidates('kimi-k3');
+    expect(qualifyMeter('unknown-model', knownWire.resolution, knownWire.model)).toMatchObject({
       kind: 'estimated', method: 'legacy-cl100k',
       projection: 'estimate-only:no-final-wire-projection', assetRevision: 'js-tiktoken:cl100k_base',
       limits: { supportedTools: 'declared' },
@@ -161,7 +182,7 @@ describe('model-family input meter matrix', () => {
 
   it.each(FAMILIES)('estimates common text, tools, tool results, and thinking for $family', family => {
     const candidate = candidates(family.model);
-    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const meter = createInputMeter({ ...config, model: family.model }, candidate.model, {}, candidate.resolution);
     const input: CompleteInput = {
       system: 'rules',
       tools: [{ name: 'weather', description: 'read weather', input_schema: {
@@ -187,7 +208,7 @@ describe('model-family input meter matrix', () => {
 
   it.each(FAMILIES)('keeps image, audio, binary, and unknown parts unavailable for $family', family => {
     const candidate = candidates(family.model);
-    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const meter = createInputMeter({ ...config, model: family.model }, candidate.model, {}, candidate.resolution);
     const parts = [
       { type: 'image', source: { type: 'base64', data: 'AA==' } },
       { type: 'audio', source: { type: 'base64', data: 'AA==' } },
@@ -203,7 +224,7 @@ describe('model-family input meter matrix', () => {
 
   it.each(FAMILIES)('bounds message and tool collections for $family', family => {
     const candidate = candidates(family.model);
-    const meter = createInputMeter(config, candidate.model, {}, candidate.resolution);
+    const meter = createInputMeter({ ...config, model: family.model }, candidate.model, {}, candidate.resolution);
     const messages = Array.from({ length: 4_097 }, () => ({ role: 'user' as const, content: '' }));
     const tools = Array.from({ length: 257 }, (_, index) => ({
       name: `tool-${index}`, description: '', input_schema: { type: 'object' },
@@ -222,6 +243,20 @@ describe('model-family input meter matrix', () => {
     const second = createInputMeter(config, model, {}, otherResolution);
     expect(first.descriptor.profile).toBe(second.descriptor.profile);
     expect(first.descriptor.method).toBe(second.descriptor.method);
+    expect(first.descriptor.revision).not.toBe(second.descriptor.revision);
+  });
+
+  it('records configured aliases separately from unchanged wire and window facts', () => {
+    const first = createInputMeter({ ...config, model: 'kimi-k3' }, model, {}, resolution);
+    const second = createInputMeter({ ...config, model: 'k3' }, model, {}, resolution);
+    expect(first.descriptor).toMatchObject({
+      model: model.id, configuredModel: 'kimi-k3', profile: KIMI_K3_TEXT_PROFILE_ID,
+      windowResolution: resolution.window, effectiveMaxTokens: model.maxTokens,
+    });
+    expect(second.descriptor).toMatchObject({
+      model: model.id, configuredModel: 'k3', profile: KIMI_K3_TEXT_PROFILE_ID,
+      windowResolution: resolution.window, effectiveMaxTokens: model.maxTokens,
+    });
     expect(first.descriptor.revision).not.toBe(second.descriptor.revision);
   });
 

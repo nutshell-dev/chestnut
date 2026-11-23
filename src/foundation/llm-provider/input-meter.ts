@@ -43,8 +43,8 @@ const INPUT_METER_PROFILES = [
   qwenTextInputProfile,
 ] as const satisfies readonly InputMeterProfile[];
 
-function matchingProfile(model: PiAi.Model<PiAi.Api>): InputMeterProfile | undefined {
-  const family = resolveModelFamily(model.id);
+function matchingProfile(configuredModel: string): InputMeterProfile | undefined {
+  const family = resolveModelFamily(configuredModel);
   return INPUT_METER_PROFILES.find(profile => profile.family === family);
 }
 
@@ -72,10 +72,11 @@ function legacyQualification(
 
 /** Select a local estimator by model family; request wire facts never qualify it. */
 export function qualifyMeter(
+  configuredModel: string,
   resolution: CatalogResolution,
   model: PiAi.Model<PiAi.Api>,
 ): MeterQualification {
-  return matchingProfile(model)?.descriptor()
+  return matchingProfile(configuredModel)?.descriptor()
     ?? legacyQualification(resolution, model);
 }
 
@@ -90,7 +91,7 @@ export function createInputMeter(
     ...effective,
     ...(effective.thinkingBudgets && { thinkingBudgets: Object.freeze({ ...effective.thinkingBudgets }) }),
   });
-  const meterProfile = matchingProfile(model);
+  const meterProfile = matchingProfile(config.model);
   const qualification = meterProfile?.descriptor() ?? legacyQualification(resolution, model);
   const profile = meterProfile?.id ?? 'legacy-cl100k-v2';
   const { method, projection, assetRevision, limits } = qualification;
@@ -99,6 +100,7 @@ export function createInputMeter(
     provider: resolution.providerId ?? config.name,
     providerLabel: config.name,
     model: model.id,
+    configuredModel: config.model,
     api: String(model.api),
     contextWindow: resolution.window.contextWindow,
     windowResolution: resolution.window,
@@ -113,7 +115,8 @@ export function createInputMeter(
       profile, method, projection, assetRevision, limits, effectiveMaxTokens,
       resolver: MODEL_FAMILY_RESOLVER_REVISION,
       sdk: 'pi-ai-1.4.0', provider: resolution.providerId ?? config.name,
-      model: model.id, api: model.api, window: resolution.window, maxTokens: model.maxTokens,
+      model: model.id, configuredModel: config.model, api: model.api,
+      window: resolution.window, maxTokens: model.maxTokens,
       catalog: { kind: resolution.kind, source: resolution.source, revision: resolution.revision,
         providerId: resolution.providerId, modelId: resolution.modelId },
       reasoning: model.reasoning, compat: model.compat, thinkingLevelMap: model.thinkingLevelMap,

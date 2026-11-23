@@ -34,7 +34,10 @@ export interface InputMeterDescriptor {
   provider: string;
   /** Display label used to correlate orchestrator candidates; provider stays canonical. */
   providerLabel?: string;
+  /** Actual request wire model; it does not select the tokenizer family. */
   model: string;
+  /** Original ProviderConfig.model selection input; absent only in historical audit records. */
+  configuredModel?: string;
   api: string;
   contextWindow: number;
   /** 与 endpoint/guard/trim 共享的不可变窗口证据；旧审计可读时允许缺席。 */

@@ -23,6 +23,7 @@ describe('resolved model input meter', () => {
     vi.stubGlobal('fetch', fetch);
     const meter = await createLLMProvider(config).prepareInputMeter();
     expect(meter.descriptor.model).toBe('deepseek-flash[1m]');
+    expect(meter.descriptor.configuredModel).toBe(config.model);
     expect(meter.descriptor.contextWindow).toBe(1_000_000);
     expect(meter.descriptor.provider).toBe('deepseek');
     expect(meter.descriptor.windowResolution).toMatchObject({

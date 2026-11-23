@@ -5,6 +5,7 @@ import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provide
 const { emitInputMeasurement, inputProjectionHash } = llmProviderModelMeasurement;
 type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
+type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
 import { normalizeProviderUsageForMeasurement } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 
 /** Five seconds leaves ample room for the mocked SDK request to finish. */
@@ -72,6 +73,7 @@ describe('input measurement observer', () => {
     expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
     expect(observations[0]!.requestId).toBe(observations[1]!.requestId);
     expect(observations[0]).toMatchObject({
+      descriptor: { configuredModel: 'gpt-test', model: 'gpt-test' },
       measurement: { kind: 'estimated', method: 'legacy-cl100k' },
     });
     expect(observations[0]).not.toHaveProperty('usage');
@@ -92,6 +94,25 @@ describe('input measurement observer', () => {
       artifactRef: { status: 'unavailable', reason: 'artifact_owner_unconfigured' },
     });
     expect(observations[1]!.artifactRef).toEqual(observations[0]!.artifactRef);
+  });
+
+  it('passes historical descriptors through without inventing configured model evidence', () => {
+    const historicalDescriptor: InputMeterDescriptor = {
+      revision: 'historical-revision', provider: 'p', model: 'wire-model', api: 'anthropic-messages',
+      contextWindow: 8_192, profile: 'legacy-cl100k-v2',
+    };
+    const observations: InputMeasurementObservation[] = [];
+    emitInputMeasurement(fact => observations.push(fact), {
+      kind: 'prepared', requestId: 'historical-request', provider: 'p', model: 'wire-model',
+      descriptor: historicalDescriptor, measurement: { kind: 'unavailable', reason: 'historical' },
+      inputSource: 'unlinked',
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({ descriptor: historicalDescriptor });
+    const prepared = observations[0]!;
+    if (prepared.kind !== 'prepared') throw new Error('expected prepared observation');
+    expect(prepared.descriptor.configuredModel).toBeUndefined();
+    expect(JSON.stringify(prepared)).not.toContain('configuredModel');
   });
 
   it.each([
