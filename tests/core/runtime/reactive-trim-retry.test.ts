@@ -416,6 +416,45 @@ describe('runtime reactive trim+retry path', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('returns additive unavailability from the real ContextManager with its source reason and descriptor', async () => {
+    const runtime = await makeRuntime();
+    const descriptor = {
+      revision: 'phase2220-reactive-additive', provider: 'test', model: 'test', api: 'test',
+      contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+    };
+    const meter = {
+      descriptor,
+      capability: {
+        kind: 'message_additive' as const,
+        measureFixed: () => ({ kind: 'unavailable' as const, reason: 'reactive_additive_unavailable' }),
+        measureMessage: () => ({
+          kind: 'estimated' as const, tokens: 1, method: 'legacy-cl100k' as const, reason: 'test',
+        }),
+      },
+      measure: vi.fn(() => ({
+        kind: 'estimated' as const, tokens: 1_000,
+        method: 'legacy-cl100k' as const, reason: 'complete-trigger-succeeded',
+      })),
+    };
+    const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available', meter,
+    });
+    const archive = vi.spyOn((runtime as any).sessionManager, 'archive');
+    const save = vi.spyOn((runtime as any).sessionManager, 'save');
+
+    await expect(runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long')))
+      .rejects.toMatchObject({
+        name: 'ContextInputMeasurementError',
+        reason: 'reactive_additive_unavailable',
+        descriptor,
+      });
+
+    expect(prepare).toHaveBeenCalledWith({ kind: 'failure', error: expect.any(LLMContextExceededError) });
+    expect(meter.measure).toHaveBeenCalledTimes(1);
+    expect(archive).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('not_applicable dispatches the original aggregate failure without trim persistence or blocked state', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist');

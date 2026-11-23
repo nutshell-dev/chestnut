@@ -377,4 +377,47 @@ describe('runtime proactive trim integration', () => {
     expect(completed.every(([, ...details]) => details.includes('token_count_mode=message_ledger'))).toBe(true);
     expect(completed.every(([, ...details]) => details.includes('token_count_full_candidate_scans=0'))).toBe(true);
   });
+
+  it('returns additive unavailability from the real ContextManager with its source reason and descriptor', async () => {
+    const runtime = await makeRuntime(true);
+    const descriptor = {
+      revision: 'phase2220-proactive-additive', provider: 'test', model: 'test', api: 'test',
+      contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+    };
+    const meter = {
+      descriptor,
+      capability: {
+        kind: 'message_additive' as const,
+        measureFixed: () => ({ kind: 'unavailable' as const, reason: 'proactive_additive_unavailable' }),
+        measureMessage: (message: Message) => ({
+          kind: 'estimated' as const, tokens: estimateMessagesTokens([message]),
+          method: 'legacy-cl100k' as const, reason: 'test',
+        }),
+      },
+      measure: vi.fn(() => ({
+        kind: 'estimated' as const, tokens: 1_000,
+        method: 'legacy-cl100k' as const, reason: 'complete-trigger-succeeded',
+      })),
+    };
+    const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available', meter,
+    });
+    const archive = vi.spyOn((runtime as any).sessionManager, 'archive');
+    const save = vi.spyOn((runtime as any).sessionManager, 'save');
+    const now = Date.now();
+    (runtime as any).lastLLMCallAt = now - CACHE_TTL_MS - TEST_CACHE_EXPIRED_OBSERVATION_MS;
+    const messages: Message[] = [{ role: 'user', content: 'keep original', addedAt: new Date(now).toISOString() }];
+
+    await expect(runtime.proactiveTrimIfNeeded(messages, 'sys', [])).rejects.toMatchObject({
+      name: 'ContextInputMeasurementError',
+      reason: 'proactive_additive_unavailable',
+      descriptor,
+    });
+
+    expect(prepare).toHaveBeenCalledWith({ kind: 'preview' });
+    expect(meter.measure).toHaveBeenCalledTimes(1);
+    expect(archive).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(messages[0].content).toBe('keep original');
+  });
 });
