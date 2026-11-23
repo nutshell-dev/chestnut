@@ -135,6 +135,31 @@ describe('LLM setup workflow', () => {
     expect(other.read().primary.model).toBe('fixed');
   });
 
+  it('replace workflow 只写原显式字段，不物化 temperature/timeout defaults', async () => {
+    const store = createLLMConfigurationDocumentStore({ fsFactory });
+    await store.commitExplicitProvider({ kind: 'initialize' }, provider('before'));
+    const raw = store.read().primary;
+    const replacement = {
+      ...raw,
+      model: 'raw-only',
+      temperature: undefined,
+      timeout_ms: undefined,
+    };
+
+    const outcome = await executeLLMSetupAttempt({
+      store,
+      probe: async draft => success(draft),
+      recheckIdentity: async () => true,
+    }, { provider: replacement }, { kind: 'replace', slot: { role: 'primary' } }, 1);
+
+    expect(outcome.kind).toBe('committed');
+    if (outcome.kind === 'committed') {
+      expect(outcome.commit.document.primary.model).toBe('raw-only');
+      expect(outcome.commit.document.primary).not.toHaveProperty('temperature');
+      expect(outcome.commit.document.primary).not.toHaveProperty('timeout_ms');
+    }
+  });
+
   it('committed 审计/观察事件异常保留已提交回执与原 cause', async () => {
     const store = createLLMConfigurationDocumentStore({ fsFactory });
     let thrown: unknown;

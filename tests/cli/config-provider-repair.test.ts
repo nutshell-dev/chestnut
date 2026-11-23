@@ -107,6 +107,8 @@ describe('config provider repair', () => {
     expect(document.revision).toBe(2);
     expect(document.primary.model).toBe('original-model');
     expect(document.primary.extra_headers).toEqual({ 'X-Test': '${PHASE2221_REPAIR_HEADER}' });
+    expect(document.primary).not.toHaveProperty('temperature');
+    expect(document.primary).not.toHaveProperty('timeout_ms');
     expect(document.primary.api_key).not.toBe('${PHASE2221_REPAIR_MISSING}');
     expect(isCredentialReference(document.primary.api_key)).toBe(true);
     expect(document.fallbacks?.map(entry => entry.label)).toEqual(['fallback']);
@@ -146,6 +148,62 @@ describe('config provider repair', () => {
     expect(document.fallbacks?.[0]?.api_key).not.toBe('${PHASE2221_REPAIR_MISSING}');
   });
 
+  it('resolver 后发生重排时拒绝，绝不把原 A 的修复写到新 primary B', async () => {
+    const initial = configDeps.llmConfiguration.loadRaw();
+    await configDeps.llmConfiguration.store.mutate(fresh => ({
+      ...fresh,
+      primary: fresh.fallbacks![0]!,
+      fallbacks: [fresh.primary],
+    }));
+    const reordered = configDeps.llmConfiguration.loadRaw();
+    vi.spyOn(configDeps.llmConfiguration, 'loadRaw')
+      .mockReturnValueOnce(initial)
+      .mockReturnValue(reordered);
+    answers.queue = ['3', 'must-not-write'];
+
+    await expect(createConfigCommand(configDeps).parseAsync([
+      'node', 'test', 'provider', 'repair', 'main',
+    ])).rejects.toThrow('process.exit(1)');
+
+    expect(probe).not.toHaveBeenCalled();
+    expect(configDeps.llmConfiguration.store.read().revision).toBe(2);
+    expect(configDeps.llmConfiguration.store.read().primary.label).toBe('fallback');
+    expect(configDeps.llmConfiguration.store.read().fallbacks?.[0]?.label).toBe('main');
+  });
+
+  it('保存后的 CLI 审计异常以 typed error 保留提交回执', async () => {
+    const actionScope = await import('../../src/cli/action-scope.js');
+    const auditFailure = new Error('post-save audit failed');
+    const audit = {
+      write: vi.fn((_event: string, ...columns: string[]) => {
+        if (columns.includes('command=provider_repair')) throw auditFailure;
+      }),
+      message: (value: string) => value,
+      preview: (value: string) => value,
+      summary: (value: string) => value,
+    };
+    vi.spyOn(actionScope, 'actionAuditFor').mockReturnValue(audit as never);
+    const { repairProviderSlot } = await import('../../src/cli/provider-repair.js');
+    const { LLMSetupCommittedObserverError } = await import('../../src/core/llm-configuration/index.js');
+    vi.stubEnv('PHASE2221_REPAIR_MISSING', 'existing-secret');
+    probe.mockResolvedValue({ ok: true, model: 'audit-model', identity: 'probe' });
+    answers.queue = ['3', 'audit-model'];
+
+    let thrown: unknown;
+    try {
+      await repairProviderSlot(configDeps, { role: 'primary' }, mockRl as never);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(LLMSetupCommittedObserverError);
+    if (!(thrown instanceof LLMSetupCommittedObserverError)) throw new Error('expected receipt error');
+    expect(thrown.commit.revision.revision).toBe(2);
+    expect(thrown.commit.document.primary.model).toBe('audit-model');
+    expect(thrown.cause).toBe(auditFailure);
+    expect(configDeps.llmConfiguration.store.read().primary.model).toBe('audit-model');
+  });
+
   it('无 label 的单条 primary 可按唯一 provider_id 修复', async () => {
     fs.writeFileSync(configPath(), `schema_version: 1
 revision: 1
@@ -168,6 +226,8 @@ primary:
     const document = configDeps.llmConfiguration.store.read();
     expect(document.primary.model).toBe('repaired-model');
     expect(document.primary.api_key).toBe('${PHASE2221_REPAIR_MISSING}');
+    expect(document.primary).not.toHaveProperty('temperature');
+    expect(document.primary).not.toHaveProperty('timeout_ms');
     expect(document.fallbacks).toBeUndefined();
   });
 });

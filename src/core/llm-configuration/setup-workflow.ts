@@ -230,7 +230,11 @@ export async function executeLLMSetupAttempt(
     throw new LLMSetupIdentityChangedError();
   }
   try {
-    const commit = await deps.store.commitExplicitProvider(target, selected.config, expectedRevision);
+    // Replacement persists the original explicit fields, not schema defaults used for probing.
+    const commitConfig = target.kind === 'replace' && !hasCandidates
+      ? inputDraft.provider
+      : selected.config;
+    const commit = await deps.store.commitExplicitProvider(target, commitConfig, expectedRevision);
     try {
       deps.emit?.({
         type: 'committed', target: target.kind, revision: commit.revision.revision,

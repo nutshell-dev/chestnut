@@ -3,6 +3,7 @@ import type * as readline from 'node:readline';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   LLMConfigurationCredentialUnavailableError,
+  LLMSetupCommittedObserverError,
   executeLLMSetupAttempt,
   providerAtLLMSlot,
   type LLMConfigurationAdmin,
@@ -50,6 +51,11 @@ export interface ProviderRepairDeps {
   fsFactory(baseDir: string): FileSystem;
   llmConfiguration: Pick<LLMConfigurationAdmin, 'loadRaw' | 'store'> &
     Partial<Pick<LLMConfigurationAdmin, 'migrateLegacyApiKeys'>>;
+}
+
+export interface ProviderRepairBaseline {
+  readonly config: ReturnType<LLMConfigurationAdmin['loadRaw']>;
+  readonly found: ResolvedProviderReference;
 }
 
 export type ProviderRepairOutcome =
@@ -136,8 +142,10 @@ export async function repairProviderSlot(
   deps: ProviderRepairDeps,
   slot: LLMProviderSlot,
   rl: readline.Interface,
+  baseline?: ProviderRepairBaseline,
 ): Promise<ProviderRepairOutcome> {
-  const initial = foundForSlot(deps, slot);
+  // Resolver and repair must share one raw target baseline; never re-resolve A into B.
+  const initial = baseline ?? foundForSlot(deps, slot);
   const expected = {
     revision: initial.config.revision.id,
     fingerprint: providerTargetFingerprint(initial.config, initial.found),
@@ -148,6 +156,7 @@ export async function repairProviderSlot(
   let draft: LLMSetupDraft = { provider: providerAtLLMSlot(
     { ...initial.config.llm, revision: expectedRevision }, slot,
   ) };
+  assertStableTarget(deps, slot, expected);
   const audit = actionAuditFor(getChestnutRoot(), deps);
 
   try {
@@ -223,12 +232,16 @@ export async function repairProviderSlot(
       }
 
       reportDegraded(outcome.commit.write);
-      audit.write(
-        CLI_AUDIT_EVENTS.CONFIG_SAVED,
-        'command=provider_repair',
-        `role=${slot.role}`,
-        `revision=${outcome.commit.revision.revision}`,
-      );
+      try {
+        audit.write(
+          CLI_AUDIT_EVENTS.CONFIG_SAVED,
+          'command=provider_repair',
+          `role=${slot.role}`,
+          `revision=${outcome.commit.revision.revision}`,
+        );
+      } catch (error) {
+        throw new LLMSetupCommittedObserverError(outcome.commit, { cause: error });
+      }
       console.log(`✓ Provider (${formatProviderTarget(initial.found)}) repaired in place at revision ${outcome.commit.revision.revision}`);
       console.log(`✓ ${outcome.verified.model}`);
       reportRemainingCredentialFailures(deps);
@@ -261,5 +274,5 @@ export async function providerRepair(
   const slot: LLMProviderSlot = resolution.candidate.role === 'primary'
     ? { role: 'primary' }
     : { role: 'fallback', index: resolution.candidate.index };
-  return repairProviderSlot(deps, slot, rl);
+  return repairProviderSlot(deps, slot, rl, { config, found: resolution });
 }
