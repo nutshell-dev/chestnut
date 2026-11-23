@@ -73,6 +73,7 @@ import {
   recheckLLMSetupIdentity,
 } from '../setup-provider-probe.js';
 import { question } from '../utils/prompt.js';
+import { providerRepair } from '../provider-repair.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
@@ -769,6 +770,16 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   await notifyRunningDaemons(deps, 'logout');
 }
 
+async function providerRepairCommand(deps: ConfigCommandDeps, reference: string): Promise<void> {
+  const rl = createRL();
+  try {
+    const outcome = await providerRepair(deps, reference, rl);
+    if (outcome.kind === 'committed') await notifyRunningDaemons(deps, 'repair', outcome.commit.revision);
+  } finally {
+    rl.close();
+  }
+}
+
 // Build the config command
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -823,6 +834,9 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
 
   shapeCommand(providerCmd.command('logout <label>'), configSpec('config/provider/logout'))
     .action(action('disabled', (label: string) => providerLogout(deps, label)));
+
+  shapeCommand(providerCmd.command('repair <reference>'), configSpec('config/provider/repair'))
+    .action(action('disabled', (reference: string) => providerRepairCommand(deps, reference)));
 
   configCommand.addCommand(providerCmd);
   return configCommand;

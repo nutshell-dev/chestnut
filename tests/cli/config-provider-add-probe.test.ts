@@ -49,7 +49,7 @@ const { connMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../src/cli/llm-connection-check.js', () => ({
+vi.mock('../../src/cli/llm-probe.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
   probeLLMConnection: connMock.probeLLMConnection,

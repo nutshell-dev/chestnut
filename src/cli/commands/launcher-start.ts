@@ -18,7 +18,10 @@ import { readLauncherDaemon, type LauncherCommandDeps } from './launcher-runtime
 const DEFAULT_LAUNCHER_START_TIMEOUT_MS = 30_000;
 
 export interface LauncherStartDeps extends LauncherCommandDeps {
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary' | 'migrateLegacyApiKeys'>;
+  llmConfiguration: Pick<
+    LLMConfigurationAdmin,
+    'loadGlobal' | 'loadRaw' | 'store' | 'patchPrimary' | 'migrateLegacyApiKeys'
+  >;
 }
 
 export async function executeLauncherStart(

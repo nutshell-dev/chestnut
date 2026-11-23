@@ -42,6 +42,20 @@ const { connMock } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: connMock.checkLLMConnectionFor,
+  LLM_ERROR_LABELS: {
+    auth: 'API key invalid or unauthorized',
+    model: 'Model not found or unavailable',
+    network: 'Network error',
+    rate_limit: 'Rate limit',
+    quota: 'Account quota or credit exhausted',
+    unknown: 'Unrecognized provider error',
+  },
+  LLM_ERROR_HINTS: {},
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
+}));
+
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,

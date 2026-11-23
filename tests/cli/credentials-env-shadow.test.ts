@@ -175,49 +175,46 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
 
   it('env 已设置 + typed key → 派生 ref，patchPrimary 收到 ${CHESTNUT_<seed>_API_KEY}', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    // menu 1 (Update API key) → new key → 自动 re-probe（orchestrator mock ok）→ 返回；
-    // 末尾 'n' 兜底：probe 意外失败时退出循环，而不是空队列无限 'Invalid choice.'
-    rlAnswers.queue = ['1', 'typed-key', 'n'];
+    // menu 2 (Re-enter API key) → new key → probe → return; trailing n prevents loops on failure.
+    rlAnswers.queue = ['2', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
     const snapshot = await promptReconfigure(await deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
-    expect(rawYaml).toContain('${CHESTNUT_CUSTOM_ANTHROPIC_API_KEY}');
+    const ref = createLLMConfiguration({ fsFactory }).store.read().primary.api_key;
+    expect(ref).toMatch(/^\$\{CHESTNUT_PROVIDER_REPAIR_[A-Z0-9_]+_API_KEY\}$/);
     expect(rawYaml).not.toContain('typed-key');
-    // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
     const authentication = createAuthenticationSetup({ fsFactory });
-    expect(authentication.resolveSync('CHESTNUT_CUSTOM_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
+    expect(authentication.resolveSync(ref.slice(2, -1))?.accessToken).toBe('typed-key');
   });
 
   it('env 未设置 + typed key → 显式 custom provider 派生 ref', async () => {
     // 初始配置用明文 key，验证既有 legacy key 迁移后再走 reconfigure。
     writeInitialConfig('sk-ant-old');
-    rlAnswers.queue = ['1', 'typed-key', 'n'];
+    rlAnswers.queue = ['2', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
     const snapshot = await promptReconfigure(await deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
-    expect(rawYaml).toContain('${CHESTNUT_CUSTOM_ANTHROPIC_API_KEY}');
+    expect(createLLMConfiguration({ fsFactory }).store.read().primary.api_key)
+      .toMatch(/^\$\{CHESTNUT_PROVIDER_REPAIR_[A-Z0-9_]+_API_KEY\}$/);
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
   });
 
-  it('派生 ref 也被 env 遮蔽 → loud CliError，不改配置', async () => {
+  it('旧 env ref 不覆盖新 repair seed，输入值写入独立 ref', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    vi.stubEnv('CHESTNUT_CUSTOM_ANTHROPIC_API_KEY', 'derived-env-key');
-    rlAnswers.queue = ['1', 'typed-key', 'n'];
+    rlAnswers.queue = ['2', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
-    await expect(promptReconfigure(await deps(), rl, 'auth')).rejects.toThrow(
-      /Unset CHESTNUT_CUSTOM_ANTHROPIC_API_KEY/,
-    );
-    // 配置保持 ${ANTHROPIC_API_KEY} 不被改写
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
-    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    await promptReconfigure(await deps(), rl, 'auth');
+    const document = createLLMConfiguration({ fsFactory }).store.read();
+    expect(document.primary.api_key).not.toBe('${ANTHROPIC_API_KEY}');
+    expect(document.primary.api_key).toMatch(/PROVIDER_REPAIR/);
   });
 
   it.each([
@@ -227,9 +224,17 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
     const configDeps = await deps();
     const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
-    const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockResolvedValue({ kind, error });
+    const store = configDeps.llmConfiguration.store;
+    vi.spyOn(configDeps.llmConfiguration, 'store', 'get').mockReturnValue(store);
+    const patch = vi.spyOn(store, 'commitExplicitProvider')
+      .mockImplementation(async (target, _config, _expectedRevision) => ({
+        target,
+        revision: { id: '2', revision: 2 },
+        write: { kind, error },
+        document: { ...configDeps.llmConfiguration.store.read(), revision: 2 },
+      }));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    rlAnswers.queue = ['2', 'claude-new'];
+    rlAnswers.queue = ['3', 'claude-new'];
 
     try {
       const rl = mockRl as unknown as import('readline').Interface;
@@ -248,8 +253,10 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
     const configDeps = await deps();
     const failure = new Error('rename failed');
-    const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockRejectedValue(failure);
-    rlAnswers.queue = ['2', 'claude-new'];
+    const store = configDeps.llmConfiguration.store;
+    vi.spyOn(configDeps.llmConfiguration, 'store', 'get').mockReturnValue(store);
+    const patch = vi.spyOn(store, 'commitExplicitProvider').mockRejectedValue(failure);
+    rlAnswers.queue = ['3', 'claude-new'];
 
     const rl = mockRl as unknown as import('readline').Interface;
     await expect(promptReconfigure(configDeps, rl, 'model')).rejects.toBe(failure);
@@ -259,7 +266,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
   it('provider replacement 复用 shared editor 并提交显式 catalog facts', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
     // Change provider → OpenAI → typed key → Enter accepts the explicit default model.
-    rlAnswers.queue = ['3', '6', 'typed-key', ''];
+    rlAnswers.queue = ['4', '6', 'typed-key', ''];
     const rl = mockRl as unknown as import('readline').Interface;
 
     const snapshot = await promptReconfigure(await deps(), rl, 'auth');
@@ -278,7 +285,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
     const rl = mockRl as unknown as import('readline').Interface;
     rlAnswers.queue = [
-      '3', '10', '2', 'https://example.test/v1', 'typed-key', 'custom-model', 'y',
+      '4', '10', '2', 'https://example.test/v1', 'typed-key', 'custom-model', 'y',
     ];
     const snapshot = await promptReconfigure(await deps(), rl, 'auth');
     expect(snapshot).not.toBeNull();
@@ -294,7 +301,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     const credentialsPath = path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml');
     const credentialsBefore = fs.readFileSync(credentialsPath, 'utf8');
     rlAnswers.queue = [
-      '3', '10', '2', 'https://cancelled.test/v1', 'typed-key', 'cancelled-model', 'n',
+      '4', '10', '2', 'https://cancelled.test/v1', 'typed-key', 'cancelled-model', 'n',
     ];
     const cancelled = await promptReconfigure(await deps(), rl, 'auth');
     expect(cancelled).toBeNull();
@@ -310,7 +317,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
       lines.push(args.map(String).join(' '));
     });
     try {
-      rlAnswers.queue = ['2', '', 'n'];
+      rlAnswers.queue = ['3', '', 'n'];
       const rl = mockRl as unknown as import('readline').Interface;
       const snapshot = await promptReconfigure(await deps(), rl, 'model');
       expect(snapshot).toBeNull();

@@ -84,7 +84,7 @@ function reportDegradedConfigWrite(write: AtomicWriteResult): void {
 
 interface GateDeps {
   fsFactory(baseDir: string): FileSystem;
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'loadRaw' | 'store' | 'patchPrimary'>;
 }
 
 /** 给了配置参数但缺 --non-interactive → 用法错误（不猜意图、不静默忽略参数）。 */

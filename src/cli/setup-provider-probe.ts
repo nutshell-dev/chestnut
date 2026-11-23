@@ -21,7 +21,7 @@ import {
   LLM_ERROR_HINTS,
   LLM_ERROR_LABELS,
   type LLMErrorType,
-} from './llm-connection-check.js';
+} from './llm-probe.js';
 import type { SetupProbeCandidate } from './setup-provider-catalog.js';
 import { stripOrchestratorWrapper, truncateLLMMessage } from './utils/text.js';
 import { SETUP_MULTI_ENDPOINT_HINT } from '../templates/messages/index.js';

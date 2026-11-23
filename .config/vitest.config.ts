@@ -62,6 +62,7 @@ const VI_MOCK_FILES = [
   'tests/cli/config-provider-add-probe.test.ts',  // phase 451 Step A
   'tests/cli/config-provider-ambiguity.test.ts',  // phase 2197: vi.mock readline/probe/watchdog
   'tests/cli/config-provider-set-primary-probe.test.ts',  // phase 451 Step A
+  'tests/cli/config-provider-repair.test.ts',  // phase 2221: vi.mock readline + llm-probe
   'tests/cli/credentials-env-shadow.test.ts',  // phase 1984 Step C: vi.mock readline + llm-orchestrator barrel
   'tests/cli/contract-events.test.ts',
   'tests/cli/contract.test.ts',

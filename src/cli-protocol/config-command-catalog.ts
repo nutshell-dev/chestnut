@@ -21,6 +21,7 @@ export const CONFIG_COMMAND_CATALOG = [
     options: [{ flag: '--type <type>', desc: 'Login type: oauth or api-key (default: provider preferred)' }],
   },
   { id: 'config/provider/logout', summary: 'Remove the stored credential for a provider' },
+  { id: 'config/provider/repair', summary: 'Repair a provider in place without moving its role or order' },
 ] as const satisfies readonly CommandShapeSpec[];
 
 export type ConfigCommandId = typeof CONFIG_COMMAND_CATALOG[number]['id'];

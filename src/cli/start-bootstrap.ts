@@ -51,7 +51,7 @@ export interface StartBootstrapDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'getInitializationState'> &
     Partial<Pick<RootConfigAdmin, 'migrateLLMConfiguration'>>;
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'> &
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'loadRaw' | 'store' | 'patchPrimary'> &
     Partial<Pick<LLMConfigurationAdmin, 'migrateLegacyApiKeys'>>;
 }
 

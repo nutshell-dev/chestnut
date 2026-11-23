@@ -51,6 +51,7 @@ const EXACT_ENTRIES: readonly RegistryEntry[] = [
   { path: 'config/provider/move', operation: 'configure', commandName: 'config/provider/move' },
   { path: 'config/provider/login', operation: 'configure', commandName: 'config/provider/login' },
   { path: 'config/provider/logout', operation: 'configure', commandName: 'config/provider/logout' },
+  { path: 'config/provider/repair', operation: 'configure', commandName: 'config/provider/repair' },
 ];
 
 const CLAW_OPTION_ENTRIES: readonly RegistryEntry[] = [

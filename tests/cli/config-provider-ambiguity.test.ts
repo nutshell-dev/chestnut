@@ -33,6 +33,12 @@ const mockRl = {
 };
 
 vi.mock('readline', () => ({ createInterface: vi.fn(() => mockRl) }));
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: connMock.checkLLMConnectionFor,
+  LLM_ERROR_HINTS: {},
+  LLM_ERROR_LABELS: {},
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
+}));
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
