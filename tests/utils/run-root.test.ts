@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
+import {
+  createRunRootTeardown,
+} from '../../.config/vitest-global-setup.js';
+import type { RunManifest } from '../../.config/vitest-global-setup.js';
 import { getRunRoot, getRunSubDir, getHostTmpDir } from './run-root.js';
+import { createTrackedTempDir, cleanupTempDir } from './temp.js';
 
 describe('run-root utils', () => {
   it('getRunRoot returns CHESTNUT_RUN_ROOT env var', () => {
@@ -31,4 +38,37 @@ describe('run-root utils', () => {
     expect(process.env.TMP).toBe(runRoot);
     expect(process.env.TEMP).toBe(runRoot);
   });
+
+  it.each([false, true])(
+    'fails and preserves a marked run root (KEEP_TEST_TMP=%s)',
+    async keep => {
+      const runRoot = await createTrackedTempDir('marked-run-root-');
+      const originalKeep = process.env.CHESTNUT_KEEP_TEST_TMP;
+      const manifest: RunManifest = {
+        invocationId: 'unit-test-invocation',
+        pid: process.pid,
+        worktree: process.cwd(),
+        startedAt: new Date().toISOString(),
+        runRoot,
+      };
+      fs.writeFileSync(
+        path.join(runRoot, 'test-resource-failures.jsonl'),
+        `${JSON.stringify({ type: 'unconfirmed-direct-child', pid: 123 })}\n`,
+      );
+      try {
+        if (keep) process.env.CHESTNUT_KEEP_TEST_TMP = '1';
+        else delete process.env.CHESTNUT_KEEP_TEST_TMP;
+
+        await expect(createRunRootTeardown(manifest)()).rejects.toThrow(
+          /Unconfirmed child process resources.*preserving run root/,
+        );
+        expect(fs.existsSync(runRoot)).toBe(true);
+        expect(fs.existsSync(path.join(runRoot, 'test-resource-failures.jsonl'))).toBe(true);
+      } finally {
+        if (originalKeep === undefined) delete process.env.CHESTNUT_KEEP_TEST_TMP;
+        else process.env.CHESTNUT_KEEP_TEST_TMP = originalKeep;
+        await cleanupTempDir(runRoot);
+      }
+    },
+  );
 });

@@ -220,6 +220,33 @@ function isRunRootStale(runPath: string): boolean {
   }
 }
 
+export function createRunRootTeardown(manifest: RunManifest): () => Promise<void> {
+  return async function teardown() {
+    const failureMarker = path.join(manifest.runRoot, 'test-resource-failures.jsonl');
+    if (existsSync(failureMarker)) {
+      throw new Error(
+        `[vitest-teardown] Unconfirmed child process resources recorded at ${failureMarker}; ` +
+        `preserving run root: ${manifest.runRoot}`,
+      );
+    }
+
+    const keep = process.env.CHESTNUT_KEEP_TEST_TMP === '1';
+    if (keep) {
+      console.warn(`[vitest-teardown] CHESTNUT_KEEP_TEST_TMP=1, preserving run root: ${manifest.runRoot}`);
+      return;
+    }
+    try {
+      await fs.promises.rm(manifest.runRoot, { recursive: true, force: true });
+    } catch (err) {
+      // teardown 失败必须让 invocation 失败
+      throw new Error(
+        `[vitest-teardown] Failed to remove run root ${manifest.runRoot}: ${err}`,
+        { cause: err },
+      );
+    }
+  };
+}
+
 export default function globalSetup(): () => Promise<void> {
   // 先创建运行根目录，让 worker 在测试运行期间可读取 CHESTNUT_RUN_ROOT
   const manifest = createRunRoot();
@@ -251,20 +278,5 @@ export default function globalSetup(): () => Promise<void> {
   }
 
   // 返回 teardown 函数，在 invocation 结束时清理 run root
-  return async function teardown() {
-    const keep = process.env.CHESTNUT_KEEP_TEST_TMP === '1';
-    if (keep) {
-      console.warn(`[vitest-teardown] CHESTNUT_KEEP_TEST_TMP=1, preserving run root: ${manifest.runRoot}`);
-      return;
-    }
-    try {
-      await fs.promises.rm(manifest.runRoot, { recursive: true, force: true });
-    } catch (err) {
-      // teardown 失败必须让 invocation 失败
-      throw new Error(
-        `[vitest-teardown] Failed to remove run root ${manifest.runRoot}: ${err}`,
-        { cause: err },
-      );
-    }
-  };
+  return createRunRootTeardown(manifest);
 }
