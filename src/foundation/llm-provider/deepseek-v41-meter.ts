@@ -75,11 +75,12 @@ export function createDeepseekV41Meter(
   };
   const countPlain = (text: string): number => {
     const activeTokenizer = getTokenizer();
-    const conflict = PLAIN_TEXT_CONFLICTS.find(token => text.includes(token));
-    if (conflict) unsupported(`control_token_in_text:${conflict}`);
     if (!text) return 0;
+    // Successful writes below prove this exact text passed validation with the same asset.
     const hit = asset.textCache.read(text);
     if (hit !== undefined) return hit;
+    const conflict = PLAIN_TEXT_CONFLICTS.find(token => text.includes(token));
+    if (conflict) unsupported(`control_token_in_text:${conflict}`);
     const count = activeTokenizer.encode(text, { add_special_tokens: false }).ids.length;
     asset.textCache.write(text, count);
     return count;
