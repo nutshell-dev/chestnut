@@ -36,8 +36,112 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Prepare test evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          node_version=$(node --version)
+          pnpm_version=$(pnpm --version)
+          vitest_version=$(pnpm exec vitest --version)
+          cpu_info=$(LC_ALL=C lscpu)
+          disk_info=$(df -h .)
+          started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          {
+            printf 'git_sha=%s\n' "${GITHUB_SHA:-unknown}"
+            printf 'node_version=%s\n' "$node_version"
+            printf 'pnpm_version=%s\n' "$pnpm_version"
+            printf 'vitest_version=%s\n' "$vitest_version"
+            printf 'command=pnpm run test:run\n'
+            printf 'started_at=%s\n' "$started_at"
+            printf 'runner_os=%s\n' "${RUNNER_OS:-unknown}"
+            printf 'runner_arch=%s\n' "${RUNNER_ARCH:-unknown}"
+            printf 'runner_name=%s\n' "${RUNNER_NAME:-unknown}"
+            printf 'runner_environment=%s\n' "${RUNNER_ENVIRONMENT:-unknown}"
+            printf 'github_workflow=%s\n' "${GITHUB_WORKFLOW:-unknown}"
+            printf 'github_job=%s\n' "${GITHUB_JOB:-unknown}"
+            printf 'github_event_name=%s\n' "${GITHUB_EVENT_NAME:-unknown}"
+            printf 'github_ref=%s\n' "${GITHUB_REF:-unknown}"
+            printf 'github_run_id=%s\n' "${GITHUB_RUN_ID:-unknown}"
+            printf 'github_run_attempt=%s\n' "${GITHUB_RUN_ATTEMPT:-unknown}"
+            printf 'matrix_node_version=%s\n' '${{ matrix.node-version }}'
+            printf 'cpu:\n%s\n' "$cpu_info"
+            printf 'disk:\n%s\n' "$disk_info"
+          } > test-evidence/metadata.txt
+          printf 'not_started\n' > test-evidence/test.status
+
       - name: Run tests
-        run: pnpm run test:run
+        shell: bash
+        run: |
+          set +e
+          printf 'started\n' > test-evidence/test.status || exit 74
+          pnpm run test:run 2>&1 | tee test-evidence/test.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          test_status=${pipeline_status[0]}
+          tee_status=${pipeline_status[1]}
+          printf '%s\n' "$test_status" > test-evidence/test.exit-code || exit 74
+          printf '%s\n' "$tee_status" > test-evidence/log.exit-code || exit 74
+          printf 'finished\n' > test-evidence/test.status || exit 74
+          if [ "$test_status" -ne 0 ]; then
+            exit "$test_status"
+          fi
+          exit "$tee_status"
+
+      - name: Finalize test evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          if [ ! -f test-evidence/metadata.txt ]; then
+            node_version=$(node --version)
+            pnpm_version=$(pnpm --version)
+            cpu_info=$(LC_ALL=C lscpu)
+            disk_info=$(df -h .)
+            {
+              printf 'git_sha=%s\n' "${GITHUB_SHA:-unknown}"
+              printf 'node_version=%s\n' "$node_version"
+              printf 'pnpm_version=%s\n' "$pnpm_version"
+              printf 'vitest_version=not_started\n'
+              printf 'command=pnpm run test:run\n'
+              printf 'started_at=not_started\n'
+              printf 'runner_os=%s\n' "${RUNNER_OS:-unknown}"
+              printf 'runner_arch=%s\n' "${RUNNER_ARCH:-unknown}"
+              printf 'runner_name=%s\n' "${RUNNER_NAME:-unknown}"
+              printf 'runner_environment=%s\n' "${RUNNER_ENVIRONMENT:-unknown}"
+              printf 'github_workflow=%s\n' "${GITHUB_WORKFLOW:-unknown}"
+              printf 'github_job=%s\n' "${GITHUB_JOB:-unknown}"
+              printf 'github_event_name=%s\n' "${GITHUB_EVENT_NAME:-unknown}"
+              printf 'github_ref=%s\n' "${GITHUB_REF:-unknown}"
+              printf 'github_run_id=%s\n' "${GITHUB_RUN_ID:-unknown}"
+              printf 'github_run_attempt=%s\n' "${GITHUB_RUN_ATTEMPT:-unknown}"
+              printf 'matrix_node_version=%s\n' '${{ matrix.node-version }}'
+              printf 'cpu:\n%s\n' "$cpu_info"
+              printf 'disk:\n%s\n' "$disk_info"
+            } > test-evidence/metadata.txt
+          fi
+          if [ ! -f test-evidence/test.status ]; then
+            printf 'not_started\n' > test-evidence/test.status
+          fi
+          printf 'ended_at=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> test-evidence/metadata.txt
+          test_state=$(cat test-evidence/test.status)
+          if [ "$test_state" != 'not_started' ]; then
+            for evidence_file in test.log test.exit-code log.exit-code; do
+              if [ ! -f "test-evidence/$evidence_file" ]; then
+                printf 'Missing expected test evidence: %s\n' "$evidence_file" >&2
+                exit 1
+              fi
+            done
+          fi
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-evidence-node-${{ matrix.node-version }}
+          path: test-evidence/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
