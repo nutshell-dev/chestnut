@@ -1,16 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import type { TestContext } from 'vitest';
-import { runChildProcess } from './child-process.js';
-import { cleanupTempDirSync, createTrackedTempDirSync } from './temp.js';
+import { describe, expect, it } from 'vitest';
+import {
+  ChildProcessLifecycleError,
+  runChildProcess,
+  withCleanupPreservingError,
+} from './child-process.js';
+import { cleanupTempDir, createTrackedTempDirSync } from './temp.js';
 
 const SAMPLE_TIMEOUT_MS = 25_000;
-const tempDirs: string[] = [];
-
-afterEach(() => {
-  for (const tempDir of tempDirs.splice(0)) cleanupTempDirSync(tempDir);
-});
 
 interface WorkerConfiguration {
   maxWorkers: number;
@@ -67,7 +65,6 @@ function readJson<T>(filePath: string): T {
 
 function createSampleRepository(repoRoot: string): { sampleRoot: string; hostTmpDir: string } {
   const sampleRoot = createTrackedTempDirSync('test-cost-workers-');
-  tempDirs.push(sampleRoot);
   for (const entry of ['.config', 'scripts', 'tests', 'src', 'dist', 'node_modules']) {
     fs.symlinkSync(path.join(repoRoot, entry), path.join(sampleRoot, entry), 'dir');
   }
@@ -79,10 +76,15 @@ function createSampleRepository(repoRoot: string): { sampleRoot: string; hostTmp
   return { sampleRoot, hostTmpDir };
 }
 
-async function runSample(sample: SampleCase, context: TestContext): Promise<string> {
+async function runSample(
+  sample: SampleCase,
+  signal: AbortSignal,
+  sampleRoot: string,
+  hostTmpDir: string,
+  execute: typeof runChildProcess,
+): Promise<string> {
   const repoRoot = path.resolve(__dirname, '../..');
-  const { sampleRoot, hostTmpDir } = createSampleRepository(repoRoot);
-  const result = await runChildProcess(
+  const result = await execute(
     process.execPath,
     [
       path.join(repoRoot, 'scripts/test-cost-baseline.mjs'),
@@ -107,7 +109,7 @@ async function runSample(sample: SampleCase, context: TestContext): Promise<stri
         TEMP: hostTmpDir,
       },
       timeoutMs: SAMPLE_TIMEOUT_MS,
-      signal: context.signal,
+      signal,
     },
   );
   expect(result.status, `cost sample failed:\n${result.stdout}\n${result.stderr}`).toBe(0);
@@ -161,6 +163,54 @@ function expectWorkerFacts(runDir: string, sample: SampleCase): void {
   expect(report).toContain('not regular `test:run` scheduling');
 }
 
+function unconfirmedChildFailure(): ChildProcessLifecycleError {
+  return new ChildProcessLifecycleError({
+    command: process.execPath,
+    args: [],
+    pid: 12345,
+    status: null,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    errors: [],
+    directChild: { state: 'unconfirmed' },
+    stdio: 'closed',
+    outputTruncated: false,
+    outputTruncatedAt: null,
+    reason: 'cancelled',
+    timeoutMs: SAMPLE_TIMEOUT_MS,
+    killGraceMs: 0,
+    exitConfirmMs: 0,
+    killSignals: [],
+    killAttempts: [],
+    killErrors: [],
+    cleanup: 'closed',
+    resourceEvidence: { state: 'not_configured' },
+  }, new Error('controlled cancellation'));
+}
+
+async function runSampleCase(
+  sample: SampleCase,
+  signal: AbortSignal,
+  execute: typeof runChildProcess = runChildProcess,
+): Promise<string> {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const { sampleRoot, hostTmpDir } = createSampleRepository(repoRoot);
+  let preserveSample = false;
+  return withCleanupPreservingError(async () => {
+    try {
+      const runDir = await runSample(sample, signal, sampleRoot, hostTmpDir, execute);
+      expectWorkerFacts(runDir, sample);
+      return sampleRoot;
+    } catch (error) {
+      preserveSample = true;
+      throw error;
+    }
+  }, async () => {
+    if (!preserveSample) await cleanupTempDir(sampleRoot);
+  });
+}
+
 describe('test-cost resolved worker facts', () => {
   const cases: SampleCase[] = [
     {
@@ -181,8 +231,28 @@ describe('test-cost resolved worker facts', () => {
 
   for (const sample of cases) {
     it(`${sample.project}: requested ${sample.requestedWorkers}, resolved ${sample.actualWorkers}`, async context => {
-      const runDir = await runSample(sample, context);
-      expectWorkerFacts(runDir, sample);
+      const sampleRoot = await runSampleCase(sample, context.signal);
+      expect(fs.existsSync(sampleRoot)).toBe(false);
     });
   }
+
+  it.each([
+    ['unconfirmed child exit', unconfirmedChildFailure()],
+    ['failed sample assertion', new Error('controlled sample assertion failure')],
+  ])('preserves the caller-owned sample root after %s', async (_name, failure) => {
+    let sampleRoot = '';
+    const execute: typeof runChildProcess = async (_command, _args, options) => {
+      sampleRoot = options.cwd ?? '';
+      throw failure;
+    };
+
+    await expect(runSampleCase(cases[0], new AbortController().signal, execute)).rejects.toBe(failure);
+    expect(sampleRoot).not.toBe('');
+    try {
+      expect(fs.existsSync(sampleRoot)).toBe(true);
+    } finally {
+      // The injected executor started no real process, so this controlled fixture is safe to remove.
+      await cleanupTempDir(sampleRoot);
+    }
+  });
 });
