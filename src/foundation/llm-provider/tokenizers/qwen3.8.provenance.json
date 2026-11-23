@@ -41,6 +41,13 @@
     "selection": "configured-model-family",
     "projection": "estimate-only:no-final-wire-projection",
     "inputProjection": "common-input-text-v1",
+    "textChunking": {
+      "unit": "unicode-code-point",
+      "maxCodePoints": 25000,
+      "scope": "each-common-input-text-segment",
+      "aggregation": "sum-independent-encodings",
+      "wholeTextEquivalence": "not-guaranteed"
+    },
     "supportedInputs": ["text", "tool_definitions", "tool_use", "tool_result", "thinking_text"],
     "unsupported": [
       "image/video/audio/URL media and unknown blocks",

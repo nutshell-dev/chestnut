@@ -29,6 +29,10 @@ const PLAIN_TEXT_CONFLICTS = Object.freeze(
 type QwenTextEncoder = Pick<InstanceType<typeof Tokenizer>, 'encode'>;
 type QwenTextEncoderFactory = () => QwenTextEncoder;
 
+// Bound local estimation work without dropping, reordering, or normalizing text.
+// Independent chunk counts are an approximation: tokenizer merges and pre-tokenization
+// cannot cross these artificial boundaries, so whole-text equivalence and error bounds
+// are not guaranteed. The result remains estimated rather than provider usage.
 const MAX_CHUNK_CODE_POINTS = 25_000;
 const TEXT_ESTIMATE_REASON = 'context_trim_only:qwen_text' as const;
 
@@ -46,7 +50,10 @@ function unsupported(reason: string): never {
 /** Common-input estimate; provider chat markup is deliberately not reconstructed. */
 const textSegments = commonInputTextSegments;
 
-/** Split on Unicode code-point boundaries without quadratic string concatenation. */
+/**
+ * Split each common-input segment on Unicode code-point boundaries without quadratic
+ * concatenation. Valid surrogate pairs stay intact, but grapheme clusters may be split.
+ */
 function* textChunks(textValue: string): Generator<string> {
   let chunkStart = 0;
   let offset = 0;
