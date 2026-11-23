@@ -107,16 +107,17 @@ export function createKimiK3TextMeter(
   }
 
   function countText(textValue: string): number {
-    const controlInText = CONTROL_TOKENS.find(token => textValue.includes(token));
-    if (controlInText) unsupported(`control_token_in_text:${controlInText}`);
     if (!textValue) return 0;
     const hit = asset.textCache.read(textValue);
     if (hit !== undefined) return hit;
+    const controlInText = CONTROL_TOKENS.find(token => textValue.includes(token));
+    if (controlInText) unsupported(`control_token_in_text:${controlInText}`);
     const activeEncoder = getEncoder();
     let count = 0;
     for (const chunk of textChunks(textValue)) {
       count += activeEncoder.encode(chunk, [], [...CONTROL_TOKENS]).length;
     }
+    // Cache the whole text only after every chunk has been encoded successfully.
     asset.textCache.write(textValue, count);
     return count;
   }
