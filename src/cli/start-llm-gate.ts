@@ -30,7 +30,7 @@ import {
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
-import { repairProviderSlot } from './provider-repair.js';
+import { providerRepairBaselineForSlot, repairProviderSlot } from './provider-repair.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -394,8 +394,7 @@ function providerContainsCredentialRef(value: unknown, ref: string): boolean {
     : false;
 }
 
-function credentialSlots(deps: GateDeps, ref: string): LLMProviderSlot[] {
-  const document = deps.llmConfiguration.store.read();
+function credentialSlots(document: ReturnType<LLMConfigurationAdmin['loadRaw']>['llm'], ref: string): LLMProviderSlot[] {
   return [
     ...(providerContainsCredentialRef(document.primary, ref) ? [{ role: 'primary' } as const] : []),
     ...(document.fallbacks ?? []).flatMap((provider, index) =>
@@ -415,7 +414,9 @@ async function repairCredentialInteractively(
   deps: GateDeps,
   error: LLMConfigurationCredentialUnavailableError,
 ): Promise<'retry' | 'cancel'> {
-  const slots = credentialSlots(deps, error.ref);
+  // Capture the same raw revision/target identity that will guide the whole interaction.
+  const config = deps.llmConfiguration.loadRaw();
+  const slots = credentialSlots(config.llm, error.ref);
   if (slots.length === 0) throw error;
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -444,7 +445,7 @@ async function repairCredentialInteractively(
         }
         slot = slots[selected];
       }
-      await repairProviderSlot(deps, slot, rl);
+      await repairProviderSlot(deps, slot, rl, providerRepairBaselineForSlot(config, slot));
       return 'retry';
     }
   } finally {

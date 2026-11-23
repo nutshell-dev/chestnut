@@ -72,11 +72,10 @@ function reportDegraded(write: AtomicWriteResult): void {
   console.error(`⚠ Provider repair committed with degraded durability (kind=${write.kind}): ${formatErr(write.error)}`);
 }
 
-function foundForSlot(
-  deps: ProviderRepairDeps,
+export function providerRepairBaselineForSlot(
+  config: ReturnType<LLMConfigurationAdmin['loadRaw']>,
   slot: LLMProviderSlot,
-): { config: ReturnType<LLMConfigurationAdmin['loadRaw']>; found: ResolvedProviderReference } {
-  const config = deps.llmConfiguration.loadRaw();
+): ProviderRepairBaseline {
   const provider = providerAtLLMSlot({ ...config.llm, revision: config.revision.revision }, slot);
   const found: ResolvedProviderReference = {
     kind: 'resolved',
@@ -91,6 +90,13 @@ function foundForSlot(
     matchedBy: provider.label === undefined ? 'provider_id' : 'label',
   };
   return { config, found };
+}
+
+function foundForSlot(
+  deps: ProviderRepairDeps,
+  slot: LLMProviderSlot,
+): ProviderRepairBaseline {
+  return providerRepairBaselineForSlot(deps.llmConfiguration.loadRaw(), slot);
 }
 
 function assertStableTarget(

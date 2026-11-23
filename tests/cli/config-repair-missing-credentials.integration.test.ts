@@ -164,26 +164,6 @@ async function runInteractiveCli(
   });
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-async function runInteractiveCliWithDelays(
-  root: string,
-  home: string,
-  args: string[],
-  answers: string[],
-) {
-  const command = [process.execPath, cliPath, ...args].map(shellQuote).join(' ');
-  const ptyCommand = process.platform === 'darwin'
-    ? `script -q /dev/null ${command}`
-    : `script -qec ${shellQuote(command)} /dev/null`;
-  const writes = answers.map(answer => `printf ${shellQuote(`${answer}\n`)}; sleep 2;`).join(' ');
-  return runChildProcess('/bin/bash', ['-c', `{ ${writes} sleep 3; } | ${ptyCommand}`], {
-    cwd: path.dirname(cliPath), env: env(root, home, false), timeoutMs: CLI_CHILD_TIMEOUT_MS,
-  });
-}
-
 function readRaw(root: string) {
   const configPath = path.join(root, '.chestnut', 'llm', 'config.yaml');
   return {
@@ -275,8 +255,16 @@ describe('real CLI missing-credential repair chain', () => {
     const home = createTrackedTempDirSync('chestnut-config-repair-home-');
     tempDirs.push(home);
 
-    const added = await runInteractiveCliWithDelays(root, home, ['config', 'provider', 'add'], [
-      '10', '2', baseUrl, 'added-secret', 'added-model', 'y', 'added', '1', 'y',
+    const added = await runInteractiveCli(root, home, ['config', 'provider', 'add'], [
+      { prompt: /> : $/, value: '10' },
+      { prompt: />  \[2\]: $/, value: '2' },
+      { prompt: /Base URL: $/, value: baseUrl },
+      { prompt: /API Key: $/, value: 'added-secret' },
+      { prompt: /Model: $/, value: 'added-model' },
+      { prompt: /Continue with this configuration\? \[Y\]: $/, value: 'y' },
+      { prompt: /Label .*\[other\]: $/, value: 'added' },
+      { prompt: /Role:[\s\S]*>  \[2\]: $/, value: '1' },
+      { prompt: /Confirm\? \[N\]: $/, value: 'y' },
     ]);
     if (added.status !== 0) throw new Error(`provider add failed: ${added.stderr}\n${added.stdout}`);
     expect(added.stdout).toContain('Provider "added" is now primary');

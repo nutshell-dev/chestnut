@@ -42,6 +42,7 @@ import { ONBOARDING_CONTRACT_ID } from '../../src/core/contract/index.js';
 const h = vi.hoisted(() => ({
   rlAnswers: { queue: [] as string[] },
   rlCreateCalls: 0,
+  repairProviderSlot: vi.fn(),
 }));
 
 vi.mock('readline', () => ({
@@ -54,6 +55,11 @@ vi.mock('readline', () => ({
       close: vi.fn(),
     };
   }),
+}));
+
+vi.mock('../../src/cli/provider-repair.js', () => ({
+  repairProviderSlot: h.repairProviderSlot,
+  providerRepairBaselineForSlot: (config: unknown, slot: unknown) => ({ config, found: { slot } }),
 }));
 
 // ── llm-connection-check mock（probe 缝；echo snapshot.identity 模拟真实回带）──
@@ -225,6 +231,7 @@ beforeEach(() => {
   auditRec.entries = [];
   conn.probeLLMConnection.mockReset();
   conn.promptReconfigure.mockReset();
+  h.repairProviderSlot.mockReset();
   downstream.init.mockClear();
   downstream.motionInit.mockClear();
   downstream.chat.mockClear();
@@ -346,6 +353,33 @@ describe('start LLM gate (unit)', () => {
     expect((err as CliError).message).toContain('config provider repair');
     expect(conn.probeLLMConnection).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
+  });
+
+  it('B3. start 交互 repair 传递缺 ref 时的原 raw 基线，重排后不改新目标', async () => {
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('model-A'));
+    deps.llmConfiguration.loadGlobal.mockImplementation(() => {
+      throw new LLMConfigurationCredentialUnavailableError('ANTHROPIC_API_KEY');
+    });
+    const rawBaseline = {
+      ...makeGlobal('model-A'),
+      revision: { id: '1', revision: 1 },
+      workspaceRoot: '/original-workspace',
+    };
+    deps.llmConfiguration.loadRaw.mockReturnValue(rawBaseline);
+    const sentinel = new Error('stop-after-baseline-capture');
+    h.repairProviderSlot.mockRejectedValue(sentinel);
+    h.rlAnswers.queue = ['1'];
+
+    await expect(ensureStartLLMVerified(deps, {
+      audit: mockAudit, interactive: true,
+    })).rejects.toBe(sentinel);
+
+    expect(h.repairProviderSlot).toHaveBeenCalledTimes(1);
+    expect(h.repairProviderSlot.mock.calls[0][3]).toMatchObject({
+      config: rawBaseline,
+    });
+    expect(h.repairProviderSlot.mock.calls[0][3].config.llm.primary.model).toBe('model-A');
   });
 
   it('C. 交互 retry：失败留在向导内，retry 成功后放行', async () => {
