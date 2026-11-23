@@ -13,29 +13,41 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import {
+  runChildProcess,
+  type ChildProcessResult,
+} from '../utils/child-process.js';
 
-const CLI_ENTRY = path.resolve(__dirname, '../../dist/cli.js');
+const CLI_WORKSPACE = path.resolve(__dirname, '../..');
+const CLI_ENTRY = path.resolve(CLI_WORKSPACE, 'dist/cli.js');
+const HELP_CASE_EXECUTION_BUDGET_MS = 12_000; // 15s test budget minus termination and assertion reserve.
 
-// phase 285: cache `node CLI --help` output. 6 tests share 2 args combos
-// (`--help` x5, `motion --help` x1); each spawn was ~1s, so caching brings
-// the file from ~7.8s down to ~2s by going from 6 spawns to 2.
-const helpCache = new Map<string, string>();
-function runHelp(args: string[]): string {
-  const key = args.join(' ');
-  let cached = helpCache.get(key);
-  if (cached === undefined) {
-    const r = spawnSync('node', [CLI_ENTRY, ...args], { encoding: 'utf8' });
-    cached = (r.stdout || '') + (r.stderr || '');
-    helpCache.set(key, cached);
+function helpEnvironment(): NodeJS.ProcessEnv {
+  return { ...process.env, CHESTNUT_CALLER_AGENT_ID: undefined };
+}
+
+function helpStdout(result: ChildProcessResult): string {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`Help CLI exited ${result.status}: ${result.stderr}`, { cause: result.error });
   }
-  return cached;
+  return result.stdout;
+}
+
+async function runHelp(args: string[], signal: AbortSignal): Promise<string> {
+  const result = await runChildProcess(process.execPath, [CLI_ENTRY, ...args], {
+    cwd: CLI_WORKSPACE,
+    env: helpEnvironment(),
+    timeoutMs: HELP_CASE_EXECUTION_BUDGET_MS,
+    signal,
+  });
+  return helpStdout(result);
 }
 
 describe('chestnut top-level help (phase 1488)', () => {
-  it('top-level `claw` row shows only `claw` (no commander internal `[subject]`/`[args...]`)', () => {
-    const out = runHelp(['--help']);
+  it('top-level `claw` row shows only `claw` (no commander internal `[subject]`/`[args...]`)', async context => {
+    const out = await runHelp(['--help'], context.signal);
     // 顶层应有 `  claw ` 行（行起头两空格 + claw + 至少一空格 + description）
     expect(out).toMatch(/^\s{2,}claw\s{2,}Manage Claws/m);
     // 反向：旧形态字面不应出现
@@ -43,41 +55,54 @@ describe('chestnut top-level help (phase 1488)', () => {
     expect(out).not.toContain('claw [subject] [args...]');
   });
 
-  it('top-level `claw` description preserved', () => {
-    const out = runHelp(['--help']);
+  it('top-level `claw` description preserved', async context => {
+    const out = await runHelp(['--help'], context.signal);
     expect(out).toContain('Manage Claws (run `chestnut claw help` for full reference)');
   });
 
-  it('motion subcommand `step <n>` positional preserved (no side-effect leak)', () => {
-    const out = runHelp(['motion', '--help']);
+  it('motion subcommand `step <n>` positional preserved (no side-effect leak)', async context => {
+    const out = await runHelp(['motion', '--help'], context.signal);
     // 子命令层不被影响、positional `<n>` 仍显
     expect(out).toMatch(/^\s{2,}step <n>\s{2,}/m);
   });
 
-  it('built-in `help [command]` positional preserved at top level', () => {
-    const out = runHelp(['--help']);
+  it('built-in `help [command]` positional preserved at top level', async context => {
+    const out = await runHelp(['--help'], context.signal);
     expect(out).toMatch(/^\s{2,}help \[command\]\s/m);
   });
 
-  it('sibling family commands (motion / contract / skill) appear with just name + desc', () => {
-    const out = runHelp(['--help']);
+  it('sibling family commands (motion / contract / skill) appear with just name + desc', async context => {
+    const out = await runHelp(['--help'], context.signal);
     expect(out).toMatch(/^\s{2,}motion\s+Manage Motion/m);
     expect(out).toMatch(/^\s{2,}contract\s+Manage contracts/m);
     expect(out).toMatch(/^\s{2,}skill\s+Manage skills/m);
   });
 
-  it('`claw --help` still goes through composer (Lifecycle group surfaces)', () => {
+  it('`claw --help` still goes through composer (Lifecycle group surfaces)', async context => {
     // phase 1477 已治、本 phase 不破
-    const out = runHelp(['claw', '--help']);
+    const out = await runHelp(['claw', '--help'], context.signal);
     expect(out).toContain('Lifecycle:');
     expect(out).toContain('Messaging:');
     expect(out).not.toContain('<subject>');
   });
 
-  it('watchdog exposes lifecycle commands only; daemon runs exclusively via watchdog-entry', () => {
-    const out = runHelp(['watchdog', '--help']);
+  it('watchdog exposes lifecycle commands only; daemon runs exclusively via watchdog-entry', async context => {
+    const out = await runHelp(['watchdog', '--help'], context.signal);
     expect(out).toMatch(/^\s{2,}start\s{2,}Start watchdog/m);
     expect(out).toMatch(/^\s{2,}stop\s{2,}Stop watchdog/m);
     expect(out).not.toMatch(/^\s{2,}daemon\s/m);
+  });
+
+  it('rejects help-like stderr from a failed child instead of caching it as help', async context => {
+    const result = await runChildProcess(process.execPath, [
+      '-e', 'process.stderr.write("Usage: chestnut --help"); process.exitCode = 2;',
+    ], {
+      cwd: CLI_WORKSPACE,
+      env: helpEnvironment(),
+      timeoutMs: HELP_CASE_EXECUTION_BUDGET_MS,
+      signal: context.signal,
+    });
+    expect(result.stderr).toContain('Usage: chestnut --help');
+    expect(() => helpStdout(result)).toThrow('Help CLI exited 2');
   });
 });

@@ -12,47 +12,66 @@
  * 命令解析与迁移门控在真实 Commander 上验收。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { spawn } from 'child_process';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { runChildProcess, withCleanupPreservingError } from '../utils/child-process.js';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 /** Vitest protection budget only; the tested I/O has its own owner. */
 const CLI_DISPATCH_RUNNER_TIMEOUT_MS = 120_000;
+const CLI_DISPATCH_CASE_EXECUTION_BUDGET_MS = 12_000; // 15s test budget minus termination and assertions.
+const CLI_DISPATCH_LONG_CASE_EXECUTION_BUDGET_MS = 117_000; // 120s case minus termination and assertions.
 
 const CLI_ENTRY = path.resolve(process.cwd(), 'dist/cli.js');
 
+function executionDeadline(budgetMs: number): number {
+  return performance.now() + budgetMs;
+}
+
 describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   let tmpDir: string;
+  let testSignal: AbortSignal;
+  let caseDeadline: number;
+  const pending = new Set<Promise<unknown>>();
 
-  beforeEach(async () => {
+  beforeEach(async context => {
     tmpDir = await createTrackedTempDir('dispatch-skill-cli-');
+    testSignal = context.signal;
+    caseDeadline = executionDeadline(CLI_DISPATCH_CASE_EXECUTION_BUDGET_MS);
+    pending.clear();
     expect(fsSync.existsSync(CLI_ENTRY)).toBe(true);
+    context.onTestFinished(() => withCleanupPreservingError(
+      async () => { await Promise.all([...pending]); },
+      () => cleanupTempDir(tmpDir),
+    ));
   });
 
-  afterEach(async () => {
-    await cleanupTempDir(tmpDir);
-  });
-
-  const runCli = (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> =>
-    new Promise((resolve, reject) => {
-      const child = spawn('node', [CLI_ENTRY, ...args], {
-        env: {
-          ...process.env,
-          CHESTNUT_ROOT: tmpDir,
-          NODE_ENV: 'test',
-          GIT_CONFIG_NOSYSTEM: '1',
-        },
-        cwd: tmpDir,
-      });
-      let stdout = '';
-      let stderr = '';
-      child.stdout?.on('data', (d) => { stdout += d.toString(); });
-      child.stderr?.on('data', (d) => { stderr += d.toString(); });
-      child.on('error', reject);
-      child.on('close', (code) => resolve({ stdout, stderr, exitCode: code }));
+  const runCli = async (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> => {
+    const remainingMs = Math.floor(caseDeadline - performance.now());
+    if (remainingMs <= 0) throw new Error('dispatch-skill case execution budget exhausted');
+    const operation = runChildProcess(process.execPath, [CLI_ENTRY, ...args], {
+      env: {
+        ...process.env,
+        CHESTNUT_ROOT: tmpDir,
+        CHESTNUT_CALLER_AGENT_ID: undefined,
+        NODE_ENV: 'test',
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+      cwd: tmpDir,
+      timeoutMs: remainingMs,
+      signal: testSignal,
+    }).then(result => {
+      if (result.error) throw result.error;
+      return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
     });
+    pending.add(operation);
+    try {
+      return await operation;
+    } finally {
+      pending.delete(operation);
+    }
+  };
 
   it('dispatch-skill --help 列出 list/edit/history；edit 子族 help 列出全部事务命令', async () => {
     const help = await runCli(['dispatch-skill', '--help']);
@@ -119,6 +138,7 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   // Phase 1929 Step F：查询入口经 createDispatchVersions 触发 owner 初始化/恢复/
   // 维护时，业务审计事件必须持久落盘（不再 noop），action scope 统一释放
   it('查询入口 owner 维护审计落盘；失败路径审计保留；重复查询不产生用户编辑', async () => {
+    caseDeadline = executionDeadline(CLI_DISPATCH_LONG_CASE_EXECUTION_BUDGET_MS);
     // 预置旧 live 树 → 首次构造版本服务触发 baseline 迁移（owner 业务事件）
     const legacyDir = path.join(tmpDir, '.chestnut', 'motion', 'clawspace', 'dispatch-skills', 'alpha');
     fsSync.mkdirSync(legacyDir, { recursive: true });
