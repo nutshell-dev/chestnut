@@ -379,6 +379,8 @@ const INTEGRATION_PROCESS_FILES = [
   // Phase 2116 Step C: real directory-import capture, live rejection and exit recovery
   'tests/cli/claw-import-process-reference.integration.test.ts',
   'tests/cli/config-repair-missing-credentials.integration.test.ts',
+  // Phase 2226 Step D: real provider replace interruption and stale-lock recovery.
+  'tests/core/llm-configuration/provider-replace-interruption.integration.test.ts',
   // Phase 2223 Step C: real Vitest resolution of every project's final worker cap.
   'tests/utils/vitest-worker-cap.integration.test.ts',
   // Phase 2223 Step D: real cost samples must report resolved project worker facts.
