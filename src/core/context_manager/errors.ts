@@ -15,6 +15,17 @@
 import type { TrimPolicy } from './trim-policy.js';
 import type { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
 type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+
+export function requireInputMeasurementTokens(
+  measurement: InputMeasurement,
+  descriptor?: Readonly<InputMeterDescriptor>,
+): number {
+  if (measurement.kind === 'unavailable') {
+    throw new ContextInputMeasurementError(measurement.reason, descriptor);
+  }
+  return measurement.tokens;
+}
 
 export class ContextInputMeasurementError extends Error {
   readonly name = 'ContextInputMeasurementError';

@@ -16,7 +16,7 @@ import type { TraceId } from '../../foundation/audit/index.js';
 
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
-import { ContextTrimPersistError } from './errors.js';
+import { ContextTrimPersistError, requireInputMeasurementTokens } from './errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 
 export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
@@ -79,10 +79,10 @@ export async function trimAndPersist(
   const now = inputs.now ?? Date.now();
 
   const fixedTokens = inputs.measurementCapability?.kind === 'message_additive'
-    ? inputs.measurementCapability.measureFixed({
+    ? requireInputMeasurementTokens(inputs.measurementCapability.measureFixed({
         system: inputs.systemPrompt,
         tools: inputs.toolsForLLM,
-      })
+      }), inputs.measurementDescriptor)
     : estimateTextTokens(inputs.systemPrompt) + estimateToolsTokens(inputs.toolsForLLM);
 
   const runTrim = () => trimV2(inputs.messages, {

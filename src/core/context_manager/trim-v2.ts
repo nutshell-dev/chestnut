@@ -23,7 +23,7 @@ import {
 } from '../../foundation/dialog-store/index.js';
 
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
-import { ContextInputMeasurementError } from './errors.js';
+import { ContextInputMeasurementError, requireInputMeasurementTokens } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
@@ -270,8 +270,13 @@ export function buildProactiveTrimPolicy(
  * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const ledger = opts.measurementCapability?.kind === 'message_additive'
-    ? new MessageTokenLedger(messages, opts.fixedTokens, opts.measurementCapability.measureMessage)
+  const additiveCapability = opts.measurementCapability?.kind === 'message_additive'
+    ? opts.measurementCapability
+    : undefined;
+  const ledger = additiveCapability
+    ? new MessageTokenLedger(messages, opts.fixedTokens, message => requireInputMeasurementTokens(
+        additiveCapability.measureMessage(message), opts.measurementDescriptor,
+      ))
     : opts.measureComplete || opts.measurementCapability
       ? undefined
       : new MessageTokenLedger(messages, opts.fixedTokens);

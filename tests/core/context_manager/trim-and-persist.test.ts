@@ -365,8 +365,13 @@ describe('trimAndPersist additive measurement lifecycle (phase 2138)', () => {
       },
       { role: 'user', content: 'recent', addedAt: new Date(NOW).toISOString() },
     ];
-    const measureFixed = vi.fn(() => 0);
-    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const measureFixed = vi.fn(() => ({
+      kind: 'estimated' as const, tokens: 0, method: 'legacy-cl100k' as const, reason: 'test',
+    }));
+    const measureMessage = vi.fn((message: Message) => ({
+      kind: 'estimated' as const, tokens: estimateMessagesTokens([message]),
+      method: 'legacy-cl100k' as const, reason: 'test',
+    }));
     const measureComplete = vi.fn((candidate: readonly Message[]) => ({
       kind: 'estimated' as const,
       tokens: estimateMessagesTokens(candidate),

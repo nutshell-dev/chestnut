@@ -4,6 +4,7 @@ import { sha256Hex } from '../node-utils/index.js';
 import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
 import type {
   InputMeterDescriptor,
+  InputMeasurement,
   MessageAdditiveInputCounter,
   MeterQualification,
   ModelInputMeter,
@@ -70,6 +71,31 @@ function legacyQualification(
   };
 }
 
+function legacyMeasurementUnavailable(error: unknown): InputMeasurement {
+  return {
+    kind: 'unavailable',
+    reason: `legacy_cl100k_estimate_unavailable:${error instanceof CommonInputProjectionUnsupported
+      ? error.reason : error instanceof Error ? error.name : 'UnknownError'}`,
+  };
+}
+
+function measureLegacy(
+  qualification: MeterQualification,
+  estimate: () => number,
+): InputMeasurement {
+  try {
+    return {
+      kind: 'estimated',
+      method: LEGACY_CL100K_METHOD,
+      reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
+      tokens: estimate(),
+    };
+  } catch (error) {
+    // silent: local cl100k initialization/encoding failures become typed unavailable.
+    return legacyMeasurementUnavailable(error);
+  }
+}
+
 /** Select a local estimator by model family; request wire facts never qualify it. */
 export function qualifyMeter(
   configuredModel: string,
@@ -127,11 +153,11 @@ export function createInputMeter(
   const capability: MessageAdditiveInputCounter = {
     kind: 'message_additive',
     measureFixed(input) {
-      return estimateTextTokens(input.system ?? '')
-        + estimateToolsTokens(input.tools as ToolDefinition[] ?? []);
+      return measureLegacy(qualification, () => estimateTextTokens(input.system ?? '')
+        + estimateToolsTokens(input.tools as ToolDefinition[] ?? []));
     },
     measureMessage(message) {
-      return estimateMessagesTokens([message as ProviderWireMessage]);
+      return measureLegacy(qualification, () => estimateMessagesTokens([message as ProviderWireMessage]));
     },
   };
   return {
@@ -140,21 +166,24 @@ export function createInputMeter(
     measure(input) {
       try {
         commonInputTextSegments(input);
-        return {
-          kind: 'estimated',
-          method: LEGACY_CL100K_METHOD,
-          reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
-          tokens: capability.measureFixed(input)
-            + input.messages.reduce((sum, message) => sum + capability.measureMessage(message), 0),
-        };
       } catch (error) {
-        // silent: local cl100k initialization/encoding failures become typed unavailable.
-        return {
-          kind: 'unavailable',
-          reason: `legacy_cl100k_estimate_unavailable:${error instanceof CommonInputProjectionUnsupported
-            ? error.reason : error instanceof Error ? error.name : 'UnknownError'}`,
-        };
+        // silent: unsupported common-input projection remains typed unavailable.
+        return legacyMeasurementUnavailable(error);
       }
+      const fixed = capability.measureFixed(input);
+      if (fixed.kind === 'unavailable') return fixed;
+      let tokens = fixed.tokens;
+      for (const message of input.messages) {
+        const measurement = capability.measureMessage(message);
+        if (measurement.kind === 'unavailable') return measurement;
+        tokens += measurement.tokens;
+      }
+      return {
+        kind: 'estimated',
+        method: LEGACY_CL100K_METHOD,
+        reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
+        tokens,
+      };
     },
   };
 }

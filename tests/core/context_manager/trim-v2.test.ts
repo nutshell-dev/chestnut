@@ -966,7 +966,10 @@ describe('trimV2 message token ledger (phase 2132)', () => {
 describe('trimV2 input measurement capability routing (phase 2138)', () => {
   it('uses an injected additive counter without full candidate scans and matches the nonzero-fixed baseline', () => {
     const policy = buildProactiveTrimPolicy(200);
-    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const measureMessage = vi.fn((message: Message) => ({
+      kind: 'estimated' as const, tokens: estimateMessagesTokens([message]),
+      method: 'legacy-cl100k' as const, reason: 'test',
+    }));
     const measureComplete = vi.fn((messages: readonly Message[]) => ({
       kind: 'estimated' as const,
       tokens: 17 + estimateMessagesTokens(messages),
@@ -978,7 +981,11 @@ describe('trimV2 input measurement capability routing (phase 2138)', () => {
     const incremental = trimV2(makeMultiTurnTrimFixture(), baseOpts({
       policy,
       fixedTokens: 17,
-      measurementCapability: { kind: 'message_additive', measureFixed: () => 17, measureMessage },
+      measurementCapability: {
+        kind: 'message_additive',
+        measureFixed: () => ({ kind: 'estimated' as const, tokens: 17, method: 'legacy-cl100k' as const, reason: 'test' }),
+        measureMessage,
+      },
       measureComplete,
       audit,
     }));

@@ -205,8 +205,8 @@ describe('maybeTrimProactive measurement forwarding (phase 2138)', () => {
     const inputs = makeInputs();
     const measurementCapability = {
       kind: 'message_additive' as const,
-      measureFixed: () => 0,
-      measureMessage: () => 1,
+      measureFixed: () => ({ kind: 'estimated' as const, tokens: 0, method: 'legacy-cl100k' as const, reason: 'test' }),
+      measureMessage: () => ({ kind: 'estimated' as const, tokens: 1, method: 'legacy-cl100k' as const, reason: 'test' }),
     };
     const measurementDescriptor = {
       revision: 'rev-2138', provider: 'test', model: 'test', api: 'test',

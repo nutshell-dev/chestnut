@@ -65,8 +65,8 @@ export type InputMeasurement =
 
 export interface MessageAdditiveInputCounter {
   readonly kind: 'message_additive';
-  measureFixed(input: Pick<CompleteInput, 'system' | 'tools'>): number;
-  measureMessage(message: CompleteInputMessage): number;
+  measureFixed(input: Pick<CompleteInput, 'system' | 'tools'>): InputMeasurement;
+  measureMessage(message: CompleteInputMessage): InputMeasurement;
 }
 
 /** Counting semantics are versioned by the owning meter's descriptor revision. */

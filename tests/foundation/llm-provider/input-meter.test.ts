@@ -117,12 +117,20 @@ describe('resolved model input meter', () => {
     ];
 
     const fixed = capability.measureFixed({ system, tools });
-    const messageTokens = messages.map(message => capability.measureMessage(message));
-    expect(fixed).toBe(estimateTextTokens(system) + estimateToolsTokens(tools));
-    expect(messageTokens).toEqual(messages.map(message => estimateMessagesTokens([message])));
+    const messageMeasurements = messages.map(message => capability.measureMessage(message));
+    expect(fixed).toMatchObject({
+      kind: 'estimated', tokens: estimateTextTokens(system) + estimateToolsTokens(tools),
+    });
+    expect(messageMeasurements).toEqual(messages.map(message => ({
+      kind: 'estimated', method: 'legacy-cl100k', reason: expect.any(String),
+      tokens: estimateMessagesTokens([message]),
+    })));
+    if (fixed.kind === 'unavailable' || messageMeasurements.some(measurement => measurement.kind === 'unavailable')) {
+      throw new Error('expected successful additive measurements');
+    }
     expect(meter.measure({ system, tools, messages })).toMatchObject({
       kind: 'estimated',
-      tokens: fixed + messageTokens.reduce((sum, tokens) => sum + tokens, 0),
+      tokens: fixed.tokens + messageMeasurements.reduce((sum, measurement) => sum + measurement.tokens, 0),
     });
     expect(meter.descriptor.profile).toBe('legacy-cl100k-v2');
   });

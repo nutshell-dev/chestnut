@@ -177,8 +177,8 @@ describe('runtime reactive trim+retry path', () => {
       },
       capability: {
         kind: 'message_additive' as const,
-        measureFixed: () => 0,
-        measureMessage: () => 1,
+        measureFixed: () => ({ kind: 'estimated' as const, tokens: 0, method: 'legacy-cl100k' as const, reason: 'test' }),
+        measureMessage: () => ({ kind: 'estimated' as const, tokens: 1, method: 'legacy-cl100k' as const, reason: 'test' }),
       },
       measure: vi.fn(() => ({ kind: 'estimated' as const, tokens: 1000, method: 'deepseek-v41-text' as const, reason: 'test' })),
     };

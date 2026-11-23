@@ -321,7 +321,10 @@ describe('runtime proactive trim integration', () => {
 
   it('routes a prepared additive meter through the real Runtime-to-trimV2 chain', async () => {
     const runtime = await makeRuntime(true);
-    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const measureMessage = vi.fn((message: Message) => ({
+      kind: 'estimated' as const, tokens: estimateMessagesTokens([message]),
+      method: 'legacy-cl100k' as const, reason: 'test',
+    }));
     const meter = {
       descriptor: {
         revision: 'phase2138-runtime', provider: 'test', model: 'test', api: 'test',
@@ -329,7 +332,10 @@ describe('runtime proactive trim integration', () => {
       },
       capability: {
         kind: 'message_additive' as const,
-        measureFixed: () => estimateTextTokens('sys'),
+        measureFixed: () => ({
+          kind: 'estimated' as const, tokens: estimateTextTokens('sys'),
+          method: 'legacy-cl100k' as const, reason: 'test',
+        }),
         measureMessage,
       },
       measure: vi.fn((input: { messages: readonly Message[] }) => ({
