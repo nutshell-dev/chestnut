@@ -547,6 +547,42 @@ fallbacks:
     expect(output).not.toContain('(unknown)');
   });
 
+  it('list redacts primary and fallback URLs on a wide terminal without changing config bytes', async () => {
+    writeConfig(`primary:
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: 'https://primary-user:primary-password@primary.test/v1?token=primary-query#primary-fragment'
+fallbacks:
+  - provider_id: custom:fallback
+    api_format: openai
+    auth_profile: ambient
+    model: fallback-model
+    base_url: 'https://fallback-user:fallback-password@fallback.test/v1?signature=fallback-signature&token=fallback-query#fallback-fragment'
+`);
+    const before = fs.readFileSync(configPath(), 'utf8');
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+    Object.defineProperty(process.stdout, 'columns', { value: 240, configurable: true });
+    try {
+      await runCommand(['provider', 'list']);
+    } finally {
+      if (originalColumns) Object.defineProperty(process.stdout, 'columns', originalColumns);
+      else Reflect.deleteProperty(process.stdout, 'columns');
+    }
+
+    const output = logLines.join('\n');
+    expect(output).toContain('https://primary.test/v1');
+    expect(output).toContain('https://fallback.test/v1');
+    for (const secret of [
+      'primary-user', 'primary-password', 'primary-query', 'primary-fragment',
+      'fallback-user', 'fallback-password', 'fallback-signature', 'fallback-query', 'fallback-fragment',
+    ]) {
+      expect(output).not.toContain(secret);
+    }
+    expect(fs.readFileSync(configPath(), 'utf8')).toBe(before);
+  });
+
   it('explicitly rejects an existing sentinel-shaped label instead of silently migrating it', async () => {
     writeConfig(`primary:
   label: '(no label)'
