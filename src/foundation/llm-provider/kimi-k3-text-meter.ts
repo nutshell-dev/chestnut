@@ -1,6 +1,7 @@
 /** @module L1.LLMProvider.KimiK3TextMeter */
 import { Tiktoken, type TiktokenBPE } from 'js-tiktoken/lite';
 import kimiK3Bpe from './tokenizers/kimi-k3.tiktoken.json' with { type: 'json' };
+import provenance from './tokenizers/kimi-k3.provenance.json' with { type: 'json' };
 import type {
   CompleteInput,
   InputMeasurement,
@@ -12,8 +13,11 @@ import { COMMON_INPUT_PROJECTION_REVISION, commonInputTextSegments, CommonInputP
 import { acquireInputMeterAsset } from './input-meter-asset.js';
 
 export const KIMI_K3_TEXT_METHOD = 'kimi-k3-text' as const;
-export const KIMI_K3_TEXT_ASSET_REVISION =
-  'moonshotai/Kimi-K3:tiktoken.model:b6c497a7469b33ced9c38afb1ad6e47f03f5e5dc05f15930799210ec050c5103' as const;
+export const KIMI_K3_TEXT_ASSET_REVISION = [
+  `${provenance.source.repository}:tiktoken.model:${provenance.source.modelSha256}`,
+  `asset-sha256:${provenance.conversion.assetSha256}`,
+  `conversion:${provenance.conversion.version}`,
+].join(':');
 /** Legacy descriptor field: this meter performs no final-wire projection. */
 export const KIMI_K3_TEXT_PROJECTION_REVISION = 'estimate-only:no-final-wire-projection' as const;
 export const KIMI_K3_TEXT_PROFILE_ID = 'kimi-k3-text-v1' as const;

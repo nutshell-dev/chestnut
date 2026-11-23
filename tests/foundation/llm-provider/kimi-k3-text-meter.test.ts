@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Tiktoken } from 'js-tiktoken/lite';
 import kimiK3Bpe from '../../../src/foundation/llm-provider/tokenizers/kimi-k3.tiktoken.json' with { type: 'json' };
@@ -10,6 +11,7 @@ import {
   KIMI_K3_TEXT_PROJECTION_REVISION,
 } from '../../../src/foundation/llm-provider/kimi-k3-text-meter.js';
 import { createInputMeter } from '../../../src/foundation/llm-provider/input-meter.js';
+import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import type { CatalogResolution } from '../../../src/foundation/llm-provider/catalog-strategy.js';
 import type { CompleteInput, InputMeterDescriptor, ModelInputMeter } from '../../../src/foundation/llm-provider/input-meter-types.js';
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
@@ -144,7 +146,7 @@ describe('Kimi K3 local text meter', () => {
     }
   });
 
-  it('pins provenance and descriptor revisions and reuses only exact cached text', () => {
+  it('pins provenance and descriptor revisions and reuses only exact cached text', async () => {
     const encoder = new Tiktoken(kimiK3Bpe);
     const encodeSpy = vi.spyOn(encoder, 'encode');
     const cached = createKimiK3TextMeter(meter.descriptor, () => encoder);
@@ -165,7 +167,30 @@ describe('Kimi K3 local text meter', () => {
       assetRevision: KIMI_K3_TEXT_ASSET_REVISION,
       limits: { supportedTools: 'declared' },
     });
-    expect(provenance.source.modelSha256).toBe(KIMI_K3_TEXT_ASSET_REVISION.split(':').at(-1));
+    const prepared = await createLLMProvider(config).prepareInputMeter();
+    expect(prepared.descriptor.assetRevision).toBe(KIMI_K3_TEXT_ASSET_REVISION);
+
+    const assetBytes = fs.readFileSync(new URL(
+      '../../../src/foundation/llm-provider/tokenizers/kimi-k3.tiktoken.json', import.meta.url,
+    ));
+    const assetSha256 = createHash('sha256').update(assetBytes).digest('hex');
+    expect(provenance.conversion).toMatchObject({ assetSha256, assetBytes: assetBytes.length });
+    expect(assetSha256).not.toBe(provenance.source.modelSha256);
+    expect(KIMI_K3_TEXT_ASSET_REVISION).toBe([
+      `${provenance.source.repository}:tiktoken.model:${provenance.source.modelSha256}`,
+      `asset-sha256:${assetSha256}`,
+      `conversion:${provenance.conversion.version}`,
+    ].join(':'));
+
+    const historicalDescriptor: InputMeterDescriptor = {
+      ...meter.descriptor,
+      assetRevision: `${provenance.source.repository}:tiktoken.model:${provenance.source.modelSha256}`,
+    };
+    const historical = createKimiK3TextMeter(historicalDescriptor, () => new Tiktoken(kimiK3Bpe));
+    expect(historical.measure(input)).toEqual(first);
+    expect(historicalDescriptor.assetRevision).toBe(
+      `${provenance.source.repository}:tiktoken.model:${provenance.source.modelSha256}`,
+    );
   });
 
   it('evicts oversized bounded-cache entries and never splits Unicode code points', () => {
@@ -202,7 +227,9 @@ describe('Kimi K3 local text meter', () => {
 
   it('bundles the pinned tokenizer into the built ESM artifact', () => {
     const artifact = fs.readFileSync(new URL('../../../dist/index.js', import.meta.url), 'utf8');
-    expect(artifact).toContain(KIMI_K3_TEXT_ASSET_REVISION);
+    expect(artifact).toContain(provenance.source.modelSha256);
+    expect(artifact).toContain(provenance.conversion.assetSha256);
+    expect(artifact).toContain(provenance.conversion.version);
     expect(artifact).toContain('Script=Han');
     expect(artifact).toContain('<|end_of_msg|>');
   });
