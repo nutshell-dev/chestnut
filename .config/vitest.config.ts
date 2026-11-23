@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vitest/config';
 import os from 'node:os';
 
 // phase 323: 多 worktree 并行测试 contention 防护
@@ -13,9 +14,33 @@ export function resolveProjectMaxWorkers(defaultCap: number, override?: string):
     : defaultCap;
 }
 
-const fastMaxWorkers = resolveProjectMaxWorkers(Math.min(os.cpus().length, 4));
-const resourceMaxWorkers = resolveProjectMaxWorkers(2);
-const infraMaxWorkers = resolveProjectMaxWorkers(1);
+const FAST_WORKER_CAP = Math.min(os.cpus().length, 4);
+const RESOURCE_WORKER_CAP = 2;
+const INFRA_WORKER_CAP = 1;
+
+const fastMaxWorkers = resolveProjectMaxWorkers(FAST_WORKER_CAP);
+const resourceMaxWorkers = resolveProjectMaxWorkers(RESOURCE_WORKER_CAP);
+const infraMaxWorkers = resolveProjectMaxWorkers(INFRA_WORKER_CAP);
+
+// Vitest resolves native env/CLI options after loading this exported object.
+// Re-apply each project's cap through the public post-resolution hook.
+function workerCapPlugin(defaultCap: number): Plugin {
+  return {
+    name: 'chestnut-worker-cap',
+    configureVitest({ project }) {
+      const resolved = project.config.maxWorkers;
+      // Vitest 4.1 exposes this public runtime option but omits it from ResolvedConfig.
+      const fileParallelism = (project.config as typeof project.config & {
+        fileParallelism?: boolean;
+      }).fileParallelism;
+      project.config.maxWorkers = fileParallelism === false
+        ? 1
+        : Number.isInteger(resolved) && resolved > 0
+          ? Math.min(defaultCap, resolved)
+          : defaultCap;
+    },
+  };
+}
 
 /**
  * phase 1231: vi.mock (file-level static) file 列表
@@ -354,6 +379,8 @@ const INTEGRATION_PROCESS_FILES = [
   // Phase 2116 Step C: real directory-import capture, live rejection and exit recovery
   'tests/cli/claw-import-process-reference.integration.test.ts',
   'tests/cli/config-repair-missing-credentials.integration.test.ts',
+  // Phase 2223 Step C: real Vitest resolution of every project's final worker cap.
+  'tests/utils/vitest-worker-cap.integration.test.ts',
 ];
 
 /**
@@ -484,6 +511,7 @@ export default defineConfig({
     // fast 与 isolated/真实 IO 分层：0=fast（至多 4）、1=低并发组（至多 2）、2=infra。
     projects: [
       {
+        plugins: [workerCapPlugin(FAST_WORKER_CAP)],
         test: {
           name: 'fast',
           sequence: { groupOrder: 0 },
@@ -510,6 +538,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(RESOURCE_WORKER_CAP)],
         test: {
           name: 'resource',
           sequence: { groupOrder: 1 },
@@ -525,6 +554,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(RESOURCE_WORKER_CAP)],
         test: {
           // phase 1880 Step B: tsc-API 编译族专用 project——编译是 CPU 密集固定成本，
           // isolate + 低并发（2 worker）使其不与其余测试争 worker；60s 预算 =
@@ -543,6 +573,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(RESOURCE_WORKER_CAP)],
         test: {
           name: 'isolated',
           sequence: { groupOrder: 1 },
@@ -566,6 +597,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(RESOURCE_WORKER_CAP)],
         test: {
           name: 'integration-process',
           sequence: { groupOrder: 1 },
@@ -581,6 +613,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(RESOURCE_WORKER_CAP)],
         test: {
           name: 'integration-io',
           sequence: { groupOrder: 1 },
@@ -596,6 +629,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [workerCapPlugin(INFRA_WORKER_CAP)],
         test: {
           name: 'infra',
           sequence: { groupOrder: 2 },

@@ -417,7 +417,10 @@ describe('vitest-projects-pool-timeout-consistency-invariant', () => {
 
 
 describe('vitest project resource topology invariant (phase 2215)', () => {
+  // This suite guards the exported configuration object only. Final values after
+  // native Vitest resolution are covered by vitest-worker-cap.integration.test.ts.
   type Project = {
+    plugins?: Array<{ name?: string }>;
     test?: {
       name?: string;
       maxWorkers?: number;
@@ -448,6 +451,13 @@ describe('vitest project resource topology invariant (phase 2215)', () => {
     const fast = byName.get('fast');
     const resourceNames = ['resource', 'arch-compile', 'isolated', 'integration-process', 'integration-io'];
     const resourceProjects = resourceNames.map(name => byName.get(name));
+
+    for (const project of projects) {
+      expect(
+        project.plugins?.some(plugin => plugin.name === 'chestnut-worker-cap'),
+        `worker cap plugin missing from ${project.test?.name ?? 'unnamed'}`,
+      ).toBe(true);
+    }
 
     expect(fast?.sequence?.groupOrder).toBe(0);
     expect(fast?.maxWorkers).toBeGreaterThan(0);
