@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('workspace CLI caller access', () => {
-  it.each([
+  it.for([
     ['init'],
     ['dispatch-skill', 'list'],
     ['dispatch-skill', 'history', 'sample'],
@@ -22,16 +22,16 @@ describe('workspace CLI caller access', () => {
     ['config', 'provider', 'move', 'sample', '1'],
     ['config', 'provider', 'login', 'sample'],
     ['config', 'provider', 'logout', 'sample'],
-  ])('rejects %j before workspace or credential effects', async (...args) => {
+  ])('rejects %j before workspace or credential effects', async (args, context) => {
     const root = await createTrackedTempDir('workspace-access-');
-    await withCleanupPreservingError(async () => {
+    const operation = withCleanupPreservingError(async () => {
       const result = await runChildProcess(process.execPath, [path.resolve('dist/cli.js'), ...args], {
         cwd: root,
         env: {
           ...process.env, CHESTNUT_ROOT: root,
           CHESTNUT_CALLER_AGENT_ID: 'alice',
         },
-        input: '{}\n', timeoutMs: CLI_ACCESS_PROCESS_TIMEOUT_MS,
+        input: '{}\n', timeoutMs: CLI_ACCESS_PROCESS_TIMEOUT_MS, signal: context.signal,
       });
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
@@ -43,5 +43,7 @@ describe('workspace CLI caller access', () => {
       expect(audit).toContain('cli_motion_access_denied');
       expect(audit).toContain('caller=agent');
     }, () => cleanupTempDir(root));
+    context.onTestFinished(() => operation);
+    await operation;
   });
 });
