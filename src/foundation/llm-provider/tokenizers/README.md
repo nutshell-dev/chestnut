@@ -51,8 +51,16 @@ selected by Kimi model family names (including fixed `k3` aliases). Runtime
 measurement encodes text content from messages, declared tool definitions, tool
 calls/results, and thinking without provider chat markup or final-wire projection.
 Multimodal and unknown content remains `unavailable`. Downloads, remote token APIs,
-final-wire counting, and use as post-call `ProviderUsage` are prohibited. The
-upstream [Kimi K3 License](LICENSE.kimi-k3) notice is preserved with the asset.
+final-wire counting, and use as post-call `ProviderUsage` are prohibited.
+
+Each common-input text segment is encoded independently in chunks of at most
+25,000 Unicode code points, and the chunk counts are summed. Splitting preserves
+every code point and its order without normalization: valid surrogate pairs stay
+intact, although grapheme clusters may cross a boundary. Tokenizer merges and
+pre-tokenization cannot cross these artificial boundaries, so whole-text
+equivalence and any error bound are not guaranteed; results never represent
+provider usage. The upstream [Kimi K3 License](LICENSE.kimi-k3) notice is
+preserved with the asset.
 
 # Qwen3.8 text estimator
 
