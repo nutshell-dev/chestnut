@@ -262,6 +262,51 @@ fallbacks:
     expectNoMutationSideEffects(before);
   });
 
+  it('redacts non-HTTP(S) and invalid URLs from ambiguity terminal and audit evidence', async () => {
+    writeConfig(`primary:
+  label: main
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: ambient
+  model: main-model
+  base_url: https://main.test
+fallbacks:
+  - label: data
+    provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
+    model: model-data
+    base_url: 'data:text/plain,dummy-data-secret'
+  - label: mail
+    provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
+    model: model-mail
+    base_url: 'mailto:dummy-mail-secret@example.test'
+  - label: invalid
+    provider_id: custom:shared
+    api_format: openai
+    auth_profile: ambient
+    model: model-invalid
+    base_url: 'not a URL containing dummy-parse-secret'
+`);
+    const before = snapshot();
+
+    const errors = await runFailure(['provider', 'remove', 'custom:shared']);
+    const audit = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf8');
+
+    for (const evidence of [errors, audit]) {
+      expect(evidence).not.toContain('dummy-data-secret');
+      expect(evidence).not.toContain('dummy-mail-secret');
+      expect(evidence).not.toContain('dummy-parse-secret');
+    }
+    expect(errors).toContain('base_url="[redacted]"');
+    expect(audit).toContain('"base_url":"[redacted]"');
+    expect(audit).toContain('cli_config_provider_reference_rejected');
+    expect(audit).toContain('candidate_count=3');
+    expectNoMutationSideEffects(before);
+  });
+
   it('preserves the original ambiguity CLI failure when its dedicated audit write throws', async () => {
     writeSharedProviderConfig();
     const before = snapshot();

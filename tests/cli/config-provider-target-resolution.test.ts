@@ -11,6 +11,7 @@ import {
   providerLabelExists,
   providerTargetFingerprint,
   resolveProviderReference,
+  summarizeProviderBaseUrl,
 } from '../../src/cli/commands/provider-reference.js';
 
 function entry(input: Partial<LLMProviderConfig>): LLMProviderConfig {
@@ -169,6 +170,25 @@ describe('provider reference resolution', () => {
     expect(message).not.toContain('user:password');
     expect(message).not.toContain('query-secret');
     expect(message).not.toContain('fragment-secret');
+  });
+
+  it.each([
+    'data:text/plain,dummy-data-secret',
+    'mailto:dummy-mail-secret@example.test',
+    'not a URL containing dummy-parse-secret',
+  ])('redacts unsupported or invalid URL %s from helper, candidates and diagnostics', (rawUrl) => {
+    expect(summarizeProviderBaseUrl(rawUrl)).toBe('[redacted]');
+    const result = resolveProviderReference(config(
+      { provider_id: 'shared', base_url: rawUrl },
+      [{ provider_id: 'shared', base_url: rawUrl }],
+    ), 'shared');
+
+    expect(JSON.stringify(result)).not.toContain('dummy-');
+    expect(JSON.stringify(result)).toContain('[redacted]');
+    if (result.kind !== 'ambiguous_provider_reference') throw new Error('expected ambiguity');
+    const message = formatAmbiguousProviderReference(result);
+    expect(message).toContain('base_url="[redacted]"');
+    expect(message).not.toContain('dummy-');
   });
 
   it('distinguishes missing labels from a raw sentinel-shaped label in diagnostics', () => {

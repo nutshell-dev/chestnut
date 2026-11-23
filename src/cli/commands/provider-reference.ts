@@ -109,6 +109,7 @@ export function providerEntryFor(
 export function summarizeProviderBaseUrl(baseUrl: string): string {
   try {
     const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '[redacted]';
     parsed.username = '';
     parsed.password = '';
     parsed.search = '';
