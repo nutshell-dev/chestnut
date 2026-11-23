@@ -47,7 +47,7 @@ const { connMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../src/cli/llm-connection-check.js', () => ({
+vi.mock('../../src/cli/llm-probe.js', () => ({
   probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),

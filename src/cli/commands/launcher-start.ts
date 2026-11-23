@@ -29,7 +29,7 @@ export async function executeLauncherStart(
   request: LauncherStartRequest,
   runtime: { ensureSupervision: EnsureSupervision; audit?: AuditLog },
 ): Promise<LauncherV2Envelope> {
-  if (deps.rootConfig.getInitializationState() !== 'ready') {
+  if (deps.rootConfig.inspectInitialization().state !== 'ready') {
     throw new Error('workspace initialization is not ready; run launcher setup first');
   }
   await deps.rootConfig.migrateLLMConfiguration?.();

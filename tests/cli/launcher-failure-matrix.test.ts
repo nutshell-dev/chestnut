@@ -52,7 +52,7 @@ function snapshot() {
 }
 
 const deps = {
-  fsFactory: vi.fn(), rootConfig: { getInitializationState: vi.fn(() => 'ready') },
+  fsFactory: vi.fn(), rootConfig: { inspectInitialization: vi.fn(() => ({ state: 'ready' })) },
 } as never;
 
 describe('launcher v2 failure matrix', () => {
@@ -91,7 +91,7 @@ describe('launcher v2 failure matrix', () => {
 
   it('rejects start before supervision when initialization is not ready', async () => {
     const ensureSupervision = vi.fn();
-    const notReadyDeps = { rootConfig: { getInitializationState: () => 'absent' } } as never;
+    const notReadyDeps = { rootConfig: { inspectInitialization: () => ({ state: 'absent' }) } } as never;
     await expect(executeLauncherStart(notReadyDeps, {}, { ensureSupervision })).rejects.toThrow(/setup first/);
     expect(ensureSupervision).not.toHaveBeenCalled();
   });

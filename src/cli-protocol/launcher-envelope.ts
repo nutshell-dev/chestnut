@@ -157,6 +157,8 @@ export interface LauncherErrorPayload {
 export interface LauncherSnapshotPayload {
   workspace: { claw: string };
   initialization: string;
+  /** Optional structural owner diagnostic; never implies LLM runtime readiness. */
+  initializationDetail?: string;
   daemon: LauncherDaemonPayload;
   capabilities: unknown;
   active: boolean;

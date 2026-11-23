@@ -31,7 +31,7 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 export { createRootConfig } from './config/root-config.js';
 export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
 export { GlobalConfigAlreadyExistsError, ClawConfigAlreadyExistsError } from './config/config-load.js';
-export type { InitializationState } from './config/config-load.js';
+export type { InitializationInspection, InitializationState } from './config/config-load.js';
 export { initializeClawLayout } from './claw-subdirs.js';
 // Phase 1911 Step H：claw 创建 claim/intent/物化 capability（owner 归 Assembly）。
 export {

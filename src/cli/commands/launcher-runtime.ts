@@ -21,7 +21,7 @@ import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 export interface LauncherCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'> &
-    Pick<RootConfigAdmin, 'getInitializationState' | 'migrateLLMConfiguration'>;
+    Pick<RootConfigAdmin, 'inspectInitialization' | 'migrateLLMConfiguration'>;
 }
 
 export function readLauncherDaemon(deps: LauncherCommandDeps, name: ClawId = MOTION_CLAW_ID): LauncherDaemonPayload {
@@ -56,11 +56,11 @@ export interface LauncherStreamSnapshot {
 }
 
 export function readLauncherSnapshot(deps: LauncherCommandDeps, name = MOTION_CLAW_ID): LauncherStreamSnapshot {
-  const initialization = deps.rootConfig.getInitializationState();
+  const inspection = deps.rootConfig.inspectInitialization();
+  const initialization = inspection.state;
   let current: ReturnType<typeof readCurrentTurnSnapshot> = { active: false, events: [], tailOffset: 0 };
   let clawDir = getNamedSubrootDir(MOTION_CLAW_ID);
   if (initialization === 'ready') {
-    deps.rootConfig.loadGlobal();
     const target = assertPublishedClaw(deps, name);
     clawDir = target.clawDir;
     current = readCurrentTurnSnapshot(deps.fsFactory(clawDir), STREAM_FILE);
@@ -80,6 +80,7 @@ export function readLauncherSnapshot(deps: LauncherCommandDeps, name = MOTION_CL
     payload: {
       workspace: { claw: name },
       initialization,
+      ...(initialization === 'invalid' ? { initializationDetail: inspection.reason } : {}),
       daemon: readLauncherDaemon(deps),
       capabilities: LAUNCHER_CAPABILITIES,
       active: current.active,

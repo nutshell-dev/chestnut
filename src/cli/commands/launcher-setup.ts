@@ -31,7 +31,7 @@ type Session = {
 };
 
 export type LauncherSetupDeps = FirstRunDeps & {
-  rootConfig: Pick<RootConfigAdmin, 'saveGlobalExclusive' | 'completeInitialization' | 'getInitializationState'>;
+  rootConfig: Pick<RootConfigAdmin, 'saveGlobalExclusive' | 'completeInitialization' | 'inspectInitialization'>;
 };
 
 function catalog() {
@@ -113,9 +113,12 @@ function stateForSession(session: Session): Record<string, unknown> {
 }
 
 async function status(deps: LauncherSetupDeps): Promise<{ kind: 'state' | 'committed'; payload: Record<string, unknown> }> {
-  const initialization = deps.rootConfig.getInitializationState();
+  const inspection = deps.rootConfig.inspectInitialization();
+  const initialization = inspection.state;
   if (initialization === 'ready') return { kind: 'committed', payload: { phase: 'committed' } };
-  if (initialization === 'invalid') throw new Error('Existing initialization is invalid; repair it with chestnut CLI');
+  if (initialization === 'invalid') {
+    throw new Error(`Existing initialization structure is invalid (${inspection.reason}); repair it with chestnut CLI`);
+  }
   const session = await readSession(deps);
   return { kind: 'state', payload: session ? stateForSession(session) : needsProvider() };
 }
@@ -144,7 +147,7 @@ export async function executeLauncherSetup(
       const result = await status(deps);
       return launcherSetupResponse(request.requestId, result.kind, result.payload);
     }
-    if (deps.rootConfig.getInitializationState() === 'ready') {
+    if (deps.rootConfig.inspectInitialization().state === 'ready') {
       await clearSession(deps);
       return launcherSetupResponse(request.requestId, 'committed', { phase: 'committed' });
     }

@@ -31,7 +31,7 @@ vi.mock('../../src/cli/start-llm-gate.js', () => ({
 
 const deps = {
   fsFactory: vi.fn(),
-  rootConfig: { getInitializationState: vi.fn(() => 'ready') },
+  rootConfig: { inspectInitialization: vi.fn(() => ({ state: 'ready' })) },
 } as never;
 const runtime = { ensureSupervision: vi.fn(async () => {}) };
 

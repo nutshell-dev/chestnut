@@ -21,7 +21,7 @@ import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobalExclusive' | 'migrateLLMConfiguration' | 'getInitializationState' | 'completeInitialization'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobalExclusive' | 'migrateLLMConfiguration' | 'inspectInitialization' | 'completeInitialization'>;
   llmConfiguration: Pick<LLMConfigurationAdmin, 'store'>;
 }
 
@@ -42,15 +42,16 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
   if (deps.rootConfig.isInitialized()) await deps.rootConfig.migrateLLMConfiguration();
   // Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：typed 初始化状态。
   // ready 依据 = root config + ready marker + 必需布局核验，不是 root YAML exists。
-  const initState = deps.rootConfig.getInitializationState();
+  const inspection = deps.rootConfig.inspectInitialization();
+  const initState = inspection.state;
   if (initState === 'ready') {
     console.log('✓ Already initialized (.chestnut/config.yaml exists)');
     return {};
   }
   if (initState === 'invalid') {
     throw new CliError(
-      'Workspace initialization state is invalid: root config or workspace layout ' +
-      'is corrupted. Inspect .chestnut/ manually; init will not overwrite it.',
+      `Workspace initialization structure is invalid (${inspection.reason}). ` +
+      'Inspect .chestnut/ manually; init will not overwrite it.',
     );
   }
   if (initState === 'in_progress') {

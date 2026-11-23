@@ -19,9 +19,10 @@ import {
   saveClawConfig,
   saveClawConfigExclusive,
   getInitializationState,
+  inspectInitialization,
   completeInitialization,
 } from './config-load.js';
-import type { InitializationState } from './config-load.js';
+import type { InitializationInspection, InitializationState } from './config-load.js';
 import type {
   ClawGlobalConfig,
   ClawGlobalConfigInput,
@@ -66,6 +67,8 @@ export interface RootConfigAdmin extends RootConfigReader {
    * 依据是 ready marker + 必需布局核验，不是 root YAML exists。
    */
   getInitializationState(): InitializationState;
+  /** Structural owner diagnostics without LLM credential expansion. */
+  inspectInitialization(): InitializationInspection;
   /**
    * Phase 1911 Step D：幂等完成 bootstrap（audit/watchdog config、layout、logs
    * 归各 owner 幂等物化），核验后发布 ready marker。崩溃窗口/legacy 无 marker
@@ -94,6 +97,7 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
     saveClawExclusive: (configPath, config) => saveClawConfigExclusive(deps, configPath, config),
     getInitializationState: () => getInitializationState(deps),
+    inspectInitialization: () => inspectInitialization(deps),
     completeInitialization: () => completeInitialization(deps),
   };
 }

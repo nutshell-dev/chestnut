@@ -260,6 +260,14 @@ export type InitializationState =
   | 'ready'        // root config + marker + 必需布局核验完整
   | 'invalid';     // root config 损坏 / marker 声称 ready 但布局损坏 —— fail-closed
 
+export type InitializationInspection =
+  | { readonly state: 'absent' | 'in_progress' | 'ready' }
+  | {
+    readonly state: 'invalid';
+    readonly reason: 'root_config' | 'llm_document' | 'audit_config' | 'watchdog_config' | 'layout';
+    readonly cause: unknown;
+  };
+
 type BootstrapCheck = 'complete' | 'incomplete' | 'broken';
 
 /** 必需布局核验：audit/watchdog config（owner typed load）+ logs 目录。 */
@@ -272,40 +280,66 @@ function checkWorkspaceBootstrap(deps: { fsFactory: (baseDir: string) => FileSys
   return chestnutRootFs.existsSync('logs') ? 'complete' : 'incomplete';
 }
 
-/**
- * typed 初始化状态（诊断读，不授予任何创建权）。marker 缺 + 布局完整 =
- * legacy/崩溃窗口一律 in_progress，由 completeInitialization 幂等补建
- * （不重新交互、不覆盖合法配置）；布局损坏不给 ready。
- */
-export function getInitializationState(deps: { fsFactory: (baseDir: string) => FileSystem }): InitializationState {
-  if (!isInitialized(deps)) return 'absent';
+/** Structural initialization inspection; LLM credentials are deliberately not resolved. */
+export function inspectInitialization(deps: { fsFactory: (baseDir: string) => FileSystem }): InitializationInspection {
+  if (!isInitialized(deps)) return { state: 'absent' };
   let hasLLMConfiguration = false;
   try {
-    hasLLMConfiguration = configExists(deps, getLLMConfigurationPath()) || readRawRootLLM(deps) !== undefined;
-    if (hasLLMConfiguration) {
-      loadGlobalConfig(deps);
-    } else {
-      // A root-only non-LLM intent is a valid recoverable bootstrap state. It
-      // must not be marked ready before the exclusive L4 initialize completes.
+    const raw = readYamlDocument(deps, getGlobalConfigPath());
+    const root = typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    const legacy = root.llm as SharedLLMInput | undefined;
+    hasLLMConfiguration = configExists(deps, getLLMConfigurationPath()) || legacy !== undefined;
+    if (legacy === undefined) {
+      // No legacy LLM section remains, so expansion can only affect root-owned fields.
       loadYamlConfig(
         { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
         getGlobalConfigPath(),
         createStoredGlobalConfigSchema(),
       );
+    } else {
+      // Validate legacy structure without expanding its credential references.
+      createStoredGlobalConfigSchema().parse(raw);
     }
-  } catch {
-    // silent: root YAML 存在但不可消费 —— 以 typed 'invalid' 状态上报（fail-closed）
-    return 'invalid';
+  } catch (error) {
+    if (isConfigStoreError(error) && !['invalid_yaml', 'invalid_schema', 'missing_env'].includes(error.code)) {
+      throw error;
+    }
+    return { state: 'invalid', reason: 'root_config', cause: error };
   }
+  if (configExists(deps, getLLMConfigurationPath())) {
+    try {
+      createLLMConfigurationDocumentStore(deps).read();
+    } catch (error) {
+      if (isConfigStoreError(error) && !['invalid_yaml', 'invalid_schema'].includes(error.code)) throw error;
+      return { state: 'invalid', reason: 'llm_document', cause: error };
+    }
+  }
+
   const chestnutRootFs = deps.fsFactory(getChestnutRoot());
   const markerPresent = chestnutRootFs.existsSync(INITIALIZATION_MARKER);
-  const bootstrap = checkWorkspaceBootstrap(deps);
-  if (markerPresent) {
-    // marker 不得把损坏布局或尚未提交的 root-only intent 标 ready。
-    if (!hasLLMConfiguration) return 'in_progress';
-    return bootstrap === 'complete' ? 'ready' : 'invalid';
+  const audit = loadWorkspaceAuditConfig(chestnutRootFs);
+  if (audit.kind === 'invalid') {
+    return { state: 'invalid', reason: 'audit_config', cause: audit };
   }
-  return bootstrap === 'broken' ? 'invalid' : 'in_progress';
+  const watchdog = loadWorkspaceWatchdogConfig(chestnutRootFs);
+  if (watchdog.kind === 'invalid') {
+    return { state: 'invalid', reason: 'watchdog_config', cause: watchdog };
+  }
+  const complete = audit.kind === 'ok' && watchdog.kind === 'ok' && chestnutRootFs.existsSync('logs');
+  if (markerPresent) {
+    if (!hasLLMConfiguration) return { state: 'in_progress' };
+    return complete
+      ? { state: 'ready' }
+      : { state: 'invalid', reason: 'layout', cause: new Error('Ready marker has incomplete workspace layout') };
+  }
+  return { state: 'in_progress' };
+}
+
+/** Compatibility projection for callers that only need the historical four-state layout. */
+export function getInitializationState(deps: { fsFactory: (baseDir: string) => FileSystem }): InitializationState {
+  return inspectInitialization(deps).state;
 }
 
 /**
@@ -314,8 +348,20 @@ export function getInitializationState(deps: { fsFactory: (baseDir: string) => F
  * 覆盖三条路径：fresh init winner、并发 loser 协助收敛、崩溃/legacy 恢复。
  */
 export function completeInitialization(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
-  // fresh staging、legacy workspace 与 target-written/source-not-cleared 崩溃窗口统一收敛。
-  loadGlobalConfig(deps);
+  // Structural completion never requires every LLM credential to be available.
+  const inspection = inspectInitialization(deps);
+  if (inspection.state === 'invalid') {
+    throw new Error(`Workspace initialization structure is invalid (${inspection.reason})`, { cause: inspection.cause });
+  }
+  if (inspection.state === 'absent') throw new Error('Workspace initialization is absent');
+  if (configExists(deps, getLLMConfigurationPath())) {
+    createLLMConfigurationDocumentStore(deps).read();
+  } else {
+    const legacy = readRawRootLLM(deps);
+    if (legacy === undefined) throw new Error('Workspace LLM configuration is not initialized');
+    migrateRootLLM(deps, legacy);
+    createLLMConfigurationDocumentStore(deps).read();
+  }
   const chestnutRootFs = deps.fsFactory(getChestnutRoot());
   initWorkspaceAuditConfig(chestnutRootFs);
   publishAuditLayout(chestnutRootFs);

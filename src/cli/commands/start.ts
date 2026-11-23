@@ -5,7 +5,7 @@
  */
 
 import * as readline from 'readline';
-import type { InitializationState, RootConfigAdmin } from '../../assembly/index.js';
+import type { InitializationInspection, InitializationState, RootConfigAdmin } from '../../assembly/index.js';
 import { MOTION_CLAW_ID, requireMotionAccess } from '../../core/claw-topology/index.js';
 import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
@@ -66,12 +66,15 @@ export async function pickLanguage(): Promise<string> {
 export function getInitializationSnapshot(deps: StartCommandDeps & { audit?: AuditLog }, motionDir: string): {
   isInitialized: boolean;
   initialization: InitializationState;
+  inspection: InitializationInspection;
   onboarding: ReturnType<typeof getOnboardingStatus>;
 } {
-  const initialization = deps.rootConfig.getInitializationState();
+  const inspection = deps.rootConfig.inspectInitialization();
+  const initialization = inspection.state;
   return {
     isInitialized: initialization === 'ready',
     initialization,
+    inspection,
     onboarding: getOnboardingStatus(motionDir, deps),
   };
 }
@@ -119,10 +122,10 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
     if (outcome.kind === 'verified') preVerified = outcome.verified;
   } else if (snapshot.initialization === 'in_progress') {
     deps.rootConfig.completeInitialization();
-  } else if (snapshot.initialization === 'invalid') {
+  } else if (snapshot.inspection.state === 'invalid') {
     throw new CliError(
-      'Workspace initialization state is invalid: root config or workspace layout ' +
-      'is corrupted. Inspect .chestnut/ manually; start will not overwrite it.',
+      `Workspace initialization structure is invalid (${snapshot.inspection.reason}). ` +
+      'Inspect .chestnut/ manually; start will not overwrite it.',
     );
   }
   if (!needsSetup && llmOptions.nonInteractive) await applyStartLLMOptions(deps, llmOptions);

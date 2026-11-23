@@ -49,7 +49,7 @@ import { getCapturedCliMotionAccess } from './motion-cli-guard.js';
 
 export interface StartBootstrapDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'getInitializationState'> &
+  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'inspectInitialization'> &
     Partial<Pick<RootConfigAdmin, 'migrateLLMConfiguration'>>;
   llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'loadRaw' | 'store' | 'patchPrimary'> &
     Partial<Pick<LLMConfigurationAdmin, 'migrateLegacyApiKeys'>>;

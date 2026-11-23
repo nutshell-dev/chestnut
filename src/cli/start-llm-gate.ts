@@ -22,13 +22,15 @@
 import * as readline from 'readline';
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
 type ApiFormat = llmProviderCatalog.ApiFormat;
-import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
+import type { LLMConfigurationAdmin, LLMProviderSlot } from '../core/llm-configuration/index.js';
 import {
   createAuthenticationCapability,
+  LLMConfigurationCredentialUnavailableError,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
+import { repairProviderSlot } from './provider-repair.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -193,7 +195,7 @@ export async function applyStartLLMOptions(
     }));
     return;
   }
-  const providerRef = opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.provider_id;
+  const providerRef = opts.provider ?? deps.llmConfiguration.loadRaw().llm.primary.provider_id;
   if (!providerRef) {
     throw new CliError('--provider is required (no existing primary provider)', { code: START_USAGE_EXIT_CODE });
   }
@@ -283,11 +285,14 @@ export async function ensureStartLLMVerified(
 ): Promise<VerifiedLLMConfig> {
   const { audit, interactive, preVerified } = opts;
   if (preVerified) {
-    const now = readLLMSnapshot(deps);
-    if (now.operationalIdentity === preVerified.snapshot.operationalIdentity) {
-      return preVerified;
+    try {
+      const now = readLLMSnapshot(deps);
+      if (now.operationalIdentity === preVerified.snapshot.operationalIdentity) return preVerified;
+      audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=stale_preverified_identity`);
+    } catch (error) {
+      if (!(error instanceof LLMConfigurationCredentialUnavailableError)) throw error;
+      // A stale setup receipt cannot bypass the same typed repair/non-interactive gate.
     }
-    audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=stale_preverified_identity`);
   }
   return verifyWithWizard(deps, { audit, interactive });
 }
@@ -295,7 +300,7 @@ export async function ensureStartLLMVerified(
 /**
  * 单次验证循环（probe → 失败时交互 retry/edit/cancel 或 非交互 loud 失败）。
  */
-async function verifyWithWizard(
+async function verifyWithWizardResolved(
   deps: GateDeps,
   opts: { audit?: AuditLog; interactive: boolean },
 ): Promise<VerifiedLLMConfig> {
@@ -379,4 +384,93 @@ async function verifyWithWizard(
     }
   }
   return result.verified;
+}
+
+function providerContainsCredentialRef(value: unknown, ref: string): boolean {
+  if (typeof value === 'string') return value.includes(`\${${ref}}`);
+  if (Array.isArray(value)) return value.some(entry => providerContainsCredentialRef(entry, ref));
+  return value !== null && typeof value === 'object'
+    ? Object.values(value).some(entry => providerContainsCredentialRef(entry, ref))
+    : false;
+}
+
+function credentialSlots(deps: GateDeps, ref: string): LLMProviderSlot[] {
+  const document = deps.llmConfiguration.store.read();
+  return [
+    ...(providerContainsCredentialRef(document.primary, ref) ? [{ role: 'primary' } as const] : []),
+    ...(document.fallbacks ?? []).flatMap((provider, index) =>
+      providerContainsCredentialRef(provider, ref) ? [{ role: 'fallback', index } as const] : []),
+  ];
+}
+
+function nonInteractiveCredentialError(error: LLMConfigurationCredentialUnavailableError): CliError {
+  return new CliError(
+    `LLM credential unavailable (${error.ref}); start aborted before supervision. ` +
+    'Repair it with "chestnut config provider repair <reference>".',
+    { code: START_GATE_EXIT_CODE, cause: error },
+  );
+}
+
+async function repairCredentialInteractively(
+  deps: GateDeps,
+  error: LLMConfigurationCredentialUnavailableError,
+): Promise<'retry' | 'cancel'> {
+  const slots = credentialSlots(deps, error.ref);
+  if (slots.length === 0) throw error;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    for (;;) {
+      console.error(`LLM credential unavailable (${error.ref}). The workspace structure is valid.`);
+      console.log('1. Repair provider');
+      console.log('2. Retry full verification');
+      console.log('n. Cancel start');
+      const choice = (await ask(rl, '> ')).toLowerCase();
+      if (choice === 'n') return 'cancel';
+      if (choice === '2') return 'retry';
+      if (choice !== '1') {
+        console.log('Invalid choice.');
+        continue;
+      }
+      let slot = slots[0]!;
+      if (slots.length > 1) {
+        console.log('The reference is used by multiple providers; choose one target:');
+        slots.forEach((candidate, index) => {
+          console.log(`${index + 1}. ${candidate.role}${candidate.role === 'fallback' ? `[${candidate.index}]` : ''}`);
+        });
+        const selected = Number.parseInt(await ask(rl, '> '), 10) - 1;
+        if (!slots[selected]) {
+          console.log('Invalid choice.');
+          continue;
+        }
+        slot = slots[selected];
+      }
+      await repairProviderSlot(deps, slot, rl);
+      return 'retry';
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function ask(rl: readline.Interface, prompt: string): Promise<string> {
+  return new Promise(resolve => rl.question(prompt, answer => resolve(answer.trim())));
+}
+
+/** Resolve/probe the full configuration; only typed absence enters the repair branch. */
+async function verifyWithWizard(
+  deps: GateDeps,
+  opts: { audit?: AuditLog; interactive: boolean },
+): Promise<VerifiedLLMConfig> {
+  for (;;) {
+    try {
+      return await verifyWithWizardResolved(deps, opts);
+    } catch (error) {
+      if (!(error instanceof LLMConfigurationCredentialUnavailableError)) throw error;
+      if (!opts.interactive) throw nonInteractiveCredentialError(error);
+      const action = await repairCredentialInteractively(deps, error);
+      if (action === 'cancel') {
+        throw new CliError('LLM verification cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });
+      }
+    }
+  }
 }

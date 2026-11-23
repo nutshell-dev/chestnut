@@ -28,7 +28,10 @@ import {
   START_GATE_EXIT_CODE,
   START_USAGE_EXIT_CODE,
 } from '../../src/cli/start-llm-gate.js';
-import { snapshotLLMConfig } from '../../src/core/llm-configuration/index.js';
+import {
+  LLMConfigurationCredentialUnavailableError,
+  snapshotLLMConfig,
+} from '../../src/core/llm-configuration/index.js';
 import {
   encodeMotionLLMReadyFact,
   MotionLLMIdentityMismatchError,
@@ -57,6 +60,13 @@ vi.mock('readline', () => ({
 const conn = vi.hoisted(() => ({
   probeLLMConnection: vi.fn(),
   promptReconfigure: vi.fn(),
+}));
+
+vi.mock('../../src/cli/llm-probe.js', () => ({
+  probeLLMConnection: conn.probeLLMConnection,
+  LLM_ERROR_LABELS: {},
+  LLM_ERROR_HINTS: { auth: 'Check API key.' },
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
@@ -153,6 +163,7 @@ function makeGlobal(model: string) {
 function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
   const llmConfiguration = {
     loadGlobal: vi.fn(() => globalOf()),
+    loadRaw: vi.fn(() => globalOf()),
     patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
     store: {
       commitExplicitProvider: vi.fn(async () => ({
@@ -316,6 +327,25 @@ describe('start LLM gate (unit)', () => {
       'cli_start_probe_aborted',
     ]);
     expect(auditRec.entries[2][1]).toBe('reason=non_interactive');
+  });
+
+  it('B2. 非交互缺 credential：保留 ref/repair 指引且零 probe/readline', async () => {
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    deps.llmConfiguration.loadGlobal.mockImplementation(() => {
+      throw new LLMConfigurationCredentialUnavailableError('PHASE2221_START_MISSING');
+    });
+
+    const err = await ensureStartLLMVerified(deps, {
+      audit: mockAudit, interactive: false,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).code).toBe(START_GATE_EXIT_CODE);
+    expect((err as CliError).message).toContain('PHASE2221_START_MISSING');
+    expect((err as CliError).message).toContain('config provider repair');
+    expect(conn.probeLLMConnection).not.toHaveBeenCalled();
+    expect(h.rlCreateCalls).toBe(0);
   });
 
   it('C. 交互 retry：失败留在向导内，retry 成功后放行', async () => {
@@ -647,6 +677,8 @@ describe('start command gate wiring', () => {
       fsFactory,
       llmConfiguration: {
         loadGlobal: vi.fn(() => makeGlobal('claude-x')),
+        loadRaw: vi.fn(() => makeGlobal('claude-x')),
+        store: { read: vi.fn(() => ({ ...makeGlobal('claude-x').llm, revision: 1, schema_version: 1 })) },
         patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
       },
       rootConfig: {
@@ -655,7 +687,7 @@ describe('start command gate wiring', () => {
         saveGlobal: vi.fn(),
         saveGlobalExclusive: vi.fn(),
         patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
-        getInitializationState: () => 'ready' as const,
+        inspectInitialization: () => ({ state: 'ready' as const }),
         completeInitialization: vi.fn(),
       },
     };
@@ -708,7 +740,7 @@ describe('start command gate wiring', () => {
       const ensureSupervision = vi.fn(async () => {});
       const deps = startDeps();
       deps.rootConfig.isInitialized = () => false;
-      deps.rootConfig.getInitializationState = () => 'absent' as const;
+      deps.rootConfig.inspectInitialization = () => ({ state: 'absent' as const });
 
       const err = await startCommand(deps, { audit: mockAudit, ensureSupervision }).catch((e: unknown) => e);
 
