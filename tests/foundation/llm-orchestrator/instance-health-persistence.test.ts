@@ -281,7 +281,7 @@ describe('LLM instance health persistence', () => {
     const assembly = fsNative.readFileSync(
       new URL('../../../src/assembly/core-infrastructure.ts', import.meta.url), 'utf8');
     const cli = fsNative.readFileSync(
-      new URL('../../../src/cli/llm-connection-check.ts', import.meta.url), 'utf8');
+      new URL('../../../src/cli/llm-probe.ts', import.meta.url), 'utf8');
     expect(assembly).toContain("lifecycle: { mode: 'durable', fs: systemFs, stateDir: STATUS_SUBDIR }");
     expect(cli.match(/lifecycle: \{ mode: 'ephemeral' \}/g)).toHaveLength(2);
   });

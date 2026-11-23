@@ -222,9 +222,10 @@ describe('additive measurement failure lifecycle', () => {
   });
 
   it('carries a real L1 additive failure through trimAndPersist without leaking the encoding exception', async () => {
+    const OFFLINE_TIMEOUT_MS = 1_000;
     const config: ProviderConfig = {
       name: 'offline', model: 'unknown-model', apiFormat: 'anthropic',
-      baseUrl: 'https://offline.invalid', apiKey: 'offline-only', temperature: 0, timeoutMs: 1_000,
+      baseUrl: 'https://offline.invalid', apiKey: 'offline-only', temperature: 0, timeoutMs: OFFLINE_TIMEOUT_MS,
     };
     const meter = await createLLMProvider(config).prepareInputMeter();
     if (meter.capability.kind !== 'message_additive') {

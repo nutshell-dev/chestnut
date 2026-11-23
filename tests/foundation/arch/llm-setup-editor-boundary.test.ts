@@ -34,7 +34,7 @@ describe('Phase 2207: shared explicit LLM setup boundary', () => {
   });
 
   it('reconfigure 复用 shared explicit editor，运行配置路径均不读取 PRESETS', () => {
-    const reconfigure = read('src/cli/llm-connection-check.ts');
+    const reconfigure = read('src/cli/provider-repair.ts');
     expect(reconfigure).toContain('collectExplicitLLMConfig');
     expect(reconfigure).not.toContain('repairExplicitLLMConfig');
     for (const file of [

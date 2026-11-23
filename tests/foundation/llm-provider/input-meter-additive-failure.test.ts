@@ -4,9 +4,11 @@ import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.
 import * as tokenEstimator from '../../../src/foundation/llm-provider/token-estimator.js';
 import { CommonInputProjectionUnsupported } from '../../../src/foundation/llm-provider/common-input-projection.js';
 
+const OFFLINE_TIMEOUT_MS = 1_000;
+
 const config: ProviderConfig = {
   name: 'offline', model: 'unknown-model', apiFormat: 'anthropic',
-  baseUrl: 'https://offline.invalid', apiKey: 'offline-only', temperature: 0, timeoutMs: 1_000,
+  baseUrl: 'https://offline.invalid', apiKey: 'offline-only', temperature: 0, timeoutMs: OFFLINE_TIMEOUT_MS,
 };
 
 async function createAdditiveMeter() {
