@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
+const SAMPLING_MODE = 'independent-project-processes';
 const DEFAULT_PROJECTS = ['fast', 'resource', 'isolated'];
 
 function median(values) {
@@ -34,6 +35,9 @@ export function parseArgs(argv) {
     else options.filters.push(arg);
   }
   if (options.projects.length === 0) options.projects = DEFAULT_PROJECTS;
+  if (new Set(options.projects).size !== options.projects.length) {
+    throw new Error('Duplicate --project selections are not allowed');
+  }
   for (const [name, value, allowZero] of [
     ['workers', options.workers, false], ['warmup', options.warmup, true],
     ['runs', options.runs, false], ['top', options.top, false],
@@ -63,12 +67,95 @@ function comparableFields(manifest) {
     warmup: manifest.options.warmup,
     runs: manifest.options.runs,
     filters: manifest.options.filters,
+    effectiveProjects: manifest.effectiveProjects,
+    samplingMode: manifest.samplingMode,
     vitestConfigHash: manifest.environment.vitestConfigHash,
   };
 }
 
 function comparableKey(fields) {
   return crypto.createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+}
+
+function isValidWorkerConfiguration(configuration) {
+  return Number.isInteger(configuration?.maxWorkers) && configuration.maxWorkers > 0
+    && typeof configuration.pool === 'string' && configuration.pool.length > 0
+    && Number.isInteger(configuration.groupOrder);
+}
+
+function validateWorkerConfiguration(configuration, projectName) {
+  if (!isValidWorkerConfiguration(configuration)) {
+    throw new Error(`Missing valid actual worker configuration: ${projectName}`);
+  }
+  return configuration;
+}
+
+function sameWorkerConfiguration(left, right) {
+  return left?.maxWorkers === right?.maxWorkers && left?.pool === right?.pool
+    && left?.groupOrder === right?.groupOrder;
+}
+
+function normalizeEffectiveProjects(projects) {
+  if (!Array.isArray(projects) || projects.length === 0) {
+    throw new Error('Missing actual project worker facts');
+  }
+  const effectiveProjects = projects.map((project) => {
+    if (typeof project?.projectName !== 'string' || project.projectName.length === 0) {
+      throw new Error('Missing actual project name');
+    }
+    return {
+      projectName: project.projectName,
+      workerConfiguration: validateWorkerConfiguration(
+        project.workerConfiguration, project.projectName,
+      ),
+    };
+  }).sort((left, right) => left.projectName.localeCompare(right.projectName));
+  for (let index = 1; index < effectiveProjects.length; index += 1) {
+    if (effectiveProjects[index - 1].projectName === effectiveProjects[index].projectName) {
+      throw new Error(`Duplicate actual project worker facts: ${effectiveProjects[index].projectName}`);
+    }
+  }
+  return effectiveProjects;
+}
+
+function sameEffectiveProjects(left, right) {
+  return left.length === right.length && left.every((project, index) => (
+    project.projectName === right[index].projectName
+    && sameWorkerConfiguration(project.workerConfiguration, right[index].workerConfiguration)
+  ));
+}
+
+function validateManifest(manifest) {
+  if (manifest?.schemaVersion !== SCHEMA_VERSION) {
+    throw new Error(`Unsupported manifest schema; expected ${SCHEMA_VERSION}`);
+  }
+  if (manifest.samplingMode !== SAMPLING_MODE) {
+    throw new Error(`Unsupported sampling mode; expected ${SAMPLING_MODE}`);
+  }
+  const effectiveProjects = normalizeEffectiveProjects(manifest.effectiveProjects);
+  const originalOrder = manifest.effectiveProjects.map((project) => project.projectName);
+  if (JSON.stringify(originalOrder) !== JSON.stringify(effectiveProjects.map((project) => project.projectName))) {
+    throw new Error('Manifest effectiveProjects must be sorted');
+  }
+  return effectiveProjects;
+}
+
+function validateRunFacts(run, expectedProjects) {
+  const actualProjects = normalizeEffectiveProjects(run.projects);
+  if (expectedProjects && !sameEffectiveProjects(actualProjects, expectedProjects)) {
+    throw new Error('Actual project worker configuration differs from manifest or earlier samples');
+  }
+  return actualProjects;
+}
+
+function effectiveProjectsFromRuns(runs) {
+  let effectiveProjects;
+  for (const run of runs) {
+    const actualProjects = validateRunFacts(run, effectiveProjects);
+    effectiveProjects ??= actualProjects;
+  }
+  if (!effectiveProjects) throw new Error('Missing samples for actual project worker facts');
+  return effectiveProjects;
 }
 
 function calculateCapacityLoss(modules, workers) {
@@ -117,7 +204,7 @@ function calculateCapacityLoss(modules, workers) {
   };
 }
 
-function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
+function calculateRunBounds(run, removedDependencyIds = new Set()) {
   const fanIn = new Map();
   for (const module of run.modules) {
     for (const dependency of module.imports) {
@@ -126,6 +213,10 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
   }
   const projectNames = [...new Set(run.modules.map((module) => module.projectName))].sort();
   const projects = projectNames.map((projectName) => {
+    const facts = run.projects?.filter((project) => project.projectName === projectName) ?? [];
+    if (facts.length !== 1) throw new Error(`Expected one actual worker fact: ${projectName}`);
+    const timeline = facts[0];
+    const workers = validateWorkerConfiguration(timeline.workerConfiguration, projectName).maxWorkers;
     const projectModules = run.modules.filter((module) => module.projectName === projectName);
     const jobs = projectModules.map((module) => {
       const removableMs = module.imports.reduce((sum, dependency) => {
@@ -140,17 +231,16 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
     const workMs = jobs.reduce((sum, value) => sum + value, 0);
     const largestJobMs = Math.max(0, ...jobs);
     const lowerBoundMs = Math.max(workMs / workers, largestJobMs);
-    const timeline = run.projects?.find((project) => project.projectName === projectName);
-    const wallMs = timeline?.wallMs ?? 0;
+    const wallMs = timeline.wallMs ?? 0;
     const capacityLoss = workMs / workers >= largestJobMs
       ? calculateCapacityLoss(projectModules, workers)
       : { startupLossMs: 0, interiorLossMs: 0, tailLossMs: 0, interiorSlotGapPerFileMs: 0 };
     return {
       projectName, workMs, largestJobMs, lowerBoundMs, wallMs,
-      reporterWallMs: timeline?.reporterWallMs ?? 0,
-      moduleSpanMs: timeline?.moduleSpanMs ?? 0,
-      beforeModulesMs: timeline?.beforeModulesMs ?? 0,
-      afterModulesMs: timeline?.afterModulesMs ?? 0,
+      reporterWallMs: timeline.reporterWallMs ?? 0,
+      moduleSpanMs: timeline.moduleSpanMs ?? 0,
+      beforeModulesMs: timeline.beforeModulesMs ?? 0,
+      afterModulesMs: timeline.afterModulesMs ?? 0,
       ...capacityLoss,
     };
   });
@@ -262,9 +352,13 @@ function aggregateDependencyAttributions(rawRuns, targetDependencyIds) {
 
 export function aggregateRawRuns(rawRuns, manifest) {
   if (rawRuns.length === 0) throw new Error('No measured runs to aggregate');
-  const expected = rawRuns[0].modules.map((module) => `${module.projectName}:${module.moduleId}`).sort();
+  const effectiveProjects = validateManifest(manifest);
   for (const [index, run] of rawRuns.entries()) {
     if (run.schemaVersion !== SCHEMA_VERSION) throw new Error(`Unsupported raw schema in run ${index + 1}`);
+    validateRunFacts(run, effectiveProjects);
+  }
+  const expected = rawRuns[0].modules.map((module) => `${module.projectName}:${module.moduleId}`).sort();
+  for (const [index, run] of rawRuns.entries()) {
     const actual = run.modules.map((module) => `${module.projectName}:${module.moduleId}`).sort();
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error(`Test module set differs in measured run ${index + 1}`);
@@ -312,8 +406,8 @@ export function aggregateRawRuns(rawRuns, manifest) {
     };
   }).sort((a, b) => b.selfSumMedianMs - a.selfSumMedianMs || b.fanInFiles - a.fanInFiles || a.moduleId.localeCompare(b.moduleId));
 
-  const schedulingRuns = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers));
-  const engineeringRuns = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers, new Set(['*'])));
+  const schedulingRuns = rawRuns.map((run) => calculateRunBounds(run));
+  const engineeringRuns = rawRuns.map((run) => calculateRunBounds(run, new Set(['*'])));
   const projectNames = [...new Set(schedulingRuns.flatMap((run) => run.projects.map((project) => project.projectName)))].sort();
   const analysis = {
     actualWallMedianMs: median(schedulingRuns.map((run) => run.wallMs)),
@@ -325,7 +419,7 @@ export function aggregateRawRuns(rawRuns, manifest) {
     engineeringHeadroomMedianMs: median(engineeringRuns.map((run, index) => schedulingRuns[index].wallMs - run.lowerBoundMs)),
     assumptions: {
       fileWork: 'preRunMs + testAndHooksMs',
-      scheduling: 'max(sum(fileWork)/workers, max(fileWork)) per project; concurrent projects use max',
+      scheduling: 'max(sum(fileWork)/actualWorkers, max(fileWork)) per independently sampled project; concurrent project processes use max',
       engineering: 'zero exclusive self time for src/** dependencies with fan-in >= 2',
     },
     projects: projectNames.map((projectName) => {
@@ -354,7 +448,7 @@ export function aggregateRawRuns(rawRuns, manifest) {
   const candidateSimulations = dependencies
     .filter((dependency) => dependency.moduleId.startsWith('src/') && dependency.fanInFiles >= 2)
     .map((dependency) => {
-      const simulated = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers, new Set([dependency.moduleId])));
+      const simulated = rawRuns.map((run) => calculateRunBounds(run, new Set([dependency.moduleId])));
       return {
         moduleId: dependency.moduleId,
         fanInFiles: dependency.fanInFiles,
@@ -398,7 +492,16 @@ export function renderReport(summary, top) {
   const lines = [
     '# Vitest test-cost baseline', '',
     `- Comparable key: \`${summary.comparableKey}\``,
-    `- Measured runs: ${summary.measuredRunCount}`, '',
+    `- Measured runs: ${summary.measuredRunCount}`,
+    `- Requested max workers per project process: ${summary.comparableFields.workers}`,
+    `- Sampling mode: independent project processes (\`${summary.comparableFields.samplingMode}\`)`, '',
+    'Each selected project is sampled in its own concurrent child process. The scheduling estimates below describe this independent-project-process sample, not regular `test:run` scheduling.', '',
+    '### Resolved project worker configuration', '',
+    '| Project | Requested max workers | Actual max workers | Pool | Group order |',
+    '|---|---:|---:|---|---:|',
+    ...summary.comparableFields.effectiveProjects.map((project) => (
+      `| ${escapeCell(project.projectName)} | ${summary.comparableFields.workers} | ${project.workerConfiguration.maxWorkers} | ${escapeCell(project.workerConfiguration.pool)} | ${project.workerConfiguration.groupOrder} |`
+    )), '',
     '## Optimization space', '',
     '| Metric | Median |',
     '|---|---:|',
@@ -409,7 +512,7 @@ export function renderReport(summary, top) {
     `| Scheduling efficiency | ${fixed(summary.analysis.schedulingEfficiencyMedian * 100)}% |`,
     `| Optimistic engineering lower bound | ${fixed(summary.analysis.engineeringLowerBoundMedianMs)} ms |`,
     `| Optimistic engineering headroom | ${fixed(summary.analysis.engineeringHeadroomMedianMs)} ms |`, '',
-    '> Scheduling lower bound is `max(sum(file work)/workers, largest file work)` per project; concurrent projects use the maximum.',
+    '> Scheduling lower bound uses each project’s resolved actual max workers: `max(sum(file work)/actual workers, largest file work)`; independently sampled concurrent projects use the maximum.',
     '> Engineering lower bound removes exclusive self time for repeated `src/**` dependencies (fan-in >= 2). It is a direction-finding floor, not a forecast.', '',
     '### Per-project scheduling bounds', '',
     '| Project | Actual wall | External runner | Run edge overhead | Module span | Scheduling lower bound | Module scheduling loss |',
@@ -461,8 +564,18 @@ export function renderReport(summary, top) {
   return lines.join('\n');
 }
 
+function validateSummaryFacts(summary) {
+  if (summary?.schemaVersion !== SCHEMA_VERSION || summary.comparableFields?.schemaVersion !== SCHEMA_VERSION) {
+    throw new Error(`Unsupported summary schema; expected ${SCHEMA_VERSION}`);
+  }
+  validateManifest(summary.comparableFields);
+}
+
 export function compareSummaries(left, right) {
-  if (left.comparableKey !== right.comparableKey) {
+  validateSummaryFacts(left);
+  validateSummaryFacts(right);
+  if (left.comparableKey !== right.comparableKey
+    || JSON.stringify(left.comparableFields) !== JSON.stringify(right.comparableFields)) {
     const differences = Object.keys({ ...left.comparableFields, ...right.comparableFields })
       .filter((key) => JSON.stringify(left.comparableFields[key]) !== JSON.stringify(right.comparableFields[key]));
     throw new Error(`Baselines are not comparable; differing fields: ${differences.join(', ')}`);
@@ -493,7 +606,7 @@ function runProject(rootDir, runDir, label, project, workers, filters) {
       cwd: rootDir,
       env: {
         ...process.env,
-        VITEST_MAX_THREADS: String(workers),
+        VITEST_MAX_WORKERS: String(workers),
         CHESTNUT_COST_OUTPUT: rawPath,
         CHESTNUT_COST_PROJECT: project,
       },
@@ -515,16 +628,19 @@ function runProject(rootDir, runDir, label, project, workers, filters) {
 }
 
 async function runSample(rootDir, runDir, label, projects, workers, filters) {
-  // Projects in one sample run concurrently, matching the normal `pnpm test`
-  // resource shape while retaining explicit project ownership in each raw file.
+  // Each project is sampled by an independent child process; selected project
+  // processes run concurrently and retain explicit ownership in each raw file.
   const processes = await Promise.all(projects.map(
     (project) => runProject(rootDir, runDir, label, project, workers, filters),
   ));
   const payloads = processes.filter((entry) => fs.existsSync(entry.rawPath))
     .map((entry) => JSON.parse(fs.readFileSync(entry.rawPath, 'utf8')));
+  const matchingPayloads = processes.map((entry) => payloads.filter(
+    (candidate) => candidate.run?.projectName === entry.project,
+  ));
   const combined = mergeProjectRaw(payloads, label);
-  combined.projects = processes.map((entry) => {
-    const payload = payloads.find((candidate) => candidate.run?.projectName === entry.project);
+  combined.projects = processes.map((entry, index) => {
+    const payload = matchingPayloads[index].length === 1 ? matchingPayloads[index][0] : undefined;
     return {
       projectName: entry.project,
       wallMs: entry.wallMs,
@@ -532,29 +648,37 @@ async function runSample(rootDir, runDir, label, projects, workers, filters) {
       moduleSpanMs: payload?.run?.moduleSpanMs ?? 0,
       beforeModulesMs: payload?.run?.beforeModulesMs ?? 0,
       afterModulesMs: payload?.run?.afterModulesMs ?? 0,
+      workerConfiguration: payload?.run?.workerConfiguration,
     };
   });
   fs.writeFileSync(path.join(runDir, 'runs', `${label}.json`), `${JSON.stringify(combined, null, 2)}\n`, { flag: 'wx' });
   return {
     combined,
     processes: processes.map(({ rawPath: _rawPath, ...entry }) => entry),
-    ok: processes.every((entry) => entry.exitCode === 0) && payloads.length === projects.length,
+    ok: processes.every((entry) => entry.exitCode === 0) && payloads.length === projects.length
+      && new Set(projects).size === projects.length
+      && matchingPayloads.every((matches) => matches.length === 1
+        && matches[0].schemaVersion === SCHEMA_VERSION
+        && isValidWorkerConfiguration(matches[0].run?.workerConfiguration)),
   };
 }
 
 function usage() {
   return `Usage: pnpm bench:test-cost -- [options] [test filters...]\n\n` +
     `  --project NAME   repeatable; default fast + resource + isolated\n` +
-    `  --workers N      VITEST_MAX_THREADS (default 4)\n` +
+    `  --workers N      request VITEST_MAX_WORKERS per project process; final project caps apply (default 4)\n` +
     `  --warmup N       unmeasured warmup runs (default 1)\n` +
     `  --runs N         measured runs (default 3)\n` +
     `  --top N          Markdown rows per ranking (default 50)\n` +
     `  --aggregate DIR  rebuild summary/report from completed measured runs\n` +
-    `  --compare A B    compare two summary.json files\n`;
+    `  --compare A B    compare two summary.json files\n\n` +
+    `Each project is sampled in an independent concurrent child process. Reports distinguish\n` +
+    `requested workers from each project's resolved actual maxWorkers, pool, and groupOrder.\n`;
 }
 
 export function aggregateRunDirectory(runDir, top) {
   const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
+  const effectiveProjects = validateManifest(manifest);
   if (manifest.failed || !manifest.finishedAt) throw new Error('Cannot aggregate an incomplete or failed baseline run');
   const measured = fs.readdirSync(path.join(runDir, 'runs'))
     .filter((name) => /^run-\d+\.json$/.test(name))
@@ -562,6 +686,17 @@ export function aggregateRunDirectory(runDir, top) {
     .map((name) => JSON.parse(fs.readFileSync(path.join(runDir, 'runs', name), 'utf8')));
   if (measured.length !== manifest.options.runs) {
     throw new Error(`Expected ${manifest.options.runs} measured runs, found ${measured.length}`);
+  }
+  const warmup = fs.readdirSync(path.join(runDir, 'runs'))
+    .filter((name) => /^warmup-\d+\.json$/.test(name))
+    .sort((left, right) => Number(left.match(/\d+/)[0]) - Number(right.match(/\d+/)[0]))
+    .map((name) => JSON.parse(fs.readFileSync(path.join(runDir, 'runs', name), 'utf8')));
+  if (warmup.length !== manifest.options.warmup) {
+    throw new Error(`Expected ${manifest.options.warmup} warmup runs, found ${warmup.length}`);
+  }
+  for (const run of [...warmup, ...measured]) {
+    if (run.schemaVersion !== SCHEMA_VERSION) throw new Error('Unsupported combined run schema');
+    validateRunFacts(run, effectiveProjects);
   }
   const summary = aggregateRawRuns(measured, manifest);
   fs.writeFileSync(path.join(runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
@@ -614,22 +749,33 @@ async function main() {
       vitestConfigHash: crypto.createHash('sha256').update(configBytes).digest('hex'),
     },
     options: { projects: options.projects, workers: options.workers, warmup: options.warmup, runs: options.runs, top: options.top, filters: options.filters },
+    effectiveProjects: [],
+    samplingMode: SAMPLING_MODE,
     processes: [],
   };
   fs.writeFileSync(path.join(runDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
 
   let failed = false;
+  const samples = [];
   for (let index = 1; index <= options.warmup; index += 1) {
     const result = await runSample(rootDir, runDir, `warmup-${index}`, options.projects, options.workers, options.filters);
     manifest.processes.push(...result.processes);
+    samples.push(result.combined);
     failed ||= !result.ok;
   }
   const measured = [];
   for (let index = 1; index <= options.runs; index += 1) {
     const result = await runSample(rootDir, runDir, `run-${index}`, options.projects, options.workers, options.filters);
     manifest.processes.push(...result.processes);
+    samples.push(result.combined);
     measured.push(result.combined);
     failed ||= !result.ok;
+  }
+  try {
+    manifest.effectiveProjects = effectiveProjectsFromRuns(samples);
+  } catch (error) {
+    failed = true;
+    manifest.workerConfigurationError = error instanceof Error ? error.message : String(error);
   }
   manifest.finishedAt = new Date().toISOString();
   manifest.failed = failed;

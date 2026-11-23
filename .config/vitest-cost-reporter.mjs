@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function normalizeId(id, cwd) {
   const clean = id.split('?')[0].replace(/^\/@fs\//, '/').replaceAll('\\', '/');
@@ -45,6 +45,19 @@ export default class VitestCostReporter {
       throw new Error('CHESTNUT_COST_OUTPUT and CHESTNUT_COST_PROJECT are required');
     }
 
+    const matches = (this.vitest?.projects ?? []).filter((project) => project.name === projectName);
+    if (matches.length !== 1) throw new Error(`Expected one project: ${projectName}`);
+    const project = matches[0];
+    const maxWorkers = project.config.maxWorkers;
+    if (!Number.isInteger(maxWorkers) || maxWorkers <= 0) {
+      throw new Error(`Missing valid resolved maxWorkers: ${projectName}`);
+    }
+    const workerConfiguration = {
+      maxWorkers,
+      pool: project.config.pool,
+      groupOrder: project.config.sequence.groupOrder,
+    };
+
     const cwd = process.cwd();
     const runEndedAt = performance.now();
     const modules = [...testModules].map((testModule) => {
@@ -85,9 +98,7 @@ export default class VitestCostReporter {
 
     const earliestModuleMs = Math.min(...modules.map((module) => module.inferredStartMs));
     const latestModuleMs = Math.max(...modules.map((module) => module.endMs));
-    const project = this.vitest?.projects.find((candidate) => candidate.name === projectName)
-      ?? this.vitest?.projects[0];
-    const importEdges = [...(project?.vite.moduleGraph.idToModuleMap.values() ?? [])]
+    const importEdges = [...project.vite.moduleGraph.idToModuleMap.values()]
       .flatMap((importer) => [...importer.importedModules].map((dependency) => ({
         importerId: normalizeId(importer.id ?? importer.url, cwd),
         dependencyId: normalizeId(dependency.id ?? dependency.url, cwd),
@@ -103,6 +114,7 @@ export default class VitestCostReporter {
         reason,
         unhandledErrorCount: unhandledErrors.length,
         reporterWallMs,
+        workerConfiguration,
         moduleSpanMs: latestModuleMs - earliestModuleMs,
         beforeModulesMs: earliestModuleMs,
         afterModulesMs: reporterWallMs - latestModuleMs,
