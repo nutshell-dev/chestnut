@@ -483,7 +483,26 @@ export async function runChildProcess(
   });
 }
 
-/** Await cleanup and retain both failures instead of masking the test cause. */
+function containsUnconfirmedChild(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value !== 'object' || value === null || seen.has(value)) return false;
+  seen.add(value);
+  if (value instanceof ChildProcessLifecycleError &&
+      value.details.pid !== undefined && value.details.directChild.state === 'unconfirmed') {
+    return true;
+  }
+  if (value instanceof AggregateError &&
+      value.errors.some(error => containsUnconfirmedChild(error, seen))) {
+    return true;
+  }
+  return value instanceof Error && containsUnconfirmedChild(value.cause, seen);
+}
+
+/**
+ * Await cleanup and retain both failures. A caller-owned fixture remains in
+ * place when any started direct child has not confirmed exit; cleanup must not
+ * destroy evidence still used by that child. No finally return swallows the
+ * original result or failure.
+ */
 export async function withCleanupPreservingError<T>(
   run: () => Promise<T>,
   cleanup: () => Promise<void>,
@@ -497,17 +516,19 @@ export async function withCleanupPreservingError<T>(
     failure = error;
     throw error;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (failed) {
-        throw new AggregateError(
-          [failure, cleanupError],
-          'Test and cleanup both failed; original test failure is the cause',
-          { cause: failure },
-        );
+    if (!failed || !containsUnconfirmedChild(failure)) {
+      try {
+        await cleanup();
+      } catch (cleanupError) {
+        if (failed) {
+          throw new AggregateError(
+            [failure, cleanupError],
+            'Test and cleanup both failed; original test failure is the cause',
+            { cause: failure },
+          );
+        }
+        throw asError(cleanupError);
       }
-      throw asError(cleanupError);
     }
   }
 }

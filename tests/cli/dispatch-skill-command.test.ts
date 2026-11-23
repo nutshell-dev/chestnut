@@ -13,7 +13,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { runChildProcess, withCleanupPreservingError } from '../utils/child-process.js';
+import {
+  ChildProcessLifecycleError,
+  runChildProcess,
+  withCleanupPreservingError,
+  type ChildProcessFailureDetails,
+  type ChildProcessResult,
+} from '../utils/child-process.js';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -29,52 +35,135 @@ function executionDeadline(budgetMs: number): number {
   return performance.now() + budgetMs;
 }
 
+interface DispatchCase {
+  root: string;
+  signal: AbortSignal;
+  deadline: number;
+  finishing: boolean;
+  outcomes: Array<Promise<PromiseSettledResult<unknown>>>;
+  finishPromise?: Promise<void>;
+}
+
+function createDispatchCase(
+  root: string,
+  signal: AbortSignal,
+  budgetMs = CLI_DISPATCH_CASE_EXECUTION_BUDGET_MS,
+): DispatchCase {
+  return { root, signal, deadline: executionDeadline(budgetMs), finishing: false, outcomes: [] };
+}
+
+async function finishCase(state: DispatchCase): Promise<void> {
+  if (!state.finishPromise) {
+    state.finishPromise = withCleanupPreservingError(async () => {
+      state.finishing = true;
+      const results = await Promise.all(state.outcomes);
+      const errors = results.flatMap(result =>
+        result.status === 'rejected' ? [result.reason] : []);
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(errors, 'CLI operations failed', { cause: errors[0] });
+      }
+    }, () => cleanupTempDir(state.root));
+  }
+  return state.finishPromise;
+}
+
+async function runCli(
+  args: string[],
+  state: DispatchCase,
+  execute: typeof runChildProcess = runChildProcess,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  if (state.finishing) throw new Error('dispatch-skill case is already finishing');
+  const remainingMs = Math.floor(state.deadline - performance.now());
+  if (remainingMs <= 0) throw new Error('dispatch-skill case execution budget exhausted');
+  const operation = execute(process.execPath, [CLI_ENTRY, ...args], {
+    env: {
+      ...process.env,
+      CHESTNUT_ROOT: state.root,
+      CHESTNUT_CALLER_AGENT_ID: undefined,
+      NODE_ENV: 'test',
+      GIT_CONFIG_NOSYSTEM: '1',
+    },
+    cwd: state.root,
+    timeoutMs: remainingMs,
+    signal: state.signal,
+  }).then(result => {
+    if (result.error) throw result.error;
+    return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
+  });
+  const observed = operation.then(
+    value => ({ status: 'fulfilled' as const, value }),
+    reason => ({ status: 'rejected' as const, reason }),
+  );
+  state.outcomes.push(observed);
+  return await operation;
+}
+
+async function captureFailure(run: Promise<unknown>): Promise<unknown> {
+  return run.then(() => undefined, (error: unknown) => error);
+}
+
+function injectedLifecycleFailure(directChild: 'exited' | 'unconfirmed' = 'unconfirmed'): ChildProcessLifecycleError {
+  return new ChildProcessLifecycleError({
+    command: process.execPath,
+    args: [],
+    pid: 123,
+    status: null,
+    signal: directChild === 'exited' ? 'SIGTERM' : null,
+    stdout: '',
+    stderr: '',
+    errors: [],
+    directChild: directChild === 'exited'
+      ? { state: 'exited', status: null, signal: 'SIGTERM' }
+      : { state: 'unconfirmed' },
+    stdio: 'detached',
+    outputTruncated: true,
+    outputTruncatedAt: null,
+    reason: 'cancelled',
+    timeoutMs: CLI_DISPATCH_CASE_EXECUTION_BUDGET_MS,
+    killGraceMs: 0,
+    exitConfirmMs: 0,
+    killSignals: [],
+    killAttempts: [],
+    killErrors: [],
+    cleanup: 'detached',
+    resourceEvidence: { state: 'not_configured' },
+  } as ChildProcessFailureDetails, new Error('injected dispatch cancellation'));
+}
+
+function successfulChildResult(): ChildProcessResult {
+  return {
+    command: process.execPath,
+    args: [],
+    pid: 123,
+    status: 0,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    errors: [],
+    directChild: { state: 'exited', status: 0, signal: null },
+    stdio: 'closed',
+    outputTruncated: false,
+    outputTruncatedAt: null,
+  };
+}
+
 describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   let tmpDir: string;
-  let testSignal: AbortSignal;
-  let caseDeadline: number;
-  const pending = new Set<Promise<unknown>>();
+  let currentCase: DispatchCase;
 
   beforeEach(async context => {
     tmpDir = await createTrackedTempDir('dispatch-skill-cli-');
-    testSignal = context.signal;
-    caseDeadline = executionDeadline(CLI_DISPATCH_CASE_EXECUTION_BUDGET_MS);
-    pending.clear();
+    currentCase = createDispatchCase(tmpDir, context.signal);
     expect(fsSync.existsSync(CLI_ENTRY)).toBe(true);
-    context.onTestFinished(() => withCleanupPreservingError(
-      async () => { await Promise.all([...pending]); },
-      () => cleanupTempDir(tmpDir),
-    ));
+    const ownedCase = currentCase;
+    context.onTestFinished(() => finishCase(ownedCase));
   });
 
-  const runCli = async (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> => {
-    const remainingMs = Math.floor(caseDeadline - performance.now());
-    if (remainingMs <= 0) throw new Error('dispatch-skill case execution budget exhausted');
-    const operation = runChildProcess(process.execPath, [CLI_ENTRY, ...args], {
-      env: {
-        ...process.env,
-        CHESTNUT_ROOT: tmpDir,
-        CHESTNUT_CALLER_AGENT_ID: undefined,
-        NODE_ENV: 'test',
-        GIT_CONFIG_NOSYSTEM: '1',
-      },
-      cwd: tmpDir,
-      timeoutMs: remainingMs,
-      signal: testSignal,
-    }).then(result => {
-      if (result.error) throw result.error;
-      return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
-    });
-    pending.add(operation);
-    try {
-      return await operation;
-    } finally {
-      pending.delete(operation);
-    }
-  };
+  const runCurrentCli = (args: string[]) => runCli(args, currentCase);
 
   it('dispatch-skill --help 列出 list/edit/history；edit 子族 help 列出全部事务命令', async () => {
-    const help = await runCli(['dispatch-skill', '--help']);
+    const help = await runCurrentCli(['dispatch-skill', '--help']);
     expect(help.exitCode).toBe(0);
     expect(help.stdout).toContain('dispatch skill pool');
     // Phase 1929 Step C：已发布池列表入口
@@ -82,7 +171,7 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
     expect(help.stdout).toContain('edit');
     expect(help.stdout).toContain('history');
 
-    const editHelp = await runCli(['dispatch-skill', 'edit', '--help']);
+    const editHelp = await runCurrentCli(['dispatch-skill', 'edit', '--help']);
     expect(editHelp.exitCode).toBe(0);
     for (const sub of ['begin', 'submit', 'basis', 'retry', 'status']) {
       expect(editHelp.stdout).toContain(sub);
@@ -90,11 +179,11 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   });
 
   it('旧 skill edit/history 入口：非零迁移错误指向新命令族，owner 零调用（无版本状态落盘）', async () => {
-    const edit = await runCli(['skill', 'edit', 'begin', 'alpha', '--reason', 'x']);
+    const edit = await runCurrentCli(['skill', 'edit', 'begin', 'alpha', '--reason', 'x']);
     expect(edit.exitCode).not.toBe(0);
     expect(edit.stderr).toContain('dispatch-skill edit');
 
-    const history = await runCli(['skill', 'history', 'alpha']);
+    const history = await runCurrentCli(['skill', 'history', 'alpha']);
     expect(history.exitCode).not.toBe(0);
     expect(history.stderr).toContain('dispatch-skill history');
 
@@ -108,7 +197,7 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   });
 
   it('skill --help 不再宣传旧 edit/history 接口；install/list 仍在', async () => {
-    const help = await runCli(['skill', '--help']);
+    const help = await runCurrentCli(['skill', '--help']);
     expect(help.exitCode).toBe(0);
     expect(help.stdout).toContain('install');
     expect(help.stdout).toContain('list');
@@ -117,20 +206,20 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   });
 
   it('dispatch-skill list 空池：observe_only 可读，已发布空态如实呈现', async () => {
-    const list = await runCli(['dispatch-skill', 'list']);
+    const list = await runCurrentCli(['dispatch-skill', 'list']);
     expect(list.exitCode).toBe(0);
     expect(list.stdout).toContain('Dispatch skill pool (published):');
     expect(list.stdout).toContain('No skills loaded.');
   });
 
   it('dispatch-skill history 空池：observe_only 可读，空态如实呈现', async () => {
-    const history = await runCli(['dispatch-skill', 'history', 'alpha']);
+    const history = await runCurrentCli(['dispatch-skill', 'history', 'alpha']);
     expect(history.exitCode).toBe(0);
     expect(history.stdout).toContain('No history for dispatch skill "alpha".');
   });
 
   it('dispatch-skill 未知子命令：非零 + 可用命令列表', async () => {
-    const res = await runCli(['dispatch-skill', 'frobnicate']);
+    const res = await runCurrentCli(['dispatch-skill', 'frobnicate']);
     expect(res.exitCode).not.toBe(0);
     expect(res.stderr).toContain("unknown command 'frobnicate'");
   });
@@ -138,13 +227,13 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
   // Phase 1929 Step F：查询入口经 createDispatchVersions 触发 owner 初始化/恢复/
   // 维护时，业务审计事件必须持久落盘（不再 noop），action scope 统一释放
   it('查询入口 owner 维护审计落盘；失败路径审计保留；重复查询不产生用户编辑', async () => {
-    caseDeadline = executionDeadline(CLI_DISPATCH_LONG_CASE_EXECUTION_BUDGET_MS);
+    currentCase.deadline = executionDeadline(CLI_DISPATCH_LONG_CASE_EXECUTION_BUDGET_MS);
     // 预置旧 live 树 → 首次构造版本服务触发 baseline 迁移（owner 业务事件）
     const legacyDir = path.join(tmpDir, '.chestnut', 'motion', 'clawspace', 'dispatch-skills', 'alpha');
     fsSync.mkdirSync(legacyDir, { recursive: true });
     fsSync.writeFileSync(path.join(legacyDir, 'SKILL.md'), '---\nname: alpha\ndescription: legacy\n---\n# Alpha\n');
 
-    const list = await runCli(['dispatch-skill', 'list']);
+    const list = await runCurrentCli(['dispatch-skill', 'list']);
     expect(list.exitCode).toBe(0);
     expect(list.stdout).toContain('alpha: legacy');
 
@@ -153,22 +242,87 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
     expect(fsSync.existsSync(auditFile)).toBe(true);
     expect(fsSync.readFileSync(auditFile, 'utf-8')).toContain('skill_version_baseline_created');
 
-    const history = await runCli(['dispatch-skill', 'history', 'alpha']);
+    const history = await runCurrentCli(['dispatch-skill', 'history', 'alpha']);
     expect(history.exitCode).toBe(0);
     expect(history.stdout).toContain('History for dispatch skill "alpha"');
 
     // 不存在的 edit status：factory 初始化后失败——非零退出且初始化审计保留
-    const status = await runCli(['dispatch-skill', 'edit', 'status', 'edit-nonexistent']);
+    const status = await runCurrentCli(['dispatch-skill', 'edit', 'status', 'edit-nonexistent']);
     expect(status.exitCode).not.toBe(0);
     expect(status.stderr).toContain('Unknown edit');
     expect(fsSync.readFileSync(auditFile, 'utf-8')).toContain('skill_version_baseline_created');
 
     // 重复查询不产生用户编辑事务/发布
-    await runCli(['dispatch-skill', 'list']);
+    await runCurrentCli(['dispatch-skill', 'list']);
     const editsDir = path.join(tmpDir, '.chestnut', 'motion', 'clawspace', '.dispatch-version-state', 'edits');
     const edits = fsSync.existsSync(editsDir)
       ? fsSync.readdirSync(editsDir).filter((f) => f.endsWith('.json'))
       : [];
     expect(edits).toEqual([]);
   }, CLI_DISPATCH_RUNNER_TIMEOUT_MS);
+});
+
+
+describe('dispatch case fixture finalization', () => {
+  it('retains a rejected operation outcome and preserves its root after no work is pending', async () => {
+    const root = await createTrackedTempDir('dispatch-unconfirmed-case-');
+    const state = createDispatchCase(root, new AbortController().signal);
+    const failure = injectedLifecycleFailure();
+    const observed = await captureFailure(runCli(['dispatch-skill', 'list'], state, async () => {
+      throw failure;
+    }));
+    expect(observed).toBe(failure);
+    await Promise.all(state.outcomes);
+
+    const finished = await captureFailure(finishCase(state));
+    expect(finished).toBe(failure);
+    expect(fsSync.existsSync(root)).toBe(true);
+    await expect(finishCase(state)).rejects.toBe(failure);
+    await cleanupTempDir(root);
+  });
+
+  it('waits for every operation before preserving a failed shared root', async () => {
+    const root = await createTrackedTempDir('dispatch-multiple-outcomes-case-');
+    const state = createDispatchCase(root, new AbortController().signal);
+    let completeFirst!: (result: ChildProcessResult) => void;
+    const first = runCli(['first'], state, () => new Promise(resolve => {
+      completeFirst = resolve;
+    }));
+    const failure = injectedLifecycleFailure();
+    expect(await captureFailure(runCli(['second'], state, async () => { throw failure; }))).toBe(failure);
+
+    const finishing = captureFailure(finishCase(state));
+    let settled = false;
+    void finishing.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(fsSync.existsSync(root)).toBe(true);
+    await expect(runCli(['third'], state)).rejects.toThrow('already finishing');
+
+    completeFirst(successfulChildResult());
+    await first;
+    expect(await finishing).toBe(failure);
+    expect(fsSync.existsSync(root)).toBe(true);
+    await cleanupTempDir(root);
+  });
+
+  it('cleans an exited cancellation and never touches the next case root or inputs', async () => {
+    const firstRoot = await createTrackedTempDir('dispatch-cancelled-case-');
+    const firstState = createDispatchCase(firstRoot, new AbortController().signal);
+    const failure = injectedLifecycleFailure('exited');
+    expect(await captureFailure(runCli(['cancel'], firstState, async () => { throw failure; }))).toBe(failure);
+
+    const nextRoot = await createTrackedTempDir('dispatch-next-case-');
+    const nextController = new AbortController();
+    const nextState = createDispatchCase(nextRoot, nextController.signal);
+    const nextDeadline = nextState.deadline;
+    expect(await captureFailure(finishCase(firstState))).toBe(failure);
+    expect(fsSync.existsSync(firstRoot)).toBe(false);
+    expect(fsSync.existsSync(nextRoot)).toBe(true);
+    expect(nextState.signal).toBe(nextController.signal);
+    expect(nextState.deadline).toBe(nextDeadline);
+
+    await finishCase(nextState);
+    expect(fsSync.existsSync(nextRoot)).toBe(false);
+  });
 });

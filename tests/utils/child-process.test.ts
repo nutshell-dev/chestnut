@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import {
   ChildProcessLifecycleError,
   ChildProcessTimeoutError,
+  type ChildProcessFailureDetails,
   runChildProcess,
   withCleanupPreservingError,
 } from './child-process.js';
@@ -26,6 +27,7 @@ const DESCENDANT_EXIT_CONFIRM_MS = 150;
 const DESCENDANT_SCHEDULING_MARGIN_MS = 500;
 const DESCENDANT_NATURAL_EXIT_MS = 2_500;
 const DESCENDANT_HANDSHAKE_TIMEOUT_MS = 6_000;
+const OWNED_CHILD_NATURAL_EXIT_MS = 5_000;
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,6 +35,38 @@ function delay(ms: number): Promise<void> {
 
 async function captureFailure(run: Promise<unknown>): Promise<unknown> {
   return run.then(() => undefined, (error: unknown) => error);
+}
+
+function injectedLifecycleFailure(
+  options: { pid?: number; directChild?: 'exited' | 'unconfirmed'; reason?: 'timeout' | 'cancelled' } = {},
+): ChildProcessLifecycleError {
+  const directChild = options.directChild ?? 'unconfirmed';
+  const details = {
+    command: process.execPath,
+    args: [],
+    pid: Object.hasOwn(options, 'pid') ? options.pid : 123,
+    status: directChild === 'exited' ? 0 : null,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    errors: [],
+    directChild: directChild === 'exited'
+      ? { state: 'exited', status: 0, signal: null }
+      : { state: 'unconfirmed' },
+    stdio: directChild === 'exited' ? 'detached' : 'closed',
+    outputTruncated: directChild === 'exited',
+    outputTruncatedAt: null,
+    reason: options.reason ?? 'timeout',
+    timeoutMs: CHILD_TIMEOUT_MS,
+    killGraceMs: CHILD_KILL_GRACE_MS,
+    exitConfirmMs: CHILD_EXIT_CONFIRM_MS,
+    killSignals: [],
+    killAttempts: [],
+    killErrors: [],
+    cleanup: directChild === 'exited' ? 'detached' : 'closed',
+    resourceEvidence: { state: 'not_required', reason: 'pid_unavailable' },
+  } as ChildProcessFailureDetails;
+  return new ChildProcessLifecycleError(details, new Error('injected lifecycle failure'));
 }
 
 function isOwnedProcessAlive(pid: number): boolean {
@@ -366,6 +400,91 @@ describe('test child process lifecycle', () => {
       else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
       if (childPid && isOwnedProcessAlive(childPid)) process.kill(childPid, 'SIGKILL');
       if (childPid) await waitForOwnedProcessExit(childPid);
+    }
+  });
+
+  it.each(['direct', 'aggregate', 'cause', 'cyclic'])(
+    'preserves caller cleanup for an unconfirmed child in a %s error chain',
+    async shape => {
+      const primary = injectedLifecycleFailure();
+      const cyclicA = new Error('cyclic A');
+      const cyclicB = new Error('cyclic B');
+      (cyclicA as { cause?: unknown }).cause = cyclicB;
+      (cyclicB as { cause?: unknown }).cause = cyclicA;
+      const failure = shape === 'direct' ? primary
+        : shape === 'aggregate' ? new AggregateError([primary])
+        : shape === 'cause' ? new Error('outer', { cause: primary })
+        : new AggregateError([cyclicA, primary]);
+      let cleanupCalls = 0;
+      const observed = await captureFailure(withCleanupPreservingError(
+        async () => { throw failure; },
+        async () => { cleanupCalls += 1; },
+      ));
+      expect(observed).toBe(failure);
+      expect(cleanupCalls).toBe(0);
+    },
+  );
+
+  it.each(['no_pid', 'exited_detached', 'ordinary', 'cyclic_ordinary'])(
+    'runs cleanup once when no started child is unconfirmed (%s)',
+    async shape => {
+      const cyclicA = new Error('ordinary cyclic A');
+      const cyclicB = new Error('ordinary cyclic B');
+      (cyclicA as { cause?: unknown }).cause = cyclicB;
+      (cyclicB as { cause?: unknown }).cause = cyclicA;
+      const failure = shape === 'no_pid' ? injectedLifecycleFailure({ pid: undefined })
+        : shape === 'exited_detached' ? injectedLifecycleFailure({ directChild: 'exited' })
+        : shape === 'cyclic_ordinary' ? cyclicA
+        : new Error('ordinary assertion failure');
+      let cleanupCalls = 0;
+      const observed = await captureFailure(withCleanupPreservingError(
+        async () => { throw failure; },
+        async () => { cleanupCalls += 1; },
+      ));
+      expect(observed).toBe(failure);
+      expect(cleanupCalls).toBe(1);
+    },
+  );
+
+  it('keeps a real fixture and marker until an unconfirmed owned child is reaped', async () => {
+    const fixtureDir = await createTrackedTempDir('unconfirmed-caller-fixture-');
+    const evidenceRoot = await createTrackedTempDir('unconfirmed-caller-evidence-');
+    const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
+    process.env.CHESTNUT_RUN_ROOT = evidenceRoot;
+    vi.spyOn(ChildProcess.prototype, 'kill').mockReturnValue(false);
+    let childPid: number | undefined;
+    try {
+      const failure = await captureFailure(withCleanupPreservingError(
+        () => runChildProcess(
+          process.execPath,
+          ['-e', `setTimeout(() => { process.exitCode = 0; }, ${OWNED_CHILD_NATURAL_EXIT_MS})`],
+          {
+            timeoutMs: CHILD_TIMEOUT_MS,
+            killGraceMs: CHILD_KILL_GRACE_MS,
+            exitConfirmMs: CHILD_TIMEOUT_MS,
+          },
+        ),
+        () => cleanupTempDir(fixtureDir),
+      ));
+
+      expect(failure).toBeInstanceOf(ChildProcessTimeoutError);
+      if (!(failure instanceof ChildProcessTimeoutError)) throw new Error('expected timeout');
+      childPid = failure.details.pid;
+      expect(failure.details.directChild).toEqual({ state: 'unconfirmed' });
+      expect(failure.details.resourceEvidence).toEqual({
+        state: 'recorded',
+        path: path.join(evidenceRoot, 'test-resource-failures.jsonl'),
+      });
+      expect(fs.existsSync(fixtureDir)).toBe(true);
+      expect(fs.existsSync(path.join(evidenceRoot, 'test-resource-failures.jsonl'))).toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+      if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
+      else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
+      if (childPid && isOwnedProcessAlive(childPid)) process.kill(childPid, 'SIGKILL');
+      if (childPid) await waitForOwnedProcessExit(childPid);
+      await cleanupTempDir(fixtureDir);
+      await cleanupTempDir(evidenceRoot);
     }
   });
 
