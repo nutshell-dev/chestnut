@@ -23,6 +23,23 @@ function makeStream(): StreamLog & { events: unknown[] } {
   };
 }
 
+const HISTORICAL_HASH = 'a'.repeat(64);
+const NO_ARTIFACT_AUDIT_COLUMNS = [
+  'artifact_id=none', 'artifact_status=none', 'artifact_schema=none',
+  'artifact_hash_alg=none', 'artifact_hash=none', 'artifact_bytes=none',
+  'redaction_policy=none', 'artifact_reason=none',
+];
+
+function expectStreamFacts(streamEvents: unknown[], before: LLMEvent[]): void {
+  expect(streamEvents).toHaveLength(before.length);
+  for (const [index, item] of streamEvents.entries()) {
+    const { ts, ...fact } = item as Record<string, unknown>;
+    expect(ts).toEqual(expect.any(Number));
+    expect(fact).toStrictEqual(before[index]);
+    expect(JSON.parse(JSON.stringify(fact))).toStrictEqual(before[index]);
+  }
+}
+
 describe('llm-event-sink (phase 1176 Step B)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -543,6 +560,255 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(stream.events).toEqual([
       expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
       expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
+    ]);
+  });
+
+  it('preserves historical counted completed facts in exact audit columns and stream events', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    const preparedEvent: LLMEvent = {
+      type: 'input_measurement', schemaVersion: 1,
+      invocationId: 'inv-historical', attemptId: 'att-counted-completed', provider: 'p', model: 'm',
+      observation: {
+        kind: 'prepared', requestId: 'counted-completed', provider: 'p', model: 'm',
+        descriptor: {
+          revision: 'historical-rev', provider: 'p', model: 'm',
+          api: 'anthropic-messages', contextWindow: 1_000_000,
+          profile: 'deepseek-v41-flash-1017-v1',
+        },
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+      },
+    };
+    const completedEvent: LLMEvent = {
+      type: 'input_measurement', schemaVersion: 1,
+      invocationId: 'inv-historical', attemptId: 'att-counted-completed', provider: 'p', model: 'm',
+      observation: {
+        kind: 'completed', requestId: 'counted-completed', provider: 'p', model: 'm',
+        descriptorRevision: 'historical-rev', inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        measuredInputTokens: 12, usage: { unCachedInputTokens: 15, outputTokens: 1 },
+        totalUsageInputTokens: 15, normalizedUsageInputTokens: 15,
+        deltaTokens: 3, reconciliation: 'mismatch', reason: 'historical-note',
+      },
+    };
+    const events: LLMEvent[] = [preparedEvent, completedEvent];
+    const before = structuredClone(events);
+
+    for (const event of events) sink.emit(event);
+
+    expect(events).toStrictEqual(before);
+    expectStreamFacts(stream.events, before);
+    expect(audit.writes).toStrictEqual([
+      [
+        'llm_input_measurement', 'request=counted-completed', 'phase=prepared',
+        'invocation=inv-historical', 'attempt=att-counted-completed', 'provider=p', 'model=m',
+        'revision=historical-rev', 'method=deepseek-v41-template', 'input_tokens=12',
+        `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+      [
+        'llm_input_measurement', 'request=counted-completed', 'phase=completed',
+        'invocation=inv-historical', 'attempt=att-counted-completed', 'provider=p', 'model=m',
+        'reconciliation=mismatch', 'measured_input_tokens=12', 'usage_input_tokens=15',
+        'effective_input_tokens=15', 'delta_tokens=3', 'normalized_usage_input_tokens=15',
+        'raw_usage={"unCachedInputTokens":15,"outputTokens":1}',
+        'revision=historical-rev', `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none', 'reason=historical-note',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+    ]);
+    const terminal = stream.events[1] as Record<string, unknown>;
+    expect(terminal.observation).not.toHaveProperty('effectiveInputTokens');
+    expect((terminal.observation as Record<string, unknown>).measurement).not.toHaveProperty('reason');
+  });
+
+  it('keeps historical counted zero values distinct from absent fields without schema versions', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    const events: LLMEvent[] = [
+      {
+        type: 'input_measurement',
+        invocationId: 'inv-historical', attemptId: 'att-counted-zero', provider: 'p', model: 'm',
+        observation: {
+          kind: 'prepared', requestId: 'counted-zero', provider: 'p', model: 'm',
+          descriptor: {
+            revision: 'historical-rev', provider: 'p', model: 'm',
+            api: 'anthropic-messages', contextWindow: 1_000_000,
+            profile: 'deepseek-v41-flash-1017-v1',
+          },
+          measurement: { kind: 'counted', tokens: 0, method: 'deepseek-v41-template' },
+          inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+        },
+      },
+      {
+        type: 'input_measurement',
+        invocationId: 'inv-historical', attemptId: 'att-counted-zero', provider: 'p', model: 'm',
+        observation: {
+          kind: 'completed', requestId: 'counted-zero', provider: 'p', model: 'm',
+          descriptorRevision: 'historical-rev', inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+          measurement: { kind: 'counted', tokens: 0, method: 'deepseek-v41-template' },
+          measuredInputTokens: 0, usage: { unCachedInputTokens: 0, outputTokens: 1 },
+          totalUsageInputTokens: 0, normalizedUsageInputTokens: 0,
+          deltaTokens: 0, reconciliation: 'matched',
+        },
+      },
+    ];
+    const before = structuredClone(events);
+
+    for (const event of events) sink.emit(event);
+
+    expect(events).toStrictEqual(before);
+    expectStreamFacts(stream.events, before);
+    expect(audit.writes).toStrictEqual([
+      [
+        'llm_input_measurement', 'request=counted-zero', 'phase=prepared',
+        'invocation=inv-historical', 'attempt=att-counted-zero', 'provider=p', 'model=m',
+        'revision=historical-rev', 'method=deepseek-v41-template', 'input_tokens=0',
+        `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+      [
+        'llm_input_measurement', 'request=counted-zero', 'phase=completed',
+        'invocation=inv-historical', 'attempt=att-counted-zero', 'provider=p', 'model=m',
+        'reconciliation=matched', 'measured_input_tokens=0', 'usage_input_tokens=0',
+        'effective_input_tokens=0', 'delta_tokens=0', 'normalized_usage_input_tokens=0',
+        'raw_usage={"unCachedInputTokens":0,"outputTokens":1}',
+        'revision=historical-rev', `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+    ]);
+    const terminal = stream.events[1] as Record<string, unknown>;
+    expect(terminal).not.toHaveProperty('schemaVersion');
+    expect(terminal.observation).not.toHaveProperty('effectiveInputTokens');
+    expect((terminal.observation as Record<string, unknown>).measurement).not.toHaveProperty('reason');
+  });
+
+  it('preserves historical counted failed facts without inventing completion fields', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    const events: LLMEvent[] = [
+      {
+        type: 'input_measurement',
+        invocationId: 'inv-historical', attemptId: 'att-counted-failed', provider: 'p', model: 'm',
+        observation: {
+          kind: 'prepared', requestId: 'counted-failed', provider: 'p', model: 'm',
+          descriptor: {
+            revision: 'historical-rev', provider: 'p', model: 'm',
+            api: 'anthropic-messages', contextWindow: 1_000_000,
+            profile: 'deepseek-v41-flash-1017-v1',
+          },
+          measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+          inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+        },
+      },
+      {
+        type: 'input_measurement',
+        invocationId: 'inv-historical', attemptId: 'att-counted-failed', provider: 'p', model: 'm',
+        observation: {
+          kind: 'failed', requestId: 'counted-failed', provider: 'p', model: 'm',
+          descriptorRevision: 'historical-rev', inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+          measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+          measuredInputTokens: 12, reason: 'historical-provider-error',
+        },
+      },
+    ];
+    const before = structuredClone(events);
+
+    for (const event of events) sink.emit(event);
+
+    expect(events).toStrictEqual(before);
+    expectStreamFacts(stream.events, before);
+    expect(audit.writes).toStrictEqual([
+      [
+        'llm_input_measurement', 'request=counted-failed', 'phase=prepared',
+        'invocation=inv-historical', 'attempt=att-counted-failed', 'provider=p', 'model=m',
+        'revision=historical-rev', 'method=deepseek-v41-template', 'input_tokens=12',
+        `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+      [
+        'llm_input_measurement', 'request=counted-failed', 'phase=failed',
+        'invocation=inv-historical', 'attempt=att-counted-failed', 'provider=p', 'model=m',
+        'reason=historical-provider-error', 'measured_input_tokens=12',
+        'revision=historical-rev', `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+    ]);
+    const terminal = stream.events[1] as Record<string, unknown>;
+    expect(terminal).not.toHaveProperty('schemaVersion');
+    expect(terminal.observation).not.toHaveProperty('usage');
+    expect(terminal.observation).not.toHaveProperty('deltaTokens');
+    expect(terminal.observation).not.toHaveProperty('reconciliation');
+    expect((terminal.observation as Record<string, unknown>).measurement).toStrictEqual({
+      kind: 'counted', tokens: 12, method: 'deepseek-v41-template',
+    });
+  });
+
+  it('preserves modern estimated measurement facts as a control', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    const events: LLMEvent[] = [
+      {
+        type: 'input_measurement', schemaVersion: 1,
+        invocationId: 'inv-historical', attemptId: 'att-modern-estimated', provider: 'p', model: 'm',
+        observation: {
+          kind: 'prepared', requestId: 'modern-estimated', provider: 'p', model: 'm',
+          descriptor: {
+            revision: 'historical-rev', provider: 'p', model: 'm',
+            api: 'anthropic-messages', contextWindow: 1_000_000, profile: 'legacy-cl100k-v2',
+          },
+          measurement: { kind: 'estimated', tokens: 7, method: 'legacy-cl100k', reason: 'modern-estimate' },
+          inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+        },
+      },
+      {
+        type: 'input_measurement', schemaVersion: 1,
+        invocationId: 'inv-historical', attemptId: 'att-modern-estimated', provider: 'p', model: 'm',
+        observation: {
+          kind: 'completed', requestId: 'modern-estimated', provider: 'p', model: 'm',
+          descriptorRevision: 'historical-rev', inputHash: HISTORICAL_HASH, inputSource: 'unlinked',
+          measurement: { kind: 'estimated', tokens: 7, method: 'legacy-cl100k', reason: 'modern-estimate' },
+          measuredInputTokens: 7, usage: { unCachedInputTokens: 7, outputTokens: 1 },
+          totalUsageInputTokens: 7, normalizedUsageInputTokens: 7,
+          deltaTokens: 0, reconciliation: 'matched',
+        },
+      },
+    ];
+    const before = structuredClone(events);
+
+    for (const event of events) sink.emit(event);
+
+    expect(events).toStrictEqual(before);
+    expectStreamFacts(stream.events, before);
+    expect(audit.writes).toStrictEqual([
+      [
+        'llm_input_measurement', 'request=modern-estimated', 'phase=prepared',
+        'invocation=inv-historical', 'attempt=att-modern-estimated', 'provider=p', 'model=m',
+        'revision=historical-rev', 'method=legacy-cl100k', 'input_tokens=7',
+        `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=estimated', 'measurement_reason=modern-estimate',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
+      [
+        'llm_input_measurement', 'request=modern-estimated', 'phase=completed',
+        'invocation=inv-historical', 'attempt=att-modern-estimated', 'provider=p', 'model=m',
+        'reconciliation=matched', 'measured_input_tokens=7', 'usage_input_tokens=7',
+        'effective_input_tokens=7', 'delta_tokens=0', 'normalized_usage_input_tokens=7',
+        'raw_usage={"unCachedInputTokens":7,"outputTokens":1}',
+        'revision=historical-rev', `input_hash=${HISTORICAL_HASH}`, 'input_source=unlinked',
+        'measurement_kind=estimated', 'measurement_reason=modern-estimate', 'reason=none',
+        ...NO_ARTIFACT_AUDIT_COLUMNS,
+      ],
     ]);
   });
 
