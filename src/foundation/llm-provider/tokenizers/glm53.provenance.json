@@ -1,6 +1,6 @@
 {
   "asset": "glm53.tokenizer.json",
-  "purpose": "local estimated text-only context trimming across declared GLM families; not final provider wire counting",
+  "purpose": "local estimated common-input text content for context trimming across declared GLM families; not final provider wire counting",
   "source": {
     "repository": "zai-org/GLM-5.3",
     "revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
@@ -47,15 +47,16 @@
     "networkDownload": false,
     "remoteTokenApi": false,
     "kind": "estimated",
-    "projection": "glm-text-estimate-v1",
-    "crossVersionQualification": "provider-level approximation only; GLM-4.x and GLM-5.x vocabularies differ",
+    "selection": "configured-model-family",
+    "projection": "estimate-only:no-final-wire-projection",
+    "inputProjection": "common-input-text-v1",
+    "supportedInputs": ["text", "tool_definitions", "tool_use", "tool_result", "thinking_text"],
+    "crossVersionQualification": "configured-model-family approximation; GLM-4.x and GLM-5.x vocabularies differ",
     "unsupported": [
-      "tools and tool call/result",
-      "thinking blocks",
       "image/video/audio/URL media and unknown blocks",
       "plain-text GLM added/control tokens",
       "duplicate system projections",
-      "unresolved or non-Z.AI provider identities"
+      "invalid roles, structures, and inputs exceeding common-input limits"
     ]
   }
 }

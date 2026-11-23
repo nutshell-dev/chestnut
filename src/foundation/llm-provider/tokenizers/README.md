@@ -23,9 +23,10 @@ The original import revision was not recorded; the comparison revision identifie
 the upstream JSON used to verify the changes above.
 
 The asset provides a local **`estimated`** input-content size for DeepSeek model
-family names. It never reconstructs the final provider request, establishes
-`counted` qualification, or replaces post-call `ProviderUsage`. Unsupported
-non-text/tool input and asset failures remain `unavailable`.
+family names. Common-input text content includes declared tool definitions, tool
+calls/results, and thinking text. It never reconstructs the final provider request,
+establishes `counted` qualification, or replaces post-call `ProviderUsage`.
+Multimodal/unknown input and asset failures remain `unavailable`.
 
 [upstream]: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Vision-Exp/blob/6821d6ad3681a4b137b066b76094fa82ebd0a380/tokenizer.json
 [upstream-license]: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Vision-Exp/blob/6821d6ad3681a4b137b066b76094fa82ebd0a380/LICENSE
@@ -45,12 +46,13 @@ semantics-preserving regex syntax adaptations required by JavaScript's `u`
 flag. The converted encoder matched the official Python `tiktoken` encoder on
 222 deterministic mixed-text fixtures with no mismatches.
 
-This asset is bundled locally for **`estimated` text-only context trimming**
+This asset is bundled locally for **`estimated` common-input context trimming**
 selected by Kimi model family names (including fixed `k3` aliases). Runtime
-measurement encodes input content without provider chat markup or final-wire
-projection. Downloads, remote token APIs, tool/thinking/multimodal projection,
-and use as post-call `ProviderUsage` are prohibited. The upstream
-[Kimi K3 License](LICENSE.kimi-k3) notice is preserved with the asset.
+measurement encodes text content from messages, declared tool definitions, tool
+calls/results, and thinking without provider chat markup or final-wire projection.
+Multimodal and unknown content remains `unavailable`. Downloads, remote token APIs,
+final-wire counting, and use as post-call `ProviderUsage` are prohibited. The
+upstream [Kimi K3 License](LICENSE.kimi-k3) notice is preserved with the asset.
 
 # Qwen3.8 text estimator
 
@@ -67,11 +69,13 @@ handwritten vocabulary conversion is needed. Runtime plain-text encoding removes
 Any Qwen added/control token appearing in user text makes the estimate
 unavailable instead of being silently interpreted as wire syntax.
 
-This asset is bundled locally for **`estimated` text-only context trimming**
-selected by Qwen model family names. Runtime downloads, remote token APIs,
-tool/thinking/multimodal projection, final-wire counting, and use as post-call
-`ProviderUsage` are prohibited. The upstream
-[Apache License 2.0](LICENSE.qwen3.8) notice is preserved with the asset.
+This asset is bundled locally for **`estimated` common-input context trimming**
+selected by Qwen model family names. Text content from declared tool definitions,
+tool calls/results, and thinking is included without reconstructing provider wire
+templates. Multimodal and unknown content remains `unavailable`. Runtime downloads,
+remote token APIs, final-wire counting, and use as post-call `ProviderUsage` are
+prohibited. The upstream [Apache License 2.0](LICENSE.qwen3.8) notice is preserved
+with the asset.
 
 # GLM-5.3 text estimator
 
@@ -84,14 +88,15 @@ tokenizer configs, chat template, license, conversion decision, and projection
 control-token IDs.
 
 `@huggingface/tokenizers@0.2.0` loads the official JSON directly. Runtime
-plain-text encoding removes `added_tokens` and measures input content without
+plain-text encoding removes `added_tokens` and measures common-input text content,
+including declared tool definitions, tool calls/results, and thinking, without
 reconstructing role markers or chat templates. Any GLM added/control token in
 plain text makes the estimate unavailable instead of being interpreted as wire
-syntax. Tool, thinking, and multimodal inputs are unsupported.
+syntax. Multimodal and unknown inputs are unsupported.
 
 One asset covers GLM model family names as a **model-family approximation**,
 independent of provider, API protocol, wire model, or endpoint. GLM-4.x and
 GLM-5.x vocabularies differ, so results remain **`estimated`** for context
 trimming and never become post-call `ProviderUsage`. Runtime downloads, remote
-token APIs, and non-text/tool projections are prohibited. The upstream
+token APIs, and final-wire projections are prohibited. The upstream
 [GLM-5.3 License](LICENSE.glm53) notice is preserved with the asset.

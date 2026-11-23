@@ -1,6 +1,6 @@
 {
   "asset": "kimi-k3.tiktoken.json",
-  "purpose": "local estimated text-only context trimming; not final provider wire counting",
+  "purpose": "local estimated common-input text content for context trimming; not final provider wire counting",
   "source": {
     "repository": "moonshotai/Kimi-K3",
     "revision": "f831ab66814297da540d832a5235f8e904f29d06",
@@ -43,13 +43,15 @@
     "networkDownload": false,
     "remoteTokenApi": false,
     "kind": "estimated",
+    "selection": "configured-model-family",
+    "projection": "estimate-only:no-final-wire-projection",
+    "inputProjection": "common-input-text-v1",
+    "supportedInputs": ["text", "tool_definitions", "tool_use", "tool_result", "thinking_text"],
     "unsupported": [
-      "tools and tool call/result",
-      "thinking blocks",
-      "image/audio/URL media and unknown blocks",
+      "image/video/audio/URL media and unknown blocks",
       "plain-text K3 control tokens",
       "duplicate system projections",
-      "non-OpenAI or unresolved identities"
+      "invalid roles, structures, and inputs exceeding common-input limits"
     ]
   }
 }

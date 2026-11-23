@@ -1,6 +1,6 @@
 {
   "asset": "qwen3.8.tokenizer.json",
-  "purpose": "local estimated text-only context trimming; not final provider wire counting",
+  "purpose": "local estimated common-input text content for context trimming; not final provider wire counting",
   "source": {
     "repository": "Qwen/Qwen3.8-27B",
     "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
@@ -38,14 +38,15 @@
     "networkDownload": false,
     "remoteTokenApi": false,
     "kind": "estimated",
-    "projection": "qwen-text-im-v1",
+    "selection": "configured-model-family",
+    "projection": "estimate-only:no-final-wire-projection",
+    "inputProjection": "common-input-text-v1",
+    "supportedInputs": ["text", "tool_definitions", "tool_use", "tool_result", "thinking_text"],
     "unsupported": [
-      "tools and tool call/result",
-      "thinking blocks",
-      "image/audio/URL media and unknown blocks",
+      "image/video/audio/URL media and unknown blocks",
       "plain-text Qwen added/control tokens",
       "duplicate system projections",
-      "non-OpenAI or unresolved identities"
+      "invalid roles, structures, and inputs exceeding common-input limits"
     ]
   }
 }
