@@ -16,7 +16,7 @@ import {
   extractRegisteredTypes,
   extractSenderTypes,
   extendWithNonSenderScan,
-} from './guidance-registry-coverage.test.js';
+} from '../../helpers/guidance-registry-scan.js';
 
 describe('phase 1469: explicit no-guidance invariant (every sender type must be registered)', () => {
   it('registered set === extended sender set (incl. cron-written) — no orphan registrations, no stale', () => {
