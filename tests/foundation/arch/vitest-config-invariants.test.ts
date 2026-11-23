@@ -14,6 +14,11 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  classifyAuditHits,
+  loadConfiguredResourceFiles,
+  matchesTestPattern,
+} from '../../../scripts/stream-output-global-state-audit.mjs';
 
 describe('vitest-cachedir-gitignore-pairing-invariant', () => {
   /**
@@ -267,8 +272,8 @@ describe('vitest-projects-isolate-invariant', () => {
   /**
    * phase 658: invariant that vitest projects encode their design intent
    * via top-level isolate (phase 1897: poolOptions.threads.isolate → isolate):
-   * - `fast` project   → isolate=false (shared module registry, high
-   *                      throughput, tests must be mock-safe)
+   * - `fast`/`resource` → isolate=false (shared module registry; resource only
+   *                       lowers scheduling concurrency, tests must be mock-safe)
    * - `isolated` project → isolate=true (each test file isolated, prevents
    *                        cross-file mock contamination)
    *
@@ -289,8 +294,8 @@ describe('vitest-projects-isolate-invariant', () => {
     };
   };
 
-  describe('vitest fast/isolated isolate invariant (phase 658)', () => {
-    it('fast.isolate=false + isolated.isolate=true', async () => {
+  describe('vitest fast/resource/isolated isolate invariant (phase 658)', () => {
+    it('fast/resource.isolate=false + isolated.isolate=true', async () => {
       const repoRoot = path.resolve(__dirname, '../../..');
       const cfgPath = path.join(repoRoot, '.config/vitest.config.ts');
       const mod = (await import(cfgPath)) as { default?: unknown };
@@ -302,12 +307,15 @@ describe('vitest-projects-isolate-invariant', () => {
       const projects = cfg.test?.projects ?? [];
 
       const fast = projects.find(p => p.test?.name === 'fast');
+      const resource = projects.find(p => p.test?.name === 'resource');
       const isolated = projects.find(p => p.test?.name === 'isolated');
 
       expect(fast, "project named 'fast' missing").toBeDefined();
+      expect(resource, "project named 'resource' missing").toBeDefined();
       expect(isolated, "project named 'isolated' missing").toBeDefined();
 
       expect((fast as Proj).test?.isolate).toBe(false);
+      expect((resource as Proj).test?.isolate).toBe(false);
       expect((isolated as Proj).test?.isolate).toBe(true);
     });
   });
@@ -373,14 +381,14 @@ describe('vitest-projects-pool-timeout-consistency-invariant', () => {
    *
    * phase 1006 update: integration / infra projects need longer timeouts and
    * tighter concurrency, so the strict uniformity check applies only to the
-   * unit projects (fast + isolated). All projects still use the same pool kind.
+   * unit projects (fast + resource + isolated). All projects use the same pool kind.
    *
    * Pairs with phase 611 (vitest exclude base patterns), phase 610
    * (projects name unique), phase 634 (coverage config baseline).
    */
   type Proj = { test?: { name?: string; pool?: unknown; testTimeout?: unknown; hookTimeout?: unknown } };
 
-  const UNIT_PROJECT_NAMES = new Set(['fast', 'isolated']);
+  const UNIT_PROJECT_NAMES = new Set(['fast', 'resource', 'isolated']);
 
   describe('vitest projects pool + timeout consistency invariant (phase 654)', () => {
     it('all projects share same pool; unit projects share same testTimeout + hookTimeout', async () => {
@@ -414,6 +422,10 @@ describe('vitest project resource topology invariant (phase 2215)', () => {
       name?: string;
       maxWorkers?: number;
       sequence?: { groupOrder?: number };
+      pool?: string;
+      isolate?: boolean;
+      testTimeout?: number;
+      hookTimeout?: number;
     };
   };
 
@@ -434,12 +446,18 @@ describe('vitest project resource topology invariant (phase 2215)', () => {
     const projects = mod.default?.test?.projects ?? [];
     const byName = new Map(projects.map(project => [project.test?.name, project.test]));
     const fast = byName.get('fast');
-    const resourceNames = ['arch-compile', 'isolated', 'integration-process', 'integration-io'];
+    const resourceNames = ['resource', 'arch-compile', 'isolated', 'integration-process', 'integration-io'];
     const resourceProjects = resourceNames.map(name => byName.get(name));
 
     expect(fast?.sequence?.groupOrder).toBe(0);
     expect(fast?.maxWorkers).toBeGreaterThan(0);
     expect(fast?.maxWorkers).toBeLessThanOrEqual(4);
+    expect(byName.get('resource')).toMatchObject({
+      pool: 'threads',
+      isolate: false,
+      testTimeout: 15000,
+      hookTimeout: 10000,
+    });
     for (const project of resourceProjects) {
       expect(project?.sequence?.groupOrder).toBe(1);
       expect(project?.maxWorkers).toBeGreaterThan(0);
@@ -449,5 +467,139 @@ describe('vitest project resource topology invariant (phase 2215)', () => {
     expect(new Set(resourceProjects.map(project => project?.maxWorkers)).size).toBe(1);
     expect(byName.get('infra')?.sequence?.groupOrder).toBe(2);
     expect(byName.get('infra')?.maxWorkers).toBe(1);
+  });
+});
+
+
+describe('vitest project collection conservation invariant (phase 2217)', () => {
+  type Project = {
+    test?: {
+      name?: string;
+      include?: string[];
+      exclude?: string[];
+    };
+  };
+
+  const EXPECTED_RESOURCE_FILES = [
+    'tests/cli/program-top-level-help-claw-term.test.ts',
+    'tests/cli/dispatch-skill-command.test.ts',
+    'tests/cli/skill-install-version.test.ts',
+    'tests/foundation/skill-system/skill-version-state.test.ts',
+    'tests/foundation/skill-system/skill-history.test.ts',
+    'tests/foundation/skill-system/skill-basis-required.test.ts',
+    'tests/foundation/snapshot/version-export.test.ts',
+    'tests/foundation/snapshot/version-operation-query-failure.test.ts',
+    'tests/foundation/snapshot/version-recovery.test.ts',
+  ];
+  const DEFAULT_PROJECT_NAMES = new Set([
+    'fast', 'resource', 'isolated', 'arch-compile', 'integration-process', 'integration-io',
+  ]);
+  // Step C added helper cases to this existing file, so it has no collection delta.
+  const PHASE_2217_HELPER_TEST_FILES = ['tests/utils/child-process.test.ts'];
+  const PHASE_2217_NEW_TEST_FILES: string[] = [];
+
+  function matchesAny(file: string, patterns: string[]): boolean {
+    return patterns.some(pattern =>
+      pattern === file || (pattern.includes('*') && matchesTestPattern(file, pattern)));
+  }
+
+  function listTestFiles(repoRoot: string): string[] {
+    const files: string[] = [];
+    function walk(dir: string): void {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === '.chestnut' || entry.name === 'node_modules' || entry.name === 'dist') {
+          continue;
+        }
+        const absolute = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(absolute);
+        else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
+          files.push(path.relative(repoRoot, absolute).split(path.sep).join('/'));
+        }
+      }
+    }
+    walk(path.join(repoRoot, 'tests'));
+    return files.sort();
+  }
+
+  function selects(project: Project, file: string, rootExclude: string[]): boolean {
+    const test = project.test;
+    return Boolean(test?.include && matchesAny(file, test.include))
+      && !matchesAny(file, [...rootExclude, ...(test?.exclude ?? [])]);
+  }
+
+  it('gives every test file one owner and preserves the pre-resource default collection', async () => {
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const cfgPath = path.join(repoRoot, '.config/vitest.config.ts');
+    const mod = await import(cfgPath) as {
+      default?: { test?: { exclude?: string[]; projects?: Project[] } };
+      RESOURCE_FILES?: string[];
+    };
+    expect(mod.RESOURCE_FILES).toEqual(EXPECTED_RESOURCE_FILES);
+
+    const rootExclude = mod.default?.test?.exclude ?? [];
+    const projects = mod.default?.test?.projects ?? [];
+    const files = listTestFiles(repoRoot);
+    const owners = new Map(files.map(file => [
+      file,
+      projects.filter(project => selects(project, file, rootExclude))
+        .map(project => project.test?.name ?? 'unnamed'),
+    ]));
+    const ownershipErrors = files.flatMap(file => {
+      const projectNames = owners.get(file) ?? [];
+      return projectNames.length === 1 ? [] : [`${file}: ${projectNames.join(', ') || 'no project'}`];
+    });
+    expect(ownershipErrors).toEqual([]);
+
+    for (const file of EXPECTED_RESOURCE_FILES) {
+      expect(owners.get(file), file).toEqual(['resource']);
+    }
+    for (const file of PHASE_2217_HELPER_TEST_FILES) {
+      expect(owners.get(file), file).toEqual(['integration-process']);
+    }
+
+    const resourceFiles = new Set(EXPECTED_RESOURCE_FILES);
+    const legacyProjects = projects
+      .filter(project => project.test?.name !== 'resource')
+      .map(project => project.test?.name === 'fast'
+        ? {
+            test: {
+              ...project.test,
+              exclude: (project.test.exclude ?? []).filter(pattern => !resourceFiles.has(pattern)),
+            },
+          }
+        : project);
+    const currentDefault = new Set(files.filter(file => projects.some(project =>
+      DEFAULT_PROJECT_NAMES.has(project.test?.name ?? '') && selects(project, file, rootExclude))));
+    const previousDefault = new Set(files.filter(file => legacyProjects.some(project =>
+      DEFAULT_PROJECT_NAMES.has(project.test?.name ?? '') && selects(project, file, rootExclude))));
+    const added = [...currentDefault].filter(file => !previousDefault.has(file)).sort();
+    const removed = [...previousDefault].filter(file => !currentDefault.has(file)).sort();
+    expect({ added, removed }).toEqual({ added: PHASE_2217_NEW_TEST_FILES, removed: [] });
+  });
+
+  it('labels resource output hits as shared rather than isolated or fast', () => {
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const configSource = fs.readFileSync(path.join(repoRoot, '.config/vitest.config.ts'), 'utf8');
+    const resourceFiles = loadConfiguredResourceFiles(configSource);
+    expect([...resourceFiles].sort()).toEqual([...EXPECTED_RESOURCE_FILES].sort());
+    const hits = [
+      { file: EXPECTED_RESOURCE_FILES[0], replacements: [{ kind: 'spy', line: 1 }] },
+      { file: 'tests/foundation/fs.test.ts', replacements: [{ kind: 'spy', line: 1 }] },
+      { file: 'tests/cli/unregistered.test.ts', replacements: [{ kind: 'spy', line: 1 }] },
+    ];
+    const classified = classifyAuditHits(
+      hits,
+      new Set(['tests/foundation/fs.test.ts']),
+      resourceFiles,
+    );
+    expect(classified.map(hit => ({
+      file: hit.file,
+      project: hit.project,
+      isolated: hit.isolated,
+    }))).toEqual([
+      { file: EXPECTED_RESOURCE_FILES[0], project: 'resource', isolated: false },
+      { file: 'tests/foundation/fs.test.ts', project: 'isolated', isolated: true },
+      { file: 'tests/cli/unregistered.test.ts', project: 'fast', isolated: false },
+    ]);
   });
 });

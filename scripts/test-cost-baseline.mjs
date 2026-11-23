@@ -7,7 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 const SCHEMA_VERSION = 4;
-const DEFAULT_PROJECTS = ['fast', 'isolated'];
+const DEFAULT_PROJECTS = ['fast', 'resource', 'isolated'];
 
 function median(values) {
   if (values.length === 0) return 0;
@@ -16,7 +16,7 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = { projects: [], workers: 4, warmup: 1, runs: 3, top: 50, filters: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -544,7 +544,7 @@ async function runSample(rootDir, runDir, label, projects, workers, filters) {
 
 function usage() {
   return `Usage: pnpm bench:test-cost -- [options] [test filters...]\n\n` +
-    `  --project NAME   repeatable; default fast + isolated\n` +
+    `  --project NAME   repeatable; default fast + resource + isolated\n` +
     `  --workers N      VITEST_MAX_THREADS (default 4)\n` +
     `  --warmup N       unmeasured warmup runs (default 1)\n` +
     `  --runs N         measured runs (default 3)\n` +

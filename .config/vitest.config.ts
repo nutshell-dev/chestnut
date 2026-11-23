@@ -299,6 +299,23 @@ const VI_DOMOCK_FILES = [
 const VI_GLOBALS_FILES: string[] = [];
 
 /**
+ * phase 2217 Step G: verified real-IO workloads that retain fast's shared-worker
+ * semantics but run in the low-concurrency resource group. This is an explicit
+ * migration list, not a claim that every other filesystem test is lightweight.
+ */
+const RESOURCE_FILES = [
+  'tests/cli/program-top-level-help-claw-term.test.ts',
+  'tests/cli/dispatch-skill-command.test.ts',
+  'tests/cli/skill-install-version.test.ts',
+  'tests/foundation/skill-system/skill-version-state.test.ts',
+  'tests/foundation/skill-system/skill-history.test.ts',
+  'tests/foundation/skill-system/skill-basis-required.test.ts',
+  'tests/foundation/snapshot/version-export.test.ts',
+  'tests/foundation/snapshot/version-operation-query-failure.test.ts',
+  'tests/foundation/snapshot/version-recovery.test.ts',
+];
+
+/**
  * phase 1006 Step B: OS-integration tests that need real process/spawn/ps/pgrep.
  * These run in a dedicated vitest project with isolate:true and limited concurrency.
  */
@@ -473,6 +490,7 @@ export default defineConfig({
           include: ['tests/**/*.test.ts'],
           exclude: [
             ...ISOLATED_FILES,
+            ...RESOURCE_FILES,
             ...INTEGRATION_PROCESS_FILES,
             ...INTEGRATION_IO_FILES,
             ...INFRA_FILES,
@@ -487,6 +505,21 @@ export default defineConfig({
           testTimeout: 15000,
           hookTimeout: 10000,
           maxConcurrency: 20, // phase 300: lift default 5 → 20 for describe.concurrent blocks
+        },
+      },
+      {
+        test: {
+          name: 'resource',
+          sequence: { groupOrder: 1 },
+          globals: true,
+          environment: 'node',
+          include: RESOURCE_FILES,
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          pool: 'threads',
+          maxWorkers: resourceMaxWorkers,
+          isolate: false,
+          testTimeout: 15000,
+          hookTimeout: 10000,
         },
       },
       {
@@ -597,6 +630,7 @@ export {
   INTEGRATION_PROCESS_FILES,
   INTEGRATION_IO_FILES,
   INFRA_FILES,
+  RESOURCE_FILES,
   ARCH_COMPILE_FILES,
   ISOLATED_FILES,
   PROCESS_OUTPUT_FILES,

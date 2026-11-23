@@ -178,9 +178,9 @@ export async function scanProcessOutputGlobalState(repo) {
 }
 
 /** Parse active entries from the flat file-list constants in vitest.config.ts. */
-export function loadConfiguredIsolatedFiles(configSource) {
+function loadConfiguredFiles(configSource, listNames) {
   const files = new Set();
-  for (const name of ISOLATED_LIST_NAMES) {
+  for (const name of listNames) {
     const startMarker = `const ${name} = [`;
     const start = configSource.indexOf(startMarker);
     if (start === -1) continue;
@@ -192,11 +192,28 @@ export function loadConfiguredIsolatedFiles(configSource) {
   return files;
 }
 
-export function classifyAuditHits(hits, isolatedFiles) {
+export function loadConfiguredIsolatedFiles(configSource) {
+  return loadConfiguredFiles(configSource, ISOLATED_LIST_NAMES);
+}
+
+export function loadConfiguredResourceFiles(configSource) {
+  return loadConfiguredFiles(configSource, ['RESOURCE_FILES']);
+}
+
+function matchesConfiguredFile(file, patterns) {
+  return [...patterns].some((pattern) =>
+    pattern === file || (pattern.includes('*') && matchesTestPattern(file, pattern)));
+}
+
+export function classifyAuditHits(hits, isolatedFiles, resourceFiles = new Set()) {
   return hits.map((hit) => {
-    const isolated = [...isolatedFiles].some((pattern) =>
-      pattern === hit.file || (pattern.includes('*') && matchesTestPattern(hit.file, pattern)));
-    return { ...hit, project: isolated ? 'isolated' : 'fast' };
+    const isolated = matchesConfiguredFile(hit.file, isolatedFiles);
+    const resource = matchesConfiguredFile(hit.file, resourceFiles);
+    return {
+      ...hit,
+      isolated,
+      project: isolated ? 'isolated' : resource ? 'resource' : 'fast',
+    };
   });
 }
 
@@ -207,8 +224,9 @@ async function main() {
     scanProcessOutputGlobalState(repo),
   ]);
   const isolated = loadConfiguredIsolatedFiles(config);
-  const hits = classifyAuditHits(result.hits, isolated);
-  const unregistered = hits.filter((hit) => hit.project !== 'isolated');
+  const resource = loadConfiguredResourceFiles(config);
+  const hits = classifyAuditHits(result.hits, isolated, resource);
+  const unregistered = hits.filter((hit) => !hit.isolated);
   console.log(JSON.stringify({
     count: hits.length,
     unregisteredCount: unregistered.length,

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 // The production tool is plain ESM so Node can execute it without a TS loader.
 // @ts-expect-error No declaration file is intentionally emitted for this CLI module.
 import {
-  aggregateRawRuns, aggregateRunDirectory, compareSummaries, renderReport,
+  aggregateRawRuns, aggregateRunDirectory, compareSummaries, parseArgs, renderReport,
 } from '../../scripts/test-cost-baseline.mjs';
 import { createTrackedTempDirSync } from './temp.js';
 
@@ -37,6 +37,31 @@ function manifest(workers = 4) {
     options: { workers, projects: ['fast'], warmup: 1, runs: 3, filters: [] },
   };
 }
+
+describe('test-cost baseline project selection', () => {
+  it('includes resource in default sampling without changing explicit project selection', () => {
+    expect(parseArgs([]).projects).toEqual(['fast', 'resource', 'isolated']);
+    expect(parseArgs(['--project', 'fast']).projects).toEqual(['fast']);
+    expect(parseArgs(['--project', 'integration-process']).projects).toEqual(['integration-process']);
+  });
+
+  it('keeps resource on default/fast/smoke selectors and integration scoped to integration projects', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const selectedProjects = (scriptName: string) =>
+      [...packageJson.scripts[scriptName].matchAll(/--project=([^\s]+)/g)].map(match => match[1]);
+
+    const defaultUnitProjects = ['fast', 'resource', 'isolated'];
+    expect(selectedProjects('test')).toEqual(defaultUnitProjects);
+    expect(selectedProjects('test:fast')).toEqual(defaultUnitProjects);
+    expect(selectedProjects('test:smoke')).toEqual(defaultUnitProjects);
+    expect(selectedProjects('test:run')).toEqual([
+      'fast', 'resource', 'isolated', 'arch-compile', 'integration-process', 'integration-io',
+    ]);
+    expect(selectedProjects('test:integration')).toEqual(['integration-process', 'integration-io']);
+  });
+});
 
 describe('test-cost baseline aggregation', () => {
   it('uses medians and ranks dependency exclusive cumulative cost', () => {
