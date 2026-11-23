@@ -112,16 +112,17 @@ export function createGlm53TextMeter(
   }
 
   function countText(textValue: string): number {
-    const controlInText = PLAIN_TEXT_CONFLICTS.find(token => textValue.includes(token));
-    if (controlInText) unsupported(`control_token_in_text:${controlInText}`);
     if (!textValue) return 0;
     const hit = asset.textCache.read(textValue);
     if (hit !== undefined) return hit;
+    const controlInText = PLAIN_TEXT_CONFLICTS.find(token => textValue.includes(token));
+    if (controlInText) unsupported(`control_token_in_text:${controlInText}`);
     const activeEncoder = getEncoder();
     let count = 0;
     for (const chunk of textChunks(textValue)) {
       count += activeEncoder.encode(chunk, { add_special_tokens: false }).ids.length;
     }
+    // Cache the whole text only after every chunk has been encoded successfully.
     asset.textCache.write(textValue, count);
     return count;
   }
