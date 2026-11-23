@@ -72,12 +72,8 @@ export interface LLMConfigurationCommitResult {
   readonly target: LLMSetupCommitTarget;
   readonly revision: LLMConfigurationRevision;
   readonly write: LLMConfigurationWriteResult;
-  /** 与实际写入 revision 同一把锁内重读的 raw/resolved 文档。 */
-  readonly snapshot: {
-    raw: LLMConfigDocument;
-    resolved: ResolvedLLMConfigDocument;
-    credentialSources: Readonly<Record<string, CredentialSource>>;
-  };
+  /** 与实际写入 revision 同一把锁内重读的 raw 文档；提交不解析凭据。 */
+  readonly document: LLMConfigDocument;
 }
 
 export interface LLMConfigurationRevision {
@@ -719,7 +715,7 @@ export function createLLMConfigurationDocumentStore(deps: {
             target,
             revision: { id: '1', revision: 1 },
             write,
-            snapshot: readSnapshot(),
+            document: read(),
           };
         } catch (error) {
           if (isConfigStoreError(error) && error.code === 'already_exists') {
@@ -770,7 +766,7 @@ export function createLLMConfigurationDocumentStore(deps: {
         target,
         revision: { id: String(revision), revision },
         write,
-        snapshot: readSnapshot(),
+        document: read(),
       };
     });
     return committed!;

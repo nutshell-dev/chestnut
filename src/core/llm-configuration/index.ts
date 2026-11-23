@@ -98,6 +98,7 @@ export {
   executeLLMSetupAttempt,
   runLLMSetupWorkflow,
   LLMSetupIdentityChangedError,
+  LLMSetupCommittedObserverError,
 } from './setup-workflow.js';
 export type {
   LLMSetupCommitTarget,

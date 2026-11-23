@@ -453,13 +453,15 @@ describe('commitExplicitProvider', () => {
     };
   }
 
-  it('initialize 独占创建 rev1；primary 降级旧 primary，fallback 按 fresh position 插入并返回同源 snapshot', async () => {
+  it('initialize 独占创建 rev1；primary 降级旧 primary，fallback 按 fresh position 插入并返回同源 raw 回执', async () => {
     const store = makeStore();
     const initialized = await store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('first'));
     expect(initialized.revision).toEqual({ id: '1', revision: 1 });
     expect(initialized.write.kind).toBe('durable');
-    expect(initialized.snapshot.raw).toMatchObject({ revision: 1, primary: { label: 'first' } });
-    expect(initialized.snapshot.resolved.primary.api_key).toBe('resolved-primary-secret');
+    expect(initialized.document).toMatchObject({
+      revision: 1,
+      primary: { label: 'first', api_key: '${LLM_DOCUMENT_TEST_KEY}' },
+    });
 
     await expect(store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('loser')))
       .rejects.toBeInstanceOf(LLMConfigurationAlreadyExistsError);
@@ -467,7 +469,7 @@ describe('commitExplicitProvider', () => {
 
     const primary = await store.commitExplicitProvider({ kind: 'primary' }, explicitProvider('new-primary'), 1);
     expect(primary.revision.revision).toBe(2);
-    expect(primary.snapshot.raw.fallbacks?.[0]?.label).toBe('first');
+    expect(primary.document.fallbacks?.[0]?.label).toBe('first');
 
     const fallback = await store.commitExplicitProvider(
       { kind: 'fallback', position: 1 },
@@ -475,7 +477,7 @@ describe('commitExplicitProvider', () => {
       2,
     );
     expect(fallback.revision.revision).toBe(3);
-    expect(fallback.snapshot.raw.fallbacks?.map(entry => entry.label)).toEqual(['first', 'between']);
+    expect(fallback.document.fallbacks?.map(entry => entry.label)).toEqual(['first', 'between']);
     expect(store.read().primary.label).toBe('new-primary');
   });
 
@@ -505,6 +507,31 @@ describe('commitExplicitProvider', () => {
       expect(store.read()).toMatchObject({ revision: 1, primary: { label: 'durability' } });
     },
   );
+
+  it('无关旧 primary 缺凭据时仍提交新 primary，raw 回执保留旧条目且不展开引用', async () => {
+    const store = makeStore();
+    await store.commitExplicitProvider({ kind: 'initialize' }, {
+      ...explicitProvider('broken-old'),
+      api_key: '${LLM_DOCUMENT_MISSING_OLD_KEY}',
+    });
+    vi.stubEnv('LLM_DOCUMENT_MISSING_OLD_KEY', undefined);
+
+    const committed = await store.commitExplicitProvider(
+      { kind: 'primary' }, explicitProvider('working-new'), 1,
+    );
+
+    expect(committed.revision).toEqual({ id: '2', revision: 2 });
+    expect(committed.document.primary).toMatchObject({
+      label: 'working-new', api_key: '${LLM_DOCUMENT_TEST_KEY}',
+    });
+    expect(committed.document.fallbacks?.[0]).toMatchObject({
+      label: 'broken-old', api_key: '${LLM_DOCUMENT_MISSING_OLD_KEY}',
+    });
+    expect(store.read()).toEqual(committed.document);
+    await expect(store.commitExplicitProvider(
+      { kind: 'primary' }, explicitProvider('another'), 2,
+    )).resolves.toMatchObject({ revision: { revision: 3 } });
+  });
 
   it('锁内 label/CAS 失败不写盘；legacy preset 不能绕过显式提交边界', async () => {
     const store = makeStore();

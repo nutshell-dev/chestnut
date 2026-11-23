@@ -6,6 +6,7 @@ import {
   snapshotLLMConfigInput,
   executeLLMSetupAttempt,
   runLLMSetupWorkflow,
+  LLMSetupCommittedObserverError,
   type LLMSetupDraft,
   type LLMSetupProbeResult,
   type LLMSetupWorkflowEvent,
@@ -134,18 +135,27 @@ describe('LLM setup workflow', () => {
     expect(other.read().primary.model).toBe('fixed');
   });
 
-  it('committed 审计/观察事件异常不推翻已提交结果', async () => {
+  it('committed 审计/观察事件异常保留已提交回执与原 cause', async () => {
     const store = createLLMConfigurationDocumentStore({ fsFactory });
-    const outcome = await executeLLMSetupAttempt({
-      store,
-      probe: async draft => success(draft),
-      recheckIdentity: async () => true,
-      emit: event => {
-        if (event.type === 'committed') throw new Error('committed audit failed');
-      },
-    }, { provider: provider('committed') }, { kind: 'initialize' });
+    let thrown: unknown;
+    try {
+      await executeLLMSetupAttempt({
+        store,
+        probe: async draft => success(draft),
+        recheckIdentity: async () => true,
+        emit: event => {
+          if (event.type === 'committed') throw new Error('committed audit failed');
+        },
+      }, { provider: provider('committed') }, { kind: 'initialize' });
+    } catch (error) {
+      thrown = error;
+    }
 
-    expect(outcome.kind).toBe('committed');
+    expect(thrown).toBeInstanceOf(LLMSetupCommittedObserverError);
+    if (!(thrown instanceof LLMSetupCommittedObserverError)) throw new Error('expected committed observer error');
+    expect(thrown.commit.revision.revision).toBe(1);
+    expect(thrown.commit.document.primary.model).toBe('committed');
+    expect(thrown.cause).toMatchObject({ message: 'committed audit failed' });
     expect(store.read().primary.model).toBe('committed');
   });
 

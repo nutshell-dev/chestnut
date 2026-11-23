@@ -118,6 +118,17 @@ export class LLMSetupIdentityChangedError extends Error {
   }
 }
 
+/** A post-commit observer failed; the receipt proves that configuration was saved. */
+export class LLMSetupCommittedObserverError extends Error {
+  constructor(readonly commit: LLMConfigurationCommitResult, options?: ErrorOptions) {
+    super(
+      `LLM configuration committed at revision ${commit.revision.revision}, but a post-commit observer failed`,
+      options,
+    );
+    this.name = 'LLMSetupCommittedObserverError';
+  }
+}
+
 export interface LLMSetupWorkflowDeps {
   readonly store: Pick<LLMConfigurationDocumentStore, 'commitExplicitProvider'>;
   readonly probe: (
@@ -225,9 +236,9 @@ export async function executeLLMSetupAttempt(
         type: 'committed', target: target.kind, revision: commit.revision.revision,
         identity: verified.snapshot.identity,
       });
-    } catch {
-      // The store commit is authoritative. A post-commit audit/observer failure
-      // must not turn an already committed result into an apparent failure.
+    } catch (error) {
+      // Never misreport an already committed write as an uncommitted failure.
+      throw new LLMSetupCommittedObserverError(commit, { cause: error });
     }
     return { kind: 'committed', draft: candidateDraft, verified, commit, candidates: records };
   } catch (error) {
