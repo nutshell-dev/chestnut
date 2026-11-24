@@ -516,12 +516,12 @@ describe.each(['A', 'B'] as const)('hedge candidate timeout estimate fallback (%
       const expectedReceived = side === 'A'
         ? [
             { provider: 'primary', mode: 'stream', timeoutMs: changedTimeout },
-            { provider: 'fb1', mode: 'call', timeoutMs: 22_000 },
+            { provider: 'fb1', mode: 'call', timeoutMs: computeDynamicCallTimeoutMs(2_000, 10_000) },
           ]
         : [
-            { provider: 'primary', mode: 'stream', timeoutMs: 101_000 },
+            { provider: 'primary', mode: 'stream', timeoutMs: computeDynamicCallTimeoutMs(1_000, 50_000) },
             { provider: 'fb1', mode: 'call', timeoutMs: changedTimeout },
-            { provider: 'fb2', mode: 'call', timeoutMs: 17_000 },
+            { provider: 'fb2', mode: 'call', timeoutMs: computeDynamicCallTimeoutMs(3_000, 7_000) },
           ];
       expect(received).toStrictEqual(expectedReceived);
 

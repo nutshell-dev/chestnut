@@ -15,6 +15,7 @@ import type { ProviderConnection } from './provider-test-fixtures.js';
 
 /** Short base timeout; dynamic input budgeting must increase it without a real wait. */
 const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+const TEST_FALLBACK_PROVIDER_TIMEOUT_MS = 2_000;
 
 const response = { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
 const descriptor = (model: string, contextWindow = 1_000_000) => ({
@@ -139,7 +140,7 @@ describe('sequential candidate timeout estimate fallback', () => {
         primary: config('primary'),
         fallbacks: [{
           ...fallbackConfig,
-          defaults: { ...fallbackConfig.defaults, timeoutMs: 2_000 },
+          defaults: { ...fallbackConfig.defaults, timeoutMs: TEST_FALLBACK_PROVIDER_TIMEOUT_MS },
         }],
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -162,7 +163,7 @@ describe('sequential candidate timeout estimate fallback', () => {
         const missingMs = computeDynamicCallTimeoutMs(2_000, legacy);
         expect([2_000, 22_000, 101_000]).not.toContain(missingMs);
         expect(received).toStrictEqual([
-          { provider: 'primary', mode, timeoutMs: 101_000 },
+          { provider: 'primary', mode, timeoutMs: computeDynamicCallTimeoutMs(TEST_PROVIDER_TIMEOUT_MS, 50_000) },
           { provider: 'fallback', mode, timeoutMs: row.expectedMs ?? missingMs },
         ]);
         expect(primaryPrepare).toHaveBeenCalledTimes(1);
