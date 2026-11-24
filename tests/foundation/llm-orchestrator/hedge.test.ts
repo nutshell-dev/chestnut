@@ -21,10 +21,11 @@ type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
+type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
 import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/invocation-selection-ledger.js';
-import { computeDynamicCallTimeoutMs } from '../../../src/foundation/llm-orchestrator/utils.js';
+import { computeDynamicCallTimeoutMs, estimatePromptTokens } from '../../../src/foundation/llm-orchestrator/utils.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
@@ -390,5 +391,157 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     expect(failedEvent).toBeDefined();
     expect((failedEvent as any).errorClass).toBe('permanent');
     expect((failedEvent as any).userActionHint).toBe('rotate_api_key');
+  });
+});
+
+describe.each(['A', 'B'] as const)('hedge candidate timeout estimate fallback (%s)', side => {
+  const cases = [
+    { kind: 'estimated', expectedA: 101_000, expectedB: 22_000 },
+    { kind: 'zero', expectedA: 1_000, expectedB: 2_000 },
+    { kind: 'unavailable', expectedA: 1_000, expectedB: 2_000 },
+    { kind: 'prepare-reject', expectedA: 1_000, expectedB: 2_000 },
+    { kind: 'measure-throw', expectedA: 1_000, expectedB: 2_000 },
+    { kind: 'missing', expectedA: undefined, expectedB: undefined },
+  ] as const;
+
+  it.each(cases)('uses only the actual candidate measurement: $kind', async row => {
+    const options: LLMCallOptions = {
+      messages: [{ role: 'user', content: 'hello' }],
+      system: 'timeout input probe',
+      maxTokens: 123,
+      temperature: 0.2,
+    };
+    const before = structuredClone(options);
+    const measuredName = side === 'A' ? 'primary' : 'fb1';
+    const expectedWinner = side === 'A' ? 'fb1' : 'fb2';
+    const received: { provider: string; mode: 'call' | 'stream'; timeoutMs?: number }[] = [];
+    let primaryClosed = 0;
+    const make = (name: string) => {
+      const candidateKind = name === measuredName ? row.kind : 'estimated';
+      const tokens = name === 'primary' ? 50_000 : name === 'fb1' ? 10_000 : 7_000;
+      const measure = vi.fn((
+        _input: Parameters<ModelInputMeter['measure']>[0],
+      ): ReturnType<ModelInputMeter['measure']> => {
+        if (candidateKind === 'measure-throw') throw new Error('synthetic-measure-failed');
+        if (candidateKind === 'unavailable') return { kind: 'unavailable', reason: 'synthetic-unavailable' };
+        return {
+          kind: 'estimated',
+          tokens: candidateKind === 'zero' ? 0 : tokens,
+          method: 'legacy-cl100k',
+          reason: 'synthetic-estimate',
+        };
+      });
+      const prepare = vi.fn(async (): Promise<ModelInputMeter> => {
+        if (candidateKind === 'prepare-reject') throw new Error('synthetic-prepare-failed');
+        return {
+          descriptor: {
+            revision: `test-rev-${name}`, provider: name, model: name,
+            api: 'test', contextWindow: 1_000_000, profile: 'test',
+          },
+          capability: { kind: 'complete_only' },
+          measure,
+        };
+      });
+      const adapter: ProviderAdapter = {
+        name,
+        model: name,
+        call: async request => {
+          received.push({ provider: name, mode: 'call', timeoutMs: request.timeoutMs });
+          if (name === 'primary' || (side === 'B' && name === 'fb1')) {
+            throw new LLMNetworkError(name, new Error('synthetic offline'));
+          }
+          return { content: [{ type: 'text', text: `response-${name}` }], stop_reason: 'end_turn' };
+        },
+        stream: async function* (request): AsyncIterableIterator<ProviderStreamChunk> {
+          try {
+            received.push({ provider: name, mode: 'stream', timeoutMs: request.timeoutMs });
+            if (name === 'primary') throw new LLMNetworkError(name, new Error('synthetic offline'));
+            yield { type: 'text_delta', delta: `wrong-stream-${name}` };
+            yield { type: 'done', stopReason: 'end_turn' };
+          } finally {
+            if (name === 'primary') primaryClosed++;
+          }
+        },
+      };
+      if (candidateKind !== 'missing') adapter.prepareInputMeter = prepare;
+      return { name, candidateKind, adapter, prepare, measure };
+    };
+    const fixtures = ['primary', 'fb1', ...(side === 'B' ? ['fb2'] : [])].map(make);
+    const connection = (name: string, timeoutMs: number): ProviderConnection => ({
+      providerId: name,
+      model: name,
+      apiFormat: 'anthropic',
+      authentication: { kind: 'api_key', value: 'synthetic', identity: 'synthetic' },
+      defaults: { timeoutMs },
+    });
+    const events: LLMEvent[] = [];
+    const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
+      primary: connection('primary', 1_000),
+      fallbacks: [connection('fb1', 2_000), ...(side === 'B' ? [connection('fb2', 3_000)] : [])],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: event => events.push(event) },
+      providerFactory: legacyProviderFactory(input => {
+        const fixture = fixtures.find(item => item.name === input.providerId);
+        if (!fixture) throw new Error(`unknown fixture ${input.providerId}`);
+        return fixture.adapter;
+      }),
+    });
+
+    try {
+      forceProviderWaiting(service, 0, 'transient');
+      const chunks: LLMStreamChunk[] = [];
+      for await (const chunk of service.stream(options)) chunks.push(chunk);
+
+      expect(events.filter(event => event.type === 'hedge_started')).toHaveLength(1);
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'hedge_fallback_committed', winnerProvider: expectedWinner,
+      }));
+      expect(chunks.map(chunk => chunk.type)).toStrictEqual(['text_delta', 'done']);
+      expect(chunks[0]).toMatchObject({ type: 'text_delta', delta: `response-${expectedWinner}` });
+      expect(service.getProviderInfo()).toMatchObject({ name: expectedWinner, isFallback: true });
+      expect(primaryClosed).toBe(1);
+      expect(options).toStrictEqual(before);
+
+      const legacy = estimatePromptTokens(options);
+      expect(legacy).toBeGreaterThan(0);
+      const missingPrimaryMs = computeDynamicCallTimeoutMs(1_000, legacy);
+      const missingFallbackMs = computeDynamicCallTimeoutMs(2_000, legacy);
+      expect([1_000, 22_000, 101_000]).not.toContain(missingPrimaryMs);
+      expect([2_000, 17_000, 22_000, 101_000]).not.toContain(missingFallbackMs);
+      const changedTimeout = side === 'A'
+        ? row.expectedA ?? missingPrimaryMs
+        : row.expectedB ?? missingFallbackMs;
+      const expectedReceived = side === 'A'
+        ? [
+            { provider: 'primary', mode: 'stream', timeoutMs: changedTimeout },
+            { provider: 'fb1', mode: 'call', timeoutMs: 22_000 },
+          ]
+        : [
+            { provider: 'primary', mode: 'stream', timeoutMs: 101_000 },
+            { provider: 'fb1', mode: 'call', timeoutMs: changedTimeout },
+            { provider: 'fb2', mode: 'call', timeoutMs: 17_000 },
+          ];
+      expect(received).toStrictEqual(expectedReceived);
+
+      for (const fixture of fixtures) {
+        if (fixture.candidateKind === 'missing') {
+          expect(fixture.prepare).not.toHaveBeenCalled();
+          expect(fixture.measure).not.toHaveBeenCalled();
+          continue;
+        }
+        expect(fixture.prepare).toHaveBeenCalledTimes(1);
+        expect(fixture.prepare).toHaveBeenCalledWith({ maxTokens: 123, temperature: 0.2 });
+        if (fixture.candidateKind === 'prepare-reject') {
+          expect(fixture.measure).not.toHaveBeenCalled();
+        } else {
+          expect(fixture.measure).toHaveBeenCalledTimes(1);
+          expect(fixture.measure).toHaveBeenCalledWith(before);
+        }
+      }
+    } finally {
+      await service.close();
+    }
   });
 });
