@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import * as fs from 'node:fs';
+import fs from 'node:fs';
 import * as path from 'node:path';
 import {
   ConfigRepairSessionError,
@@ -142,6 +142,48 @@ describe('config repair session process lifecycle', () => {
       expect(result.execution.kind).toBe('gone');
       expect(fs.existsSync(result.exitedPath)).toBe(false);
     });
+  });
+
+  it('handshake read failure retains an unconfirmed worker instead of returning an unstructured error', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const fault = Object.assign(new Error('controlled ready read EIO'), { code: 'EIO' });
+    let target: Parameters<typeof terminateExecutionTarget>[0] | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 5_000,
+        readReady: () => { throw fault; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      const sessionFailure = failure as ConfigRepairSessionError;
+      expect(sessionFailure.cause).toBe(fault);
+      expect(sessionFailure.result.execution.kind).toBe('unconfirmed');
+      expect(sessionFailure.result.execution.capture).toBeUndefined();
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['unconfirmed_process_group'],
+      });
+
+      const readyFile = fs.readdirSync(workspace.root).find(name => name.startsWith('.session-ready-'));
+      expect(readyFile).toBeDefined();
+      const ready = JSON.parse(fs.readFileSync(path.join(workspace.root, readyFile!), 'utf8')) as {
+        pid: number;
+        processGroupId: number;
+      };
+      const capture = captureExecutionTarget({
+        leaderPid: ready.pid,
+        processGroupId: ready.processGroupId,
+      });
+      expect(capture.kind).toBe('captured');
+      if (!('target' in capture)) throw new Error('worker target missing');
+      target = capture.target;
+      const terminal = await terminateExecutionTarget(target, 'caller_requested');
+      expect(terminal.status).toBe('gone');
+      target = undefined;
+    } finally {
+      if (target) await terminateExecutionTarget(target, 'caller_requested');
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
   });
 
   it('onReady failure terminates the real worker before returning the original error', async () => {

@@ -24,6 +24,7 @@ export const cliPath = path.resolve(__dirname, '../../dist/cli.js');
 export const CONFIG_REPAIR_REF = 'PHASE2221_INTEGRATION_KEY';
 const CLI_CHILD_TIMEOUT_MS = 30_000;
 const READY_TIMEOUT_MS = 5_000;
+const WRAPPER_CLOSE_TIMEOUT_MS = 5_000;
 const READY_POLL_MS = 10;
 const PTY_RESPONSE_DELAY_MS = 100;
 const fixturePath = path.resolve(__dirname, '../fixtures/config-repair-session-child.mjs');
@@ -152,6 +153,8 @@ export interface SessionOptions {
   readonly lifetimeMs?: number;
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;
+  /** Test-only FS boundary used to prove pre-capture failure handling. */
+  readonly readReady?: (readyPath: string) => ReadyFact;
 }
 
 function shellQuote(value: string): string {
@@ -165,14 +168,40 @@ function spawnPty(command: string[], env: NodeJS.ProcessEnv, cwd: string): Child
     : spawn('script', ['-qec', command.map(shellQuote).join(' '), '/dev/null'], options);
 }
 
+type WrapperSettlement =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'error'; readonly error: unknown }
+  | { readonly kind: 'timeout' };
+
+async function settleWrapper(
+  closed: Promise<void>,
+  timeoutMs: number,
+): Promise<WrapperSettlement> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      closed.then(
+        () => ({ kind: 'closed' } as const),
+        error => ({ kind: 'error', error } as const),
+      ),
+      new Promise<WrapperSettlement>(resolve => {
+        timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function waitForReady(
   child: ChildProcessWithoutNullStreams,
   readyPath: string,
   deadline: number,
+  readReady: (file: string) => ReadyFact,
 ): Promise<ReadyFact> {
   for (;;) {
     if (fs.existsSync(readyPath)) {
-      return JSON.parse(fs.readFileSync(readyPath, 'utf8')) as ReadyFact;
+      return readReady(readyPath);
     }
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error('PTY wrapper exited before publishing its ready identity');
@@ -283,7 +312,12 @@ export async function runConfigRepairSession(
 
   let ready: ReadyFact | undefined;
   try {
-    ready = await waitForReady(child, readyPath, Math.min(deadline, Date.now() + READY_TIMEOUT_MS));
+    ready = await waitForReady(
+      child,
+      readyPath,
+      Math.min(deadline, Date.now() + READY_TIMEOUT_MS),
+      options.readReady ?? (file => JSON.parse(fs.readFileSync(file, 'utf8')) as ReadyFact),
+    );
     if (fs.realpathSync(ready.cwd) !== fs.realpathSync(workspace.root)) {
       throw new Error(`PTY fixture cwd mismatch: ${ready.cwd}`);
     }
@@ -302,14 +336,15 @@ export async function runConfigRepairSession(
         terminationPromise = terminateExecutionTarget(capture.target, 'caller_requested')
           .then(outcome => { termination = outcome; });
       }
+      let wrapper: WrapperSettlement;
       try {
-        await closed;
+        wrapper = await settleWrapper(closed, WRAPPER_CLOSE_TIMEOUT_MS);
         await terminationPromise;
       } catch (cleanup) {
         throw new AggregateError([error, cleanup], 'PTY driver and execution cleanup failed', { cause: error });
       }
       const observation = observeExecutionTarget(capture.target);
-      if (observation.kind === 'gone') throw error;
+      if (observation.kind === 'gone' && wrapper.kind === 'closed') throw error;
       const result = makeResult('unconfirmed', ready, observation);
       const primary = new ConfigRepairSessionError(
         'PTY driver failed and the execution group is not confirmed gone', result, { cause: error },
@@ -318,7 +353,7 @@ export async function runConfigRepairSession(
         workspace.retention.retain({
           code: 'unconfirmed_process_group',
           error: primary,
-          evidence: { capture, observation, termination, ready, wrapper: { status, signal: exitSignal } },
+          evidence: { capture, observation, termination, ready, wrapper: { ...wrapper, status, signal: exitSignal } },
         });
       } catch (recording) {
         throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
@@ -328,8 +363,34 @@ export async function runConfigRepairSession(
     if (child.exitCode === null && child.signalCode === null) {
       try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* best effort after driver failure */ }
     }
-    await closed.catch(() => undefined);
-    throw error;
+    const wrapper = await settleWrapper(closed, WRAPPER_CLOSE_TIMEOUT_MS);
+    if (wrapper.kind === 'timeout') {
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
+    const result = makeResult('unconfirmed', ready);
+    const primary = new ConfigRepairSessionError(
+      'PTY handshake failed; worker identity and terminal state are unconfirmed',
+      result,
+      { cause: error },
+    );
+    try {
+      workspace.retention.retain({
+        code: 'unconfirmed_process_group',
+        error: primary,
+        evidence: {
+          capture,
+          ready,
+          termination,
+          wrapper: { ...wrapper, status, signal: exitSignal },
+          identity: 'unknown_before_capture',
+        },
+      });
+    } catch (recording) {
+      throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
+    }
+    throw primary;
   } finally {
     clearTimeout(timeout);
     signal.removeEventListener('abort', onAbort);
