@@ -132,7 +132,8 @@ describe('real CLI repair precommit failures', () => {
       expect(outcome.execution.kind).toBe('gone');
       expect(readConfigRepairRaw(workspace.root)).toEqual(before);
       expect(server.requests).toHaveLength(0);
-      expect(outcome.stdout).toContain('PHASE2226_MISSING_HEADER');
+      expect(outcome.stdout).toContain('unsupported_headers at primary');
+      expect(outcome.stdout).not.toContain('PHASE2226_MISSING_HEADER');
     }, { requests: () => server.requests });
   }, PRECOMMIT_TEST_TIMEOUT_MS);
 
