@@ -13,6 +13,7 @@ import { inspectRetention } from '../utils/resource-retention.js';
 import { cleanupTempDir, createTrackedTempDirSync, untrackTempDir } from '../utils/temp.js';
 
 const EXIT_WAIT_TIMEOUT_MS = 5_000;
+const SESSION_TIMEOUT_TEST_MS = 1_000;
 const EXIT_POLL_MS = 10;
 const isolatedHosts: string[] = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
@@ -118,7 +119,7 @@ describe('config repair session process lifecycle', () => {
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
     await finishConfigRepairCase(workspace, async () => {
       const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
-        mode: 'finite', lifetimeMs: 5_000, timeoutMs: 1_000,
+        mode: 'finite', lifetimeMs: 5_000, timeoutMs: SESSION_TIMEOUT_TEST_MS,
       }).catch(error => error);
       expect(failure).toBeInstanceOf(ConfigRepairSessionError);
       expect((failure as Error).message).toContain('timed out');

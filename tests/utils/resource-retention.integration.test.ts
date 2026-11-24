@@ -23,6 +23,7 @@ import {
 
 const POLL_MS = 20;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
+const EXTERNAL_PROCESS_TIMEOUT_MS = 10_000;
 const hosts: string[] = [];
 const processGroups = new Set<number>();
 const parentRunRoot = process.env.CHESTNUT_RUN_ROOT;
@@ -100,7 +101,7 @@ function externalInspect(runRoot: string, targetPath?: string): RetentionDecisio
   `;
   const result = spawnSync(process.execPath, [
     '--experimental-transform-types', '--input-type=module', '-e', source, runRoot, targetPath,
-  ], { encoding: 'utf8', timeout: 10_000 });
+  ], { encoding: 'utf8', timeout: EXTERNAL_PROCESS_TIMEOUT_MS });
   expect(result.status, result.stderr).toBe(0);
   return JSON.parse(result.stdout) as RetentionDecision;
 }
@@ -115,7 +116,7 @@ function externalTeardown(runRoot: string, expectedStatus: number): string {
   const result = spawnSync(process.execPath, [
     '--experimental-transform-types', '--input-type=module', '-e', source,
     path.join(runRoot, 'manifest.json'),
-  ], { encoding: 'utf8', timeout: 10_000 });
+  ], { encoding: 'utf8', timeout: EXTERNAL_PROCESS_TIMEOUT_MS });
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(expectedStatus);
   return `${result.stdout}\n${result.stderr}`;
 }
@@ -127,7 +128,7 @@ function externalReclaim(runRoot: string): void {
   `;
   const result = spawnSync(process.execPath, [
     '--experimental-transform-types', '--input-type=module', '-e', source, path.dirname(runRoot),
-  ], { encoding: 'utf8', timeout: 10_000 });
+  ], { encoding: 'utf8', timeout: EXTERNAL_PROCESS_TIMEOUT_MS });
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
 }
 
