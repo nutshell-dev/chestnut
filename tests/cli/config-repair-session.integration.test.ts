@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
 import {
   ConfigRepairSessionError,
   createConfigRepairWorkspace,
   finishConfigRepairCase,
   runConfigRepairSession,
+  type ConfigRepairSessionResult,
   type ConfigRepairWorkspace,
 } from '../helpers/config-repair-session.js';
 import {
@@ -18,16 +20,60 @@ import { cleanupTempDir, createTrackedTempDirSync, untrackTempDir } from '../uti
 const EXIT_WAIT_TIMEOUT_MS = 5_000;
 const SESSION_TIMEOUT_TEST_MS = 1_000;
 const EXIT_POLL_MS = 10;
-const isolatedHosts: string[] = [];
+const isolatedHosts: Array<{ host: string; runRoot: string }> = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
 
 function useIsolatedRunRoot(): string {
   const host = createTrackedTempDirSync('config-repair-session-isolated-');
-  isolatedHosts.push(host);
   const runRoot = path.join(host, 'run-root');
+  isolatedHosts.push({ host, runRoot });
   fs.mkdirSync(runRoot);
   process.env.CHESTNUT_RUN_ROOT = runRoot;
   return runRoot;
+}
+
+async function reapIdentity(identity: { leaderPid: number; processGroupId: number }): Promise<void> {
+  const capture = captureExecutionTarget(identity);
+  if (!('target' in capture)) throw new Error(`controlled session identity cannot be reaped: ${capture.kind}`);
+  const terminal = await terminateExecutionTarget(capture.target, 'caller_requested');
+  if (terminal.status !== 'gone') {
+    throw new Error(`controlled session did not reach a terminal state: ${terminal.status}`);
+  }
+}
+
+async function reapControlledSession(
+  workspace: ConfigRepairWorkspace,
+  result: ConfigRepairSessionResult | undefined,
+): Promise<void> {
+  if (!result) throw new Error('controlled session has no result; preserving its workspace for manual reaping');
+  const identities: Array<{ leaderPid: number; processGroupId: number }> = [];
+  if (result.ready) {
+    identities.push({ leaderPid: result.ready.pid, processGroupId: result.ready.processGroupId });
+  } else {
+    const readyFile = fs.readdirSync(workspace.root).find(name => name.startsWith('.session-ready-'));
+    if (readyFile) {
+      const ready = JSON.parse(fs.readFileSync(path.join(workspace.root, readyFile), 'utf8')) as {
+        pid: number;
+        processGroupId: number;
+      };
+      identities.push({ leaderPid: ready.pid, processGroupId: ready.processGroupId });
+    }
+  }
+  let workerIdentityAvailable = identities.length > 0;
+  if (!workerIdentityAvailable && result.execution.observation) {
+    identities.push(result.execution.observation.target);
+    workerIdentityAvailable = true;
+  }
+  if (!workerIdentityAvailable && result.execution.kind !== 'gone') {
+    throw new Error('worker identity unavailable; refusing to discard controlled cwd');
+  }
+  let wrapperIdentityAvailable = false;
+  if (result.wrapper.capture && 'target' in result.wrapper.capture) {
+    identities.push(result.wrapper.capture.target);
+    wrapperIdentityAvailable = true;
+  }
+  if (!wrapperIdentityAvailable) throw new Error('wrapper identity unavailable; refusing to discard controlled cwd');
+  for (const identity of identities) await reapIdentity(identity);
 }
 
 function discardControlledWorkspace(workspace: ConfigRepairWorkspace): void {
@@ -49,9 +95,15 @@ afterEach(async () => {
   if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
   else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
   while (isolatedHosts.length > 0) {
-    const host = isolatedHosts.pop()!;
+    const { host, runRoot } = isolatedHosts.pop()!;
     untrackTempDir(host);
-    fs.rmSync(host, { recursive: true, force: true });
+    const hasUnconfirmedWorkspace = fs.existsSync(runRoot) && fs.readdirSync(runRoot)
+      .some(name => name.startsWith('chestnut-config-repair-integration-'));
+    if (hasUnconfirmedWorkspace) {
+      console.warn(`[test cleanup] Preserved controlled session host for independent reaping: ${host}`);
+    } else {
+      fs.rmSync(host, { recursive: true, force: true });
+    }
   }
   await Promise.resolve();
 });
@@ -74,8 +126,8 @@ describe('config repair session process lifecycle', () => {
 
   it('finite session supports spaces and quotes in its owned cwd', async context => {
     const host = createTrackedTempDirSync('config-repair-session-path-');
-    isolatedHosts.push(host);
     const runRoot = path.join(host, "run root's nested");
+    isolatedHosts.push({ host, runRoot });
     fs.mkdirSync(runRoot);
     process.env.CHESTNUT_RUN_ROOT = runRoot;
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
@@ -149,39 +201,25 @@ describe('config repair session process lifecycle', () => {
     const runRoot = useIsolatedRunRoot();
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
     const fault = Object.assign(new Error('controlled ready read EIO'), { code: 'EIO' });
-    let target: Parameters<typeof terminateExecutionTarget>[0] | undefined;
+    let result: ConfigRepairSessionResult | undefined;
     try {
       const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
-        mode: 'finite', lifetimeMs: 5_000,
+        mode: 'finite', lifetimeMs: 30_000,
         readReady: () => { throw fault; },
       }).catch(error => error);
       expect(failure).toBeInstanceOf(ConfigRepairSessionError);
       const sessionFailure = failure as ConfigRepairSessionError;
+      result = sessionFailure.result;
       expect(sessionFailure.cause).toBe(fault);
-      expect(sessionFailure.result.execution.kind).toBe('unconfirmed');
-      expect(sessionFailure.result.execution.capture).toBeUndefined();
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.execution.capture).toBeUndefined();
+      expect(result.wrapper.close.kind).toBe('closed');
+      expect(fs.readFileSync(result.evidencePath, 'utf8')).toContain('controlled ready read EIO');
       expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
         kind: 'preserve', reasons: ['unconfirmed_process_group'],
       });
-
-      const readyFile = fs.readdirSync(workspace.root).find(name => name.startsWith('.session-ready-'));
-      expect(readyFile).toBeDefined();
-      const ready = JSON.parse(fs.readFileSync(path.join(workspace.root, readyFile!), 'utf8')) as {
-        pid: number;
-        processGroupId: number;
-      };
-      const capture = captureExecutionTarget({
-        leaderPid: ready.pid,
-        processGroupId: ready.processGroupId,
-      });
-      expect(capture.kind).toBe('captured');
-      if (!('target' in capture)) throw new Error('worker target missing');
-      target = capture.target;
-      const terminal = await terminateExecutionTarget(target, 'caller_requested');
-      expect(terminal.status).toBe('gone');
-      target = undefined;
     } finally {
-      if (target) await terminateExecutionTarget(target, 'caller_requested');
+      await reapControlledSession(workspace, result);
       discardControlledWorkspace(workspace);
       await cleanupTempDir(path.dirname(runRoot));
     }
@@ -200,39 +238,362 @@ describe('config repair session process lifecycle', () => {
         },
       }).catch(error => error);
 
-      expect(failure).toBe(primary);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.execution.kind).toBe('gone');
       expect(identity).toBeDefined();
       if (!identity) throw new Error('ready identity was not captured');
       expect(captureExecutionTarget(identity).kind).toBe('gone');
     });
   });
 
-  it('wrapper exit with a live group preserves its cwd until the owned child exits', async () => {
+  it('wrapper exit records the violation, terminates the owned group, and only then releases its cwd', async () => {
     const runRoot = useIsolatedRunRoot();
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
     try {
       const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
-        mode: 'orphan', lifetimeMs: 5_000,
+        mode: 'orphan', lifetimeMs: 30_000,
       }).catch(error => error);
       expect(failure).toBeInstanceOf(ConfigRepairSessionError);
-      const result = (failure as ConfigRepairSessionError).result;
-      expect(result.execution.kind).toBe('unconfirmed');
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('gone');
+      expect(result.execution.termination?.status).toBe('gone');
+      expect([result.firstStop, ...result.laterStops].some(stop =>
+        stop?.reason.includes('wrapper closed before'))).toBe(true);
+      expect(result.wrapper.close.kind).toBe('closed');
       expect(result.ready?.groupChildPid).toBeGreaterThan(1);
       expect(fs.existsSync(workspace.root)).toBe(true);
-      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
-        kind: 'preserve', reasons: ['unconfirmed_process_group'],
-      });
-      const capture = result.execution.capture;
-      expect(capture && 'target' in capture).toBe(true);
-      if (!capture || !('target' in capture)) throw new Error('missing owned group target');
-      const terminal = await terminateExecutionTarget(capture.target, 'caller_requested');
-      expect(terminal.status).toBe('gone');
       await waitForExitFile(result.exitedPath);
     } finally {
+      await reapControlledSession(workspace, result);
       discardControlledWorkspace(workspace);
       await cleanupTempDir(path.dirname(runRoot));
     }
   });
+
+  it('abort after listener installation keeps the first cause and settles through the same cleanup', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const controller = new AbortController();
+      const primary = new Error('controlled listener-window cancellation');
+      const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        readReady: file => {
+          const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+          controller.abort(primary);
+          return raw;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.firstStop?.reason).toBe('session cancelled by caller');
+      expect(failure.result.execution.kind).toBe('gone');
+      expect(failure.result.attempts.filter(attempt =>
+        attempt.resource === 'worker_group' && attempt.operation === 'terminate')).toHaveLength(1);
+    });
+  });
+
+  it('unknown capture settles without waiting for the finite worker and never signals its group', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          return { ...captured, kind: 'unknown', reason: 'controlled_unknown_capture' };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.execution.capture?.kind).toBe('unknown');
+      expect(result.execution.observation?.kind).toBe('alive');
+      expect(result.execution.termination).toBeUndefined();
+      expect(fs.existsSync(result.exitedPath)).toBe(false);
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['unconfirmed_process_group'],
+      });
+    } finally {
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('real signal0 EPERM produces unknown rather than gone and retains the live worker', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const actualKill = process.kill.bind(process);
+    let killSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        readReady: file => {
+          const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { pid: number };
+          const fault = Object.assign(new Error('controlled signal0 EPERM'), { code: 'EPERM' });
+          killSpy = vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: NodeJS.Signals | 0) => {
+            if (pid === raw.pid && signal === 0) throw fault;
+            return actualKill(pid, signal);
+          });
+          return raw;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.capture?.kind).toBe('unknown');
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.execution.termination).toBeUndefined();
+      expect(fs.existsSync(result.exitedPath)).toBe(false);
+    } finally {
+      killSpy?.mockRestore();
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('gone leader capture still observes a live group and does not authorize termination', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'orphan', lifetimeMs: 30_000,
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          const { target, evidence } = captured;
+          return { kind: 'gone', target, evidence };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.capture?.kind).toBe('gone');
+      expect(result.execution.observation?.kind).toBe('alive');
+      expect(result.execution.termination).toBeUndefined();
+      expect(result.execution.kind).toBe('unconfirmed');
+    } finally {
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('onReady and worker termination failures retain both causes and complete wrapper cleanup', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled primary onReady failure');
+    const cleanupFault = new Error('controlled worker termination failure');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        terminateTarget: async () => { throw cleanupFault; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.errors).toContainEqual({ operation: 'worker_group.terminate', error: cleanupFault });
+      expect(result.wrapper.close.kind).toBe('closed');
+      const evidence = fs.readFileSync(result.evidencePath, 'utf8');
+      expect(evidence).toContain(primary.message);
+      expect(evidence).toContain(cleanupFault.message);
+    } finally {
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('handshake EIO and wrapper SIGTERM EPERM are both returned and persisted', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const readyFault = Object.assign(new Error('controlled handshake EIO'), { code: 'EIO' });
+    const signalFault = Object.assign(new Error('controlled wrapper SIGTERM EPERM'), { code: 'EPERM' });
+    const actualKill = process.kill.bind(process);
+    let killSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        readReady: () => { throw readyFault; },
+        spawnPty: (command, env, cwd) => {
+          const options = { cwd, env, stdio: 'pipe' as const, detached: true };
+          const child = process.platform === 'darwin'
+            ? spawn('script', ['-q', '/dev/null', ...command], options)
+            : spawn('script', ['-qec', command.map(value =>
+              `'${value.replaceAll("'", "'\\''")}'`).join(' '), '/dev/null'], options);
+          if (child.pid === undefined) throw new Error('real PTY wrapper has no PID');
+          const wrapperPid = child.pid;
+          killSpy = vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: NodeJS.Signals | 0) => {
+            if (pid === -wrapperPid && signal === 'SIGTERM') throw signalFault;
+            return actualKill(pid, signal);
+          });
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(readyFault);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.wrapper.termination?.status).toBe('indeterminate');
+      expect(result.wrapper.close.kind).toBe('unconfirmed');
+      const evidence = fs.readFileSync(result.evidencePath, 'utf8');
+      expect(evidence).toContain('EIO');
+      expect(evidence).toContain('EPERM');
+      expect(evidence).toContain('SIGTERM');
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['unconfirmed_process_group'],
+      });
+    } finally {
+      killSpy?.mockRestore();
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('retained publication failure aggregates the session snapshot without losing the first cause', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const recordingFault = new Error('controlled retained publication failure');
+    const originalRetain = workspace.retention.retain;
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      workspace.retention.retain = () => { throw recordingFault; };
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          return { ...captured, kind: 'unknown', reason: 'controlled_unknown_for_retention_failure' };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.errors[0]).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.errors.at(-1)).toBe(recordingFault);
+      expect(failure.cause).toBe(failure.errors[0]);
+      expect(failure.evidence.result.execution.capture.kind).toBe('unknown');
+      result = failure.result as ConfigRepairSessionResult;
+      expect(fs.existsSync(result.evidencePath)).toBe(true);
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['scope_pending'],
+      });
+    } finally {
+      workspace.retention.retain = originalRetain;
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('synchronous spawn failure returns not_started evidence without inventing a PID', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled synchronous spawn failure');
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', spawnPty: () => { throw primary; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.execution.kind).toBe('not_started');
+      expect(failure.result.wrapper.close.kind).toBe('not_started');
+      expect(failure.result.ready).toBeUndefined();
+      expect(fs.readFileSync(failure.result.evidencePath, 'utf8')).toContain(primary.message);
+    });
+  });
+
+  it('invalid capture finishes unconfirmed without observing or signalling an unverified target', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: () => ({
+          kind: 'invalid', reason: 'controlled_invalid_capture',
+          evidence: { version: 1, atMs: Date.now(), facts: [] },
+        }),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.capture?.kind).toBe('invalid');
+      expect(result.execution.observation).toBeUndefined();
+      expect(result.execution.termination).toBeUndefined();
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(fs.existsSync(result.exitedPath)).toBe(false);
+    } finally {
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('capture exceptions enter the same bounded cleanup and remain the first cause', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled capture exception');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: () => { throw primary; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(result.errors).toContainEqual({ operation: 'worker_group.capture', error: primary });
+      expect(result.execution.termination).toBeUndefined();
+      expect(fs.existsSync(result.exitedPath)).toBe(false);
+    } finally {
+      await reapControlledSession(workspace, result);
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it.each(['still_alive', 'indeterminate'] as const)(
+    'receiver preserves the complete %s termination outcome and retains the live worker',
+    async terminationStatus => {
+      const runRoot = useIsolatedRunRoot();
+      const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+      let result: ConfigRepairSessionResult | undefined;
+      try {
+        const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+          mode: 'finite', lifetimeMs: 30_000,
+          onReady: () => { throw new Error(`force ${terminationStatus} cleanup`); },
+          terminateTarget: async target => ({
+            status: terminationStatus,
+            identity: { leaderPid: target.leaderPid, processGroupId: target.processGroupId },
+            trigger: 'caller_requested', termSent: true, killSent: true,
+            checkedAt: new Date().toISOString(),
+            ...(terminationStatus === 'indeterminate' ? { reason: 'controlled_indeterminate' } : {}),
+            evidence: { version: 1, atMs: Date.now(), facts: [] },
+          }),
+        }).catch(error => error);
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        result = (failure as ConfigRepairSessionError).result;
+        expect(result.execution.termination).toMatchObject({
+          status: terminationStatus, termSent: true, killSent: true,
+        });
+        expect(result.execution.observation?.kind).toBe('alive');
+        expect(result.execution.kind).toBe('unconfirmed');
+        expect(fs.existsSync(result.exitedPath)).toBe(false);
+      } finally {
+        await reapControlledSession(workspace, result);
+        discardControlledWorkspace(workspace);
+        await cleanupTempDir(path.dirname(runRoot));
+      }
+    },
+  );
 
   it('ordinary assertion failure preserves repair evidence in the same scope', async () => {
     const runRoot = useIsolatedRunRoot();

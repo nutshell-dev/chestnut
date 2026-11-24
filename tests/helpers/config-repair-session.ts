@@ -151,19 +151,53 @@ export interface ReadyFact {
   groupChildPid?: number;
 }
 
+type CloseFact =
+  | { readonly kind: 'not_started' }
+  | { readonly kind: 'closed'; readonly status: number | null; readonly signal: NodeJS.Signals | null }
+  | { readonly kind: 'unconfirmed'; readonly reason: 'deadline' | 'error'; readonly error?: unknown };
+
+type CleanupAttempt = Readonly<{
+  resource: 'wrapper' | 'worker_group' | 'stdin' | 'stdout' | 'stderr';
+  operation: string;
+  outcome: unknown;
+}>;
+
+type StopFact = Readonly<{ reason: string; cause: unknown }>;
+type ErrorFact = Readonly<{ operation: string; error: unknown }>;
+
 export interface ConfigRepairSessionResult {
   readonly status: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
   readonly ready?: ReadyFact;
+  readonly readyRaw?: unknown;
   readonly exitedPath: string;
+  readonly evidencePath: string;
   readonly execution: {
     readonly kind: 'not_started' | 'gone' | 'unconfirmed';
     readonly capture?: ExecutionTargetCapture;
     readonly observation?: ExecutionTargetObservation;
     readonly termination?: ExecutionTerminationOutcome;
   };
+  readonly wrapper: {
+    readonly close: CloseFact;
+    readonly capture?: ExecutionTargetCapture;
+    readonly observation?: ExecutionTargetObservation;
+    readonly termination?: ExecutionTerminationOutcome;
+  };
+  readonly streams: Readonly<Record<'stdin' | 'stdout' | 'stderr', {
+    readonly close: CloseFact;
+    readonly ended: boolean;
+    readonly destroyed: boolean;
+  }>>;
+  readonly firstStop?: StopFact;
+  readonly laterStops: readonly StopFact[];
+  readonly attempts: readonly CleanupAttempt[];
+  readonly errors: readonly ErrorFact[];
+  readonly lateFacts: readonly unknown[];
+  readonly retainedListeners: readonly string[];
+  readonly observationStoppedAt?: string;
 }
 
 export class ConfigRepairSessionError extends Error {
@@ -179,7 +213,13 @@ export interface SessionOptions {
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;
   /** Test-only FS boundary used to prove pre-capture failure handling. */
-  readonly readReady?: (readyPath: string) => ReadyFact;
+  readonly readReady?: (readyPath: string) => unknown;
+  /** Test-only startup boundary; all ordinary cases use the real PTY. */
+  readonly spawnPty?: (command: string[], env: NodeJS.ProcessEnv, cwd: string) => ChildProcessWithoutNullStreams;
+  /** Test-only finite L1 boundaries for receiver-side union/throw coverage. */
+  readonly captureTarget?: typeof captureExecutionTarget;
+  readonly observeTarget?: typeof observeExecutionTarget;
+  readonly terminateTarget?: typeof terminateExecutionTarget;
 }
 
 function shellQuote(value: string): string {
@@ -193,47 +233,163 @@ function spawnPty(command: string[], env: NodeJS.ProcessEnv, cwd: string): Child
     : spawn('script', ['-qec', command.map(shellQuote).join(' '), '/dev/null'], options);
 }
 
-type WrapperSettlement =
-  | { readonly kind: 'closed' }
-  | { readonly kind: 'error'; readonly error: unknown }
-  | { readonly kind: 'timeout' };
+type CaptureAction = 'continue' | 'observe_only' | 'finish_unconfirmed';
 
-async function settleWrapper(
-  closed: Promise<void>,
-  timeoutMs: number,
-): Promise<WrapperSettlement> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      closed.then(
-        () => ({ kind: 'closed' } as const),
-        error => ({ kind: 'error', error } as const),
-      ),
-      new Promise<WrapperSettlement>(resolve => {
-        timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
+function captureAction(capture: ExecutionTargetCapture): CaptureAction {
+  switch (capture.kind) {
+    case 'captured': return 'continue';
+    case 'gone': return 'observe_only';
+    case 'unknown':
+    case 'invalid': return 'finish_unconfirmed';
+    default: {
+      const exhaustive: never = capture;
+      return exhaustive;
+    }
   }
 }
 
+function closedFact(status: number | null, signal: NodeJS.Signals | null = null): CloseFact {
+  return { kind: 'closed', status, signal };
+}
+
+function unconfirmedFact(error?: unknown): CloseFact {
+  return error === undefined
+    ? { kind: 'unconfirmed', reason: 'deadline' }
+    : { kind: 'unconfirmed', reason: 'error', error };
+}
+
+function encodeEvidence(value: unknown, seen = new Map<object, string>(), at = '$'): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'undefined') return { $type: 'undefined' };
+  if (typeof value === 'bigint') return { $type: 'bigint', value: String(value) };
+  if (typeof value !== 'object') return String(value);
+  const previous = seen.get(value);
+  if (previous !== undefined) return { $ref: previous };
+  seen.set(value, at);
+  if (value instanceof Error) {
+    const encoded: Record<string, unknown> = {
+      $type: value instanceof AggregateError ? 'AggregateError' : 'Error',
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === 'name' || key === 'message' || key === 'stack' || key === 'cause' || key === 'errors') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor?.enumerable) encoded[String(key)] = encodeEvidence(Reflect.get(value, key), seen, `${at}.${String(key)}`);
+    }
+    if ('cause' in value) encoded.cause = encodeEvidence(value.cause, seen, `${at}.cause`);
+    if (value instanceof AggregateError) encoded.errors = encodeEvidence(value.errors, seen, `${at}.errors`);
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => encodeEvidence(item, seen, `${at}.${index}`));
+  }
+  const encoded: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor?.enumerable && typeof key === 'string') {
+      encoded[key] = encodeEvidence(Reflect.get(value, key), seen, `${at}.${key}`);
+    }
+  }
+  return encoded;
+}
+
+function validateReady(raw: unknown, mode: string, root: string): ReadyFact {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('PTY ready identity is not an object');
+  }
+  const candidate = raw as Record<string, unknown>;
+  const validPid = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 1;
+  if (!validPid(candidate.pid) || !validPid(candidate.processGroupId)
+    || candidate.pid !== candidate.processGroupId || typeof candidate.cwd !== 'string'
+    || candidate.mode !== mode || (candidate.groupChildPid !== undefined && !validPid(candidate.groupChildPid))) {
+    throw new Error(`PTY ready identity failed validation: ${JSON.stringify(raw)}`);
+  }
+  if (fs.realpathSync(candidate.cwd) !== fs.realpathSync(root)) {
+    throw new Error(`PTY fixture cwd mismatch: ${candidate.cwd}`);
+  }
+  return {
+    pid: candidate.pid,
+    processGroupId: candidate.processGroupId,
+    cwd: candidate.cwd,
+    mode: candidate.mode,
+    ...(candidate.groupChildPid !== undefined ? { groupChildPid: candidate.groupChildPid } : {}),
+  };
+}
+
 async function waitForReady(
-  child: ChildProcessWithoutNullStreams,
   readyPath: string,
   deadline: number,
-  readReady: (file: string) => ReadyFact,
-): Promise<ReadyFact> {
+  readReady: (file: string) => unknown,
+  stopped: Promise<void>,
+  isStopped: () => boolean,
+): Promise<unknown> {
   for (;;) {
-    if (fs.existsSync(readyPath)) {
-      return readReady(readyPath);
-    }
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error('PTY wrapper exited before publishing its ready identity');
-    }
+    if (fs.existsSync(readyPath)) return readReady(readyPath);
+    if (isStopped()) throw new Error('ready handshake interrupted by session stop');
     if (Date.now() >= deadline) throw new Error('PTY fixture ready handshake timed out');
-    await new Promise<void>(resolve => setTimeout(resolve, READY_POLL_MS));
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        new Promise<void>(resolve => { timer = setTimeout(resolve, READY_POLL_MS); }),
+        stopped,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
+}
+
+function emptySessionResult(exitedPath: string, evidencePath: string): ConfigRepairSessionResult {
+  return {
+    status: null,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    exitedPath,
+    evidencePath,
+    execution: { kind: 'not_started' },
+    wrapper: { close: { kind: 'not_started' } },
+    streams: {
+      stdin: { close: { kind: 'not_started' }, ended: false, destroyed: false },
+      stdout: { close: { kind: 'not_started' }, ended: false, destroyed: false },
+      stderr: { close: { kind: 'not_started' }, ended: false, destroyed: false },
+    },
+    laterStops: [],
+    attempts: [],
+    errors: [],
+    lateFacts: [],
+    retainedListeners: [],
+  };
+}
+
+function writeSessionEvidence(result: ConfigRepairSessionResult): void {
+  fs.writeFileSync(result.evidencePath, `${JSON.stringify(encodeEvidence({ result }), null, 2)}\n`);
+}
+
+function throwBeforeStart(
+  result: ConfigRepairSessionResult,
+  message: string,
+  cause: unknown,
+): never {
+  const snapshot: ConfigRepairSessionResult = {
+    ...result,
+    firstStop: { reason: message, cause },
+    errors: [{ operation: message, error: cause }],
+  };
+  const primary = new ConfigRepairSessionError(message, snapshot, { cause });
+  try {
+    writeSessionEvidence(snapshot);
+  } catch (recording) {
+    throw Object.assign(
+      new AggregateError([primary, recording], 'Session and evidence recording failed', { cause: primary }),
+      { result: snapshot, evidence: { result: snapshot } },
+    );
+  }
+  throw primary;
 }
 
 export async function runConfigRepairSession(
@@ -245,16 +401,10 @@ export async function runConfigRepairSession(
   options: SessionOptions = {},
 ): Promise<ConfigRepairSessionResult> {
   const exitedPath = path.join(workspace.root, `.session-exited-${randomUUID()}.json`);
-  const baseResult: ConfigRepairSessionResult = {
-    status: null,
-    signal: null,
-    stdout: '',
-    stderr: '',
-    exitedPath,
-    execution: { kind: 'not_started' },
-  };
+  const evidencePath = path.join(workspace.root, 'session-evidence.json');
+  const baseResult = emptySessionResult(exitedPath, evidencePath);
   if (signal.aborted) {
-    throw new ConfigRepairSessionError('session cancelled before spawn', baseResult, { cause: signal.reason });
+    return throwBeforeStart(baseResult, 'session cancelled before spawn', signal.reason);
   }
 
   const mode = options.mode ?? 'cli';
@@ -263,8 +413,21 @@ export async function runConfigRepairSession(
     ? [cliPath, ...args]
     : [String(options.lifetimeMs ?? 5_000)];
   const command = [process.execPath, fixturePath, readyPath, exitedPath, mode, ...modeArgs];
-  const child = spawnPty(command, configRepairEnv(workspace.root, workspace.home, withKey), workspace.root);
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = (options.spawnPty ?? spawnPty)(
+      command,
+      configRepairEnv(workspace.root, workspace.home, withKey),
+      workspace.root,
+    );
+  } catch (error) {
+    return throwBeforeStart(baseResult, 'PTY spawn failed', error);
+  }
+
   const deadline = Date.now() + (options.timeoutMs ?? CLI_CHILD_TIMEOUT_MS);
+  const captureTarget = options.captureTarget ?? captureExecutionTarget;
+  const observeTarget = options.observeTarget ?? observeExecutionTarget;
+  const terminateTarget = options.terminateTarget ?? terminateExecutionTarget;
   let stdout = '';
   let stderr = '';
   let status: number | null = null;
@@ -272,188 +435,524 @@ export async function runConfigRepairSession(
   let answerIndex = 0;
   let lastPrompt = '';
   let responseTimer: NodeJS.Timeout | undefined;
+  let pendingAnswer: { index: number; tail: string } | undefined;
+  let writing = false;
+  let acceptInput = true;
+  let ready: ReadyFact | undefined;
+  let readyRaw: unknown;
   let capture: ExecutionTargetCapture | undefined;
+  let observation: ExecutionTargetObservation | undefined;
   let termination: ExecutionTerminationOutcome | undefined;
-  let terminationPromise: Promise<void> | undefined;
-  let requested: { message: string; cause: unknown } | undefined;
+  let wrapperCapture: ExecutionTargetCapture | undefined;
+  let wrapperObservation: ExecutionTargetObservation | undefined;
+  let wrapperTermination: ExecutionTerminationOutcome | undefined;
+  let wrapperClose: CloseFact = { kind: 'not_started' };
+  let wrapperError: unknown;
+  let firstStop: StopFact | undefined;
+  const laterStops: StopFact[] = [];
+  const attempts: CleanupAttempt[] = [];
+  const errors: ErrorFact[] = [];
+  const lateFacts: unknown[] = [];
+  const retainedListeners: string[] = [];
+  let observationStoppedAt: string | undefined;
+  let finalized = false;
+  let retentionCode = 'unconfirmed_process_group';
+  const streamState = {
+    stdin: { close: { kind: 'not_started' } as CloseFact, ended: false, destroyed: false },
+    stdout: { close: { kind: 'not_started' } as CloseFact, ended: false, destroyed: false },
+    stderr: { close: { kind: 'not_started' } as CloseFact, ended: false, destroyed: false },
+  };
 
-  const makeResult = (
-    kind: ConfigRepairSessionResult['execution']['kind'],
-    ready?: ReadyFact,
-    observation?: ExecutionTargetObservation,
-  ): ConfigRepairSessionResult => ({
+  let wakeStop!: () => void;
+  const stopped = new Promise<void>(resolve => { wakeStop = resolve; });
+  const requestStop = (reason: string, cause: unknown): void => {
+    const fact = { reason, cause };
+    if (firstStop === undefined) {
+      firstStop = fact;
+      wakeStop();
+    } else {
+      laterStops.push(fact);
+    }
+  };
+  const recordError = (operation: string, error: unknown): void => {
+    errors.push({ operation, error });
+  };
+  const recordAttempt = (
+    resource: CleanupAttempt['resource'],
+    operation: string,
+    outcome: unknown,
+  ): void => {
+    attempts.push({ resource, operation, outcome });
+  };
+
+  const makeResult = (): ConfigRepairSessionResult => ({
     status,
     signal: exitSignal,
     stdout,
     stderr,
-    ...(ready !== undefined && { ready }),
+    ...(ready !== undefined ? { ready } : {}),
+    ...(readyRaw !== undefined ? { readyRaw } : {}),
     exitedPath,
+    evidencePath,
     execution: {
-      kind,
-      ...(capture !== undefined && { capture }),
-      ...(observation !== undefined && { observation }),
-      ...(termination !== undefined && { termination }),
+      kind: observation?.kind === 'gone' ? 'gone' : 'unconfirmed',
+      ...(capture !== undefined ? { capture } : {}),
+      ...(observation !== undefined ? { observation } : {}),
+      ...(termination !== undefined ? { termination } : {}),
     },
+    wrapper: {
+      close: wrapperClose,
+      ...(wrapperCapture !== undefined ? { capture: wrapperCapture } : {}),
+      ...(wrapperObservation !== undefined ? { observation: wrapperObservation } : {}),
+      ...(wrapperTermination !== undefined ? { termination: wrapperTermination } : {}),
+    },
+    streams: {
+      stdin: { ...streamState.stdin },
+      stdout: { ...streamState.stdout },
+      stderr: { ...streamState.stderr },
+    },
+    ...(firstStop !== undefined ? { firstStop } : {}),
+    laterStops: [...laterStops],
+    attempts: [...attempts],
+    errors: [...errors],
+    lateFacts: [...lateFacts],
+    retainedListeners: [...retainedListeners],
+    ...(observationStoppedAt !== undefined ? { observationStoppedAt } : {}),
   });
-  const startTermination = (): void => {
-    if (!requested || terminationPromise) return;
-    if (capture?.kind === 'captured') {
-      terminationPromise = terminateExecutionTarget(capture.target, 'caller_requested')
-        .then(outcome => { termination = outcome; });
+
+  const persistLateFact = (fact: unknown): void => {
+    lateFacts.push(fact);
+    let writeError: unknown;
+    try {
+      writeSessionEvidence(makeResult());
+    } catch (error) {
+      writeError = error;
+    }
+    try {
+      workspace.retention.retain({
+        code: retentionCode,
+        error: writeError,
+        evidence: { lateFact: fact, writeError, result: makeResult() },
+      });
+    } catch (recording) {
+      // Late EventEmitter callbacks have no owner to throw into. Preserve the
+      // complete fact and both write failures on stderr instead.
+      console.error('Failed to persist late PTY session fact', encodeEvidence({
+        fact, writeError, recording, result: makeResult(),
+      }));
     }
   };
-  const request = (message: string, cause: unknown): void => {
-    if (requested) return;
-    requested = { message, cause };
-    startTermination();
+  const recordLate = (resource: string, event: string, value?: unknown): void => {
+    const fact = { at: new Date().toISOString(), resource, event, value };
+    if (finalized) persistLateFact(fact);
+    else lateFacts.push(fact);
   };
-  const onAbort = (): void => request('session cancelled by caller', signal.reason);
-  const timeout = setTimeout(() => request('interactive session timed out', new Error('session timeout')),
-    Math.max(1, deadline - Date.now()));
-  signal.addEventListener('abort', onAbort, { once: true });
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk: string) => {
+  const releaseRetainedListeners = (...labels: string[]): void => {
+    for (const label of labels) {
+      const index = retainedListeners.indexOf(label);
+      if (index >= 0) retainedListeners.splice(index, 1);
+    }
+  };
+
+  let wakeClosed!: () => void;
+  const closed = new Promise<void>(resolve => { wakeClosed = resolve; });
+  const onChildError = (error: unknown): void => {
+    wrapperError = error;
+    recordError('wrapper.error', error);
+    requestStop('PTY wrapper emitted error', error);
+    if (finalized) recordLate('wrapper', 'error', error);
+  };
+  const onChildClose = (code: number | null, codeSignal: NodeJS.Signals | null): void => {
+    status = code;
+    exitSignal = codeSignal;
+    wrapperClose = closedFact(code, codeSignal);
+    wakeClosed();
+    if (ready === undefined && firstStop === undefined && !fs.existsSync(readyPath)) {
+      requestStop(
+        'PTY wrapper closed before publishing a valid ready identity',
+        new Error('PTY wrapper exited before publishing its ready identity'),
+      );
+    }
+    if (finalized) {
+      child.off('error', onChildError);
+      child.off('close', onChildClose);
+      releaseRetainedListeners('wrapper:error', 'wrapper:close');
+      recordLate('wrapper', 'close', { status: code, signal: codeSignal });
+    }
+  };
+  child.on('error', onChildError);
+  child.on('close', onChildClose);
+
+  const streamHandlers: Array<{
+    resource: 'stdin' | 'stdout' | 'stderr';
+    stream: NodeJS.EventEmitter;
+    event: 'error' | 'close' | 'end' | 'finish';
+    handler: (...args: any[]) => void;
+  }> = [];
+  const streamClosures = {} as Record<'stdin' | 'stdout' | 'stderr', Promise<void>>;
+  const onStream = (
+    resource: 'stdin' | 'stdout' | 'stderr',
+    stream: NodeJS.EventEmitter,
+  ): void => {
+    let wakeStreamClosed!: () => void;
+    streamClosures[resource] = new Promise<void>(resolve => { wakeStreamClosed = resolve; });
+    const onError = (error: unknown): void => {
+      streamState[resource].close = unconfirmedFact(error);
+      recordError(`${resource}.error`, error);
+      requestStop(`PTY ${resource} emitted error`, error);
+      if (finalized) recordLate(resource, 'error', error);
+    };
+    const onClose = (): void => {
+      streamState[resource].close = closedFact(null);
+      wakeStreamClosed();
+      if (finalized) {
+        stream.off('error', onError);
+        stream.off('close', onClose);
+        releaseRetainedListeners(`${resource}:error`, `${resource}:close`);
+        recordLate(resource, 'close');
+      }
+    };
+    const onEnd = (): void => {
+      streamState[resource].ended = true;
+      if (finalized) recordLate(resource, resource === 'stdin' ? 'finish' : 'end');
+    };
+    stream.on('error', onError);
+    stream.on('close', onClose);
+    stream.on(resource === 'stdin' ? 'finish' : 'end', onEnd);
+    streamHandlers.push(
+      { resource, stream, event: 'error', handler: onError },
+      { resource, stream, event: 'close', handler: onClose },
+      { resource, stream, event: resource === 'stdin' ? 'finish' : 'end', handler: onEnd },
+    );
+  };
+  onStream('stdin', child.stdin);
+  onStream('stdout', child.stdout);
+  onStream('stderr', child.stderr);
+
+  const onStdout = (chunk: string): void => {
     stdout += chunk;
+    if (!acceptInput || pendingAnswer !== undefined || writing || answerIndex >= answers.length) return;
     const plainTail = stdout.slice(-1_000).replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
-    if (answerIndex >= answers.length || plainTail === lastPrompt
-      || !answers[answerIndex].prompt.test(plainTail)) return;
-    lastPrompt = plainTail;
+    if (plainTail === lastPrompt) return;
+    const answer = answers[answerIndex];
+    answer.prompt.lastIndex = 0;
+    if (!answer.prompt.test(plainTail)) return;
+    pendingAnswer = { index: answerIndex, tail: plainTail };
     responseTimer = setTimeout(() => {
-      if (answerIndex < answers.length && !requested) {
-        child.stdin.write(`${answers[answerIndex++].value}\n`);
+      responseTimer = undefined;
+      const pending = pendingAnswer;
+      if (!acceptInput || firstStop !== undefined || pending === undefined) return;
+      writing = true;
+      try {
+        child.stdin.write(`${answers[pending.index].value}\n`, error => {
+          writing = false;
+          if (error) {
+            recordError('stdin.write_callback', error);
+            requestStop('PTY stdin write callback failed', error);
+            return;
+          }
+          if (pendingAnswer === pending) {
+            answerIndex = pending.index + 1;
+            lastPrompt = pending.tail;
+            pendingAnswer = undefined;
+          }
+        });
+      } catch (error) {
+        writing = false;
+        recordError('stdin.write', error);
+        requestStop('PTY stdin write failed', error);
       }
     }, PTY_RESPONSE_DELAY_MS);
-  });
-  child.stderr.on('data', (chunk: string) => { stderr += chunk; });
-  const closed = new Promise<void>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (code, codeSignal) => {
-      status = code;
-      exitSignal = codeSignal;
-      resolve();
-    });
-  });
+  };
+  const onStderr = (chunk: string): void => { stderr += chunk; };
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', onStdout);
+  child.stderr.on('data', onStderr);
 
-  let ready: ReadyFact | undefined;
+  const onAbort = (): void => requestStop('session cancelled by caller', signal.reason);
+  signal.addEventListener('abort', onAbort, { once: true });
+  const timeout = setTimeout(
+    () => requestStop('interactive session timed out', new Error('session timeout')),
+    Math.max(1, deadline - Date.now()),
+  );
+
+  if (child.pid !== undefined) {
+    try {
+      wrapperCapture = captureExecutionTarget({
+        leaderPid: child.pid,
+        processGroupId: child.pid,
+      });
+      recordAttempt('wrapper', 'capture', wrapperCapture);
+    } catch (error) {
+      recordError('wrapper.capture', error);
+      requestStop('PTY wrapper identity capture failed', error);
+    }
+  } else {
+    requestStop('PTY wrapper has no process identity', new Error('spawn returned no child PID'));
+  }
+  if (signal.aborted) onAbort();
+
   try {
-    ready = await waitForReady(
-      child,
+    readyRaw = await waitForReady(
       readyPath,
       Math.min(deadline, Date.now() + READY_TIMEOUT_MS),
-      options.readReady ?? (file => JSON.parse(fs.readFileSync(file, 'utf8')) as ReadyFact),
+      options.readReady ?? (file => JSON.parse(fs.readFileSync(file, 'utf8')) as unknown),
+      stopped,
+      () => firstStop !== undefined,
     );
-    if (fs.realpathSync(ready.cwd) !== fs.realpathSync(workspace.root)) {
-      throw new Error(`PTY fixture cwd mismatch: ${ready.cwd}`);
+    ready = validateReady(readyRaw, mode, workspace.root);
+    try {
+      capture = captureTarget({ leaderPid: ready.pid, processGroupId: ready.processGroupId });
+      recordAttempt('worker_group', 'capture', capture);
+    } catch (error) {
+      recordError('worker_group.capture', error);
+      requestStop('PTY worker identity capture failed', error);
     }
-    capture = captureExecutionTarget({
-      leaderPid: ready.pid,
-      processGroupId: ready.processGroupId,
-    });
-    options.onReady?.(ready);
-    if (signal.aborted) onAbort();
-    startTermination();
-    await closed;
-    await terminationPromise;
+
+    if (capture !== undefined && firstStop === undefined) {
+      const action = captureAction(capture);
+      if (action === 'finish_unconfirmed') {
+        requestStop(
+          `PTY worker capture is ${capture.kind}`,
+          new Error(`Cannot confirm ownership of PTY worker: ${capture.kind}`, { cause: capture }),
+        );
+      } else {
+        options.onReady?.(ready);
+        if (signal.aborted) onAbort();
+      }
+    }
+    if (firstStop === undefined) {
+      await Promise.race([closed, stopped]);
+    }
   } catch (error) {
-    if (capture?.kind === 'captured') {
-      if (!terminationPromise) {
-        terminationPromise = terminateExecutionTarget(capture.target, 'caller_requested')
-          .then(outcome => { termination = outcome; });
-      }
-      let wrapper: WrapperSettlement;
-      try {
-        wrapper = await settleWrapper(closed, WRAPPER_CLOSE_TIMEOUT_MS);
-        await terminationPromise;
-      } catch (cleanup) {
-        throw new AggregateError([error, cleanup], 'PTY driver and execution cleanup failed', { cause: error });
-      }
-      const observation = observeExecutionTarget(capture.target);
-      if (observation.kind === 'gone' && wrapper.kind === 'closed') throw error;
-      const result = makeResult('unconfirmed', ready, observation);
-      const primary = new ConfigRepairSessionError(
-        'PTY driver failed and the execution group is not confirmed gone', result, { cause: error },
+    requestStop('PTY session driver failed', error);
+  }
+
+  // The single cleanup entry begins here. Work cancellation never cancels it.
+  acceptInput = false;
+  clearTimeout(timeout);
+  signal.removeEventListener('abort', onAbort);
+  if (responseTimer) clearTimeout(responseTimer);
+  responseTimer = undefined;
+  pendingAnswer = undefined;
+  child.stdout.off('data', onStdout);
+  child.stderr.off('data', onStderr);
+
+  const observeWorker = (): void => {
+    if (capture === undefined || !('target' in capture)) return;
+    try {
+      observation = observeTarget(capture.target);
+      recordAttempt('worker_group', 'observe', observation);
+    } catch (error) {
+      recordError('worker_group.observe', error);
+    }
+  };
+  const disposeWorker = async (): Promise<void> => {
+    if (capture === undefined) return;
+    const action = captureAction(capture);
+    observeWorker();
+    if (wrapperClose.kind === 'closed' && observation?.kind !== 'gone') {
+      requestStop(
+        'PTY wrapper closed before the worker group was confirmed gone',
+        new Error('PTY wrapper close is not worker group termination evidence'),
       );
-      try {
-        workspace.retention.retain({
-          code: 'unconfirmed_process_group',
-          error: primary,
-          evidence: { capture, observation, termination, ready, wrapper: { ...wrapper, status, signal: exitSignal } },
-        });
-      } catch (recording) {
-        throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
+    }
+    if (action !== 'continue' || observation?.kind === 'gone' || !('target' in capture)) return;
+    try {
+      termination = await terminateTarget(capture.target, 'caller_requested');
+      recordAttempt('worker_group', 'terminate', termination);
+    } catch (error) {
+      recordError('worker_group.terminate', error);
+    }
+    observeWorker();
+  };
+
+  const observeWrapper = (): void => {
+    if (wrapperCapture === undefined || !('target' in wrapperCapture)) return;
+    try {
+      wrapperObservation = observeExecutionTarget(wrapperCapture.target);
+      recordAttempt('wrapper', 'observe', wrapperObservation);
+    } catch (error) {
+      recordError('wrapper.observe', error);
+    }
+  };
+  const disposeWrapper = async (): Promise<void> => {
+    if (wrapperClose.kind === 'closed') {
+      observeWrapper();
+      return;
+    }
+    if (wrapperCapture?.kind === 'captured') {
+      observeWrapper();
+      if (wrapperObservation?.kind !== 'gone') {
+        try {
+          wrapperTermination = await terminateExecutionTarget(wrapperCapture.target, 'caller_requested');
+          recordAttempt('wrapper', 'terminate', wrapperTermination);
+        } catch (error) {
+          recordError('wrapper.terminate', error);
+        }
       }
-      throw primary;
+      observeWrapper();
+      return;
     }
+    observeWrapper();
+    if (wrapperCapture?.kind !== 'gone' && wrapperObservation?.kind !== 'gone'
+      && child.exitCode === null && child.signalCode === null) {
+      try {
+        const sent = child.kill('SIGKILL');
+        recordAttempt('wrapper', 'direct_child_kill_SIGKILL', sent);
+      } catch (error) {
+        recordError('wrapper.direct_child_kill_SIGKILL', error);
+      }
+    }
+  };
+
+  const cleanupDeadline = Date.now() + WRAPPER_CLOSE_TIMEOUT_MS;
+  let closeTimer: NodeJS.Timeout | undefined;
+  const wrapperWait = Promise.race([
+    closed.then(() => 'closed' as const),
+    new Promise<'deadline'>(resolve => {
+      closeTimer = setTimeout(() => resolve('deadline'), Math.max(0, cleanupDeadline - Date.now()));
+    }),
+  ]).then(outcome => {
+    if (outcome === 'deadline' && wrapperClose.kind !== 'closed') {
+      wrapperClose = unconfirmedFact(wrapperError);
+    }
+    recordAttempt('wrapper', 'close_wait', outcome);
+  }).catch(error => {
+    wrapperClose = unconfirmedFact(error);
+    recordError('wrapper.close_wait', error);
+  });
+  const settlements = await Promise.allSettled([disposeWorker(), disposeWrapper(), wrapperWait]);
+  if (closeTimer) clearTimeout(closeTimer);
+  for (const [index, settlement] of settlements.entries()) {
+    if (settlement.status === 'rejected') {
+      recordError(['worker_group.dispose', 'wrapper.dispose', 'wrapper.close_wait'][index], settlement.reason);
+    }
+  }
+
+  for (const resource of ['stdin', 'stdout', 'stderr'] as const) {
+    if (streamState[resource].close.kind === 'closed') continue;
+    const stream = child[resource];
+    try {
+      stream.destroy();
+      streamState[resource].destroyed = true;
+      recordAttempt(resource, 'destroy', 'called');
+    } catch (error) {
+      recordError(`${resource}.destroy`, error);
+    }
+  }
+  let streamCloseTimer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    Promise.all(Object.values(streamClosures)),
+    new Promise<void>(resolve => {
+      streamCloseTimer = setTimeout(resolve, Math.max(0, cleanupDeadline - Date.now()));
+    }),
+  ]);
+  if (streamCloseTimer) clearTimeout(streamCloseTimer);
+  for (const resource of ['stdin', 'stdout', 'stderr'] as const) {
+    if (streamState[resource].close.kind !== 'closed') {
+      streamState[resource].close = unconfirmedFact(
+        streamState[resource].close.kind === 'unconfirmed' && streamState[resource].close.reason === 'error'
+          ? streamState[resource].close.error
+          : undefined,
+      );
+    }
+  }
+  const isClosed = (fact: CloseFact): boolean => fact.kind === 'closed';
+  if (!isClosed(wrapperClose)) {
     if (child.exitCode === null && child.signalCode === null) {
-      try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* best effort after driver failure */ }
+      try {
+        child.unref();
+        recordAttempt('wrapper', 'unref', 'called');
+      } catch (error) {
+        recordError('wrapper.unref', error);
+      }
     }
-    const wrapper = await settleWrapper(closed, WRAPPER_CLOSE_TIMEOUT_MS);
-    if (wrapper.kind === 'timeout') {
-      child.stdin.destroy();
-      child.stdout.destroy();
-      child.stderr.destroy();
-    }
-    const result = makeResult('unconfirmed', ready);
-    const primary = new ConfigRepairSessionError(
-      'PTY handshake failed; worker identity and terminal state are unconfirmed',
-      result,
-      { cause: error },
-    );
-    try {
-      workspace.retention.retain({
-        code: 'unconfirmed_process_group',
-        error: primary,
-        evidence: {
-          capture,
-          ready,
-          termination,
-          wrapper: { ...wrapper, status, signal: exitSignal },
-          identity: 'unknown_before_capture',
-        },
-      });
-    } catch (recording) {
-      throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
-    }
-    throw primary;
-  } finally {
-    clearTimeout(timeout);
-    signal.removeEventListener('abort', onAbort);
-    if (responseTimer) clearTimeout(responseTimer);
   }
 
-  const target = capture && 'target' in capture ? capture.target : undefined;
-  const observation = target ? observeExecutionTarget(target) : undefined;
-  if (observation?.kind !== 'gone') {
-    const result = makeResult('unconfirmed', ready, observation);
-    const primary = new ConfigRepairSessionError(
-      `PTY execution group is not confirmed gone: ${observation?.kind ?? 'identity_invalid'}`, result,
-    );
+  const workerGone = observation?.kind === 'gone';
+  const streamsClosed = Object.values(streamState).every(stream => stream.close.kind === 'closed');
+  const allConfirmed = workerGone && isClosed(wrapperClose) && streamsClosed;
+  if (!allConfirmed) {
+    observationStoppedAt = new Date().toISOString();
+    retentionCode = !workerGone
+      ? 'unconfirmed_process_group'
+      : !isClosed(wrapperClose) ? 'unconfirmed_wrapper' : 'unconfirmed_streams';
+    if (!isClosed(wrapperClose)) retainedListeners.push('wrapper:error', 'wrapper:close');
+    else {
+      child.off('error', onChildError);
+      child.off('close', onChildClose);
+    }
+    for (const registration of streamHandlers) {
+      if (registration.event === 'error' || registration.event === 'close') {
+        if (streamState[registration.resource].close.kind !== 'closed') {
+          retainedListeners.push(`${registration.resource}:${registration.event}`);
+        } else {
+          registration.stream.off(registration.event, registration.handler);
+        }
+      } else {
+        registration.stream.off(registration.event, registration.handler);
+      }
+    }
+  } else {
+    child.off('error', onChildError);
+    child.off('close', onChildClose);
+    for (const registration of streamHandlers) {
+      registration.stream.off(registration.event, registration.handler);
+    }
+  }
+
+  const result = makeResult();
+  finalized = true;
+  let evidenceError: unknown;
+  try {
+    writeSessionEvidence(result);
+  } catch (error) {
+    evidenceError = error;
+    recordError('evidence.write', error);
+  }
+  const evidenceSnapshot = { result: makeResult(), evidenceError };
+  const primaryCause = firstStop?.cause;
+  const primary = new ConfigRepairSessionError(
+    allConfirmed
+      ? `${firstStop?.reason ?? 'interactive CLI exited'} at answer ${answerIndex}/${answers.length}`
+      : workerGone
+        ? 'PTY wrapper or streams are not confirmed closed'
+        : 'PTY execution group is not confirmed gone',
+    result,
+    { cause: primaryCause },
+  );
+
+  if (!allConfirmed) {
     try {
-      workspace.retention.retain({
-        code: 'unconfirmed_process_group',
-        error: primary,
-        evidence: { capture, observation, termination, ready, wrapper: { status, signal: exitSignal } },
-      });
+      workspace.retention.retain({ code: retentionCode, error: primary, evidence: evidenceSnapshot });
     } catch (recording) {
-      throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
+      throw Object.assign(
+        new AggregateError(
+          [primary, ...(evidenceError === undefined ? [] : [evidenceError]), recording],
+          'Session, evidence, and retention recording failed',
+          { cause: primary },
+        ),
+        { result, evidence: evidenceSnapshot },
+      );
+    }
+    if (evidenceError !== undefined) {
+      throw Object.assign(
+        new AggregateError([primary, evidenceError], 'Session and evidence recording failed', { cause: primary }),
+        { result, evidence: evidenceSnapshot },
+      );
     }
     throw primary;
   }
 
-  const result = makeResult('gone', ready, observation);
-  if (requested) {
-    throw new ConfigRepairSessionError(
-      `${requested.message} at answer ${answerIndex}/${answers.length}: ${stdout}\n${stderr}`,
-      result,
-      { cause: requested.cause },
+  if (evidenceError !== undefined) {
+    throw Object.assign(
+      new AggregateError([primary, evidenceError], 'Session and evidence recording failed', { cause: primary }),
+      { result, evidence: evidenceSnapshot },
     );
   }
-  if (answerIndex < answers.length) {
-    throw new ConfigRepairSessionError(
-      `interactive CLI exited after ${answerIndex}/${answers.length} answers`, result,
-    );
-  }
+  if (firstStop !== undefined || answerIndex < answers.length) throw primary;
   return result;
 }
 
