@@ -276,6 +276,46 @@ describe('resource retention integration', () => {
     expect(fs.readFileSync(path.join(dir, 'evidence'), 'utf8')).toBe('original bytes');
   });
 
+  it('empty retained scope preserves local fixtures and the run root', async () => {
+    const runRoot = makeRunRoot('empty-retained-scope');
+    const fixture = path.join(runRoot, 'unlocated-child-cwd');
+    fs.mkdirSync(fixture);
+    const sample = path.join(fixture, 'sample.bin');
+    const bytes = Buffer.from([0, 1, 254, 255]);
+    fs.writeFileSync(sample, bytes);
+    const retention = beginRetentionScope({
+      runRoot,
+      protectedPaths: [],
+      label: 'unlocated direct child',
+    });
+    retention.retain({ code: 'unconfirmed_direct_child' });
+
+    await cleanupTempDir(fixture);
+    expect(fs.readFileSync(sample)).toEqual(bytes);
+    const runManifest = manifest(runRoot, 'empty-retained-scope');
+    fs.writeFileSync(path.join(runRoot, 'manifest.json'), JSON.stringify(runManifest));
+    expect(externalTeardown(runRoot, 1)).toContain('unconfirmed_direct_child');
+    makeStale(runRoot);
+    externalReclaim(runRoot);
+    expect(fs.readFileSync(sample)).toEqual(bytes);
+  });
+
+  it('dangling marker preserves the run root during teardown and reclaim', async () => {
+    const runRoot = makeRunRoot('dangling-marker');
+    const sample = path.join(runRoot, 'sample.bin');
+    const bytes = Buffer.from([0, 1, 254, 255]);
+    fs.writeFileSync(sample, bytes);
+    fs.symlinkSync('missing-retention-target', path.join(runRoot, RETENTION_RECORD_FILENAME));
+    const runManifest = manifest(runRoot, 'dangling-marker');
+    fs.writeFileSync(path.join(runRoot, 'manifest.json'), JSON.stringify(runManifest));
+
+    expect(externalTeardown(runRoot, 1)).toContain('dangling symlink');
+    expect(fs.readFileSync(sample)).toEqual(bytes);
+    makeStale(runRoot);
+    externalReclaim(runRoot);
+    expect(fs.readFileSync(sample)).toEqual(bytes);
+  });
+
   it('completed success is cleaned across all consumers', async () => {
     const runRoot = makeRunRoot('completed-success');
     const asyncScope = createScopedTempDirSync('async-success-');

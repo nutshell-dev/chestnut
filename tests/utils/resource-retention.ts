@@ -309,7 +309,24 @@ export function inspectRetention(runRoot: string, targetPath?: string): Retentio
   try {
     raw = fs.readFileSync(recordPath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'allow' };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      try {
+        const marker = fs.lstatSync(recordPath);
+        return {
+          kind: 'indeterminate',
+          error: new Error(
+            `Retention marker exists but cannot be read (${marker.isSymbolicLink() ? 'dangling symlink' : 'unknown target'}): ${recordPath}`,
+            { cause: error },
+          ),
+        };
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'allow' };
+        return {
+          kind: 'indeterminate',
+          error: new AggregateError([error, statError], `Cannot inspect retention marker: ${recordPath}`),
+        };
+      }
+    }
     return { kind: 'indeterminate', error };
   }
   if (raw.length === 0) return invalidStream(`Empty retention record: ${recordPath}`);
@@ -375,7 +392,8 @@ export function inspectRetention(runRoot: string, targetPath?: string): Retentio
     if (state.completed && !state.retained) continue;
     const rootInspection = canonicalTarget === undefined || relativeInside(canonicalTarget, canonicalRoot) !== null;
     const pathMatch = canonicalTarget !== undefined
-      && state.protectedPaths.some(protectedPath => pathsIntersect(protectedPath, canonicalTarget));
+      && (state.protectedPaths.length === 0
+        || state.protectedPaths.some(protectedPath => pathsIntersect(protectedPath, canonicalTarget)));
     if (!rootInspection && !pathMatch) continue;
     scopeIds.push(id);
     for (const reason of state.reasons.length > 0 ? state.reasons : ['scope_pending']) {
