@@ -432,7 +432,7 @@ fallbacks:
       expect.objectContaining({ label: 'remaining', provider_id: 'custom:remaining' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (label="shared" label_state=present role=fallback match=label) from fallbacks',
+      '✓ Removed provider (Fallback #1 "shared") from fallbacks',
     );
   });
 
@@ -456,7 +456,7 @@ fallbacks:
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (label="(no label)" label_state=missing role=fallback match=provider_id) from fallbacks',
+      '✓ Removed provider (Fallback #1 (no label)) from fallbacks',
     );
   });
 
@@ -485,7 +485,7 @@ fallbacks:
 
     expect(configDeps.llmConfiguration.store.read().primary).toMatchObject({ provider_id: 'custom:openai' });
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" label_state=missing role=primary match=provider_id) is now primary',
+      '✓ Provider (Primary (no label)) is now primary',
     );
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
   });
@@ -519,7 +519,7 @@ fallbacks:
       expect.objectContaining({ provider_id: 'custom:openai' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (label="(no label)" label_state=missing role=fallback match=provider_id) moved to fallback #2',
+      '✓ Provider (Fallback #2 (no label)) moved to fallback #2',
     );
   });
 
@@ -602,6 +602,45 @@ fallbacks:
     expect(firstFallbackRow).toContain('(no label)');
     expect(output).toContain('named');
     expect(output).not.toContain('(unknown)');
+    expect(primaryRow).toContain('Not required');
+    expect(firstFallbackRow).toContain('Not required');
+  });
+
+  it('list shows credential status without exposing generated or environment reference names', async () => {
+    vi.stubEnv('PHASE2239_LIST_AVAILABLE', 'list-secret');
+    writeConfig(`primary:
+  label: main
+  provider_id: custom:main
+  api_format: openai
+  auth_profile: api_key
+  api_key: '\${PHASE2239_LIST_AVAILABLE}'
+  model: main-model
+  base_url: https://main.test
+fallbacks:
+  - label: missing
+    provider_id: custom:missing
+    api_format: openai
+    auth_profile: api_key
+    api_key: '\${CHESTNUT_GENERATED_LIST_MISSING}'
+    model: missing-model
+    base_url: https://missing.test
+  - label: ambient
+    provider_id: custom:ambient
+    api_format: openai
+    auth_profile: ambient
+    model: ambient-model
+    base_url: https://ambient.test
+`);
+
+    await runCommand(['provider', 'list']);
+
+    const output = logLines.join('\n');
+    expect(output).toContain('Available');
+    expect(output).toContain('Missing');
+    expect(output).toContain('Not required');
+    expect(output).not.toContain('PHASE2239_LIST_AVAILABLE');
+    expect(output).not.toContain('CHESTNUT_GENERATED_LIST_MISSING');
+    expect(output).not.toContain('list-secret');
   });
 
   it('list redacts primary and fallback URLs on a wide terminal without changing config bytes', async () => {

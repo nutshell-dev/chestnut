@@ -120,7 +120,9 @@ describe('storeKeyAsCredential — onShadowedEnv 双语义', () => {
         { envVar: 'ANTHROPIC_API_KEY', seed: 'anthropic' },
       );
       expect(ref).toBe('${ANTHROPIC_API_KEY}');
-      expect(lines.some((l) => l.includes('Will read ANTHROPIC_API_KEY from the process environment'))).toBe(true);
+      expect(lines.some((l) => l.includes('Will read the API key from the process environment'))).toBe(true);
+      expect(lines.join('\n')).not.toContain('ANTHROPIC_API_KEY');
+      expect(lines.join('\n')).not.toContain('typed-key');
     } finally {
       logSpy.mockRestore();
     }
@@ -134,7 +136,12 @@ describe('storeKeyAsCredential — onShadowedEnv 双语义', () => {
         'typed-key',
         { seed: 'anthropic', onShadowedEnv: 'error' },
       ),
-    ).rejects.toThrow(/Unset CHESTNUT_ANTHROPIC_API_KEY/);
+    ).rejects.toThrow(/Unset the environment variable/);
+    await expect(
+      storeKeyAsCredential(
+        { fsFactory }, 'typed-key', { seed: 'anthropic', onShadowedEnv: 'error' },
+      ),
+    ).rejects.toThrow(/^(?!.*CHESTNUT_ANTHROPIC_API_KEY).*$/);
     // 不写凭据文件
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'llm', 'credentials.yaml'))).toBe(false);
   });
@@ -149,6 +156,7 @@ describe('storeKeyAsCredential — onShadowedEnv 双语义', () => {
     expect(deriveCredentialRef('anthropic')).toBe('CHESTNUT_ANTHROPIC_API_KEY');
     const authentication = createAuthenticationSetup({ fsFactory });
     expect(authentication.resolveSync('CHESTNUT_ANTHROPIC_API_KEY')?.accessToken).toBe('typed-key');
+    expect(ref).not.toContain('typed-key');
   });
 });
 

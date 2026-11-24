@@ -39,7 +39,7 @@ export function setupDraftPreviewLines(input: SetupDraftPreviewInput): string[] 
   lines.push(`  Service: ${input.label}`);
   lines.push(`  Auth:    ${input.auth}`);
   if (input.keyRef) {
-    lines.push(`  API key: ${input.keyRef}`);
+    lines.push('  API key: Credential reference configured');
   }
   lines.push(`  Model:   ${input.model}`);
   if (input.thinking) lines.push(`  Thinking: ${input.thinking}`);
@@ -90,10 +90,10 @@ export function setupRepairMenuLines(): string[] {
   ];
 }
 
-export function setupCredentialDiscardedLine(ref: string): string {
-  return `Discarded unused credential \${${ref}} (setup was not committed).`;
+export function setupCredentialDiscardedLine(): string {
+  return 'Discarded unused credential (setup was not committed).';
 }
 
-export function setupCredentialCleanupFailedLine(ref: string, reason: string): string {
-  return `⚠ Could not clean up unused credential \${${ref}}: ${reason}`;
+export function setupCredentialCleanupFailedLine(reason: string): string {
+  return `⚠ Could not clean up unused credential: ${reason}`;
 }

@@ -49,18 +49,18 @@ export async function storeKeyAsCredential(
     );
     if (result.kind === 'reference') return result.reference;
     if (result.kind === 'stored') {
-      if (!hooks?.silent) console.log(`✓ Stored key as credential reference \${${ref}} (workspace credentials file)`);
+      if (!hooks?.silent) console.log('✓ API key received; validating configuration.');
       hooks?.onStored?.(ref, { created: result.created, value: trimmed });
     } else {
-      if (!hooks?.silent) console.log(`✓ Will read ${ref} from the process environment at runtime`);
+      if (!hooks?.silent) console.log('✓ Will read the API key from the process environment at runtime');
       hooks?.onStored?.(ref, { created: false, value: trimmed });
     }
     return result.reference;
   } catch (err) {
     if (ctx.onShadowedEnv === 'error' && isCredentialsError(err) && err.code === 'shadowed_by_env') {
       throw new CliError(
-        `Credential ref ${ref} is set in the process environment; ` +
-        `the key you typed cannot be stored. Unset ${ref} and retry.`,
+        'A matching process environment credential prevents storing the key you typed. ' +
+        'Unset the environment variable and retry.',
       );
     }
     throw err;

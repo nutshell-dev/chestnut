@@ -482,15 +482,17 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   }
 }
 
-function formatApiKeyStatus(apiKey: unknown, deps: ConfigCommandDeps): string {
+function formatApiKeyStatus(
+  apiKey: unknown,
+  deps: ConfigCommandDeps,
+  requiresApiKey: boolean,
+): string {
   const classified = classifyApiKeyConfigValue(apiKey);
-  if (classified.kind === 'missing') return '-';
-  if (classified.kind === 'legacy-plaintext') return 'legacy-unmigrated';
-  if (classified.kind === 'invalid-reference') return 'invalid-ref';
+  if (classified.kind === 'missing') return requiresApiKey ? 'Missing' : 'Not required';
+  if (classified.kind === 'legacy-plaintext') return 'Needs migration';
+  if (classified.kind === 'invalid-reference') return 'Invalid configuration';
   const authentication = createAuthenticationCapability({ fsFactory: deps.fsFactory });
-  return authentication.describe(classified.ref).configured
-    ? `ref=${classified.ref}`
-    : `ref=${classified.ref}/missing`;
+  return authentication.describe(classified.ref).configured ? 'Available' : 'Missing';
 }
 
 // provider list command
@@ -513,14 +515,14 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
   // Primary
   const pLabel = primary.label ?? PROVIDER_NO_LABEL_SENTINEL;
   const pBaseUrl = primary.base_url ? summarizeProviderBaseUrl(primary.base_url) : '-';
-  const pApiKey = formatApiKeyStatus(primary.api_key, deps);
+  const pApiKey = formatApiKeyStatus(primary.api_key, deps, primary.auth_profile === 'api_key');
   console.log(`  ${'PRIMARY'.padEnd(10)} ${primary.provider_id.padEnd(10)} ${pLabel.padEnd(15)} ${primary.model.padEnd(18)} ${pApiKey.padEnd(24)} ${fitLine(pBaseUrl, urlWidth)}`);
 
   // Fallbacks
   fallbacks.forEach((f, i) => {
     const fLabel = f.label ?? PROVIDER_NO_LABEL_SENTINEL;
     const fBaseUrl = f.base_url ? summarizeProviderBaseUrl(f.base_url) : '-';
-    const fApiKey = formatApiKeyStatus(f.api_key, deps);
+    const fApiKey = formatApiKeyStatus(f.api_key, deps, f.auth_profile === 'api_key');
     const rowLabel = `#${i + 1}`;
     console.log(`  ${rowLabel.padEnd(10)} ${f.provider_id.padEnd(10)} ${fLabel.padEnd(15)} ${f.model.padEnd(18)} ${fApiKey.padEnd(24)} ${fitLine(fBaseUrl, urlWidth)}`);
   });

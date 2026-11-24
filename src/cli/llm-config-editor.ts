@@ -69,9 +69,9 @@ export async function discardCreatedCredentials(
         }
         return current;
       });
-      if (emit && removed) console.log(setupCredentialDiscardedLine(ref));
+      if (emit && removed) console.log(setupCredentialDiscardedLine());
     } catch (err) {
-      if (emit) console.log(setupCredentialCleanupFailedLine(ref, formatErr(err)));
+      if (emit) console.log(setupCredentialCleanupFailedLine(formatErr(err)));
     }
   }
 }

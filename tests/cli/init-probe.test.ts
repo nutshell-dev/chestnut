@@ -321,7 +321,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
     rlAnswers.queue = ['7', 'typed-key', ''];
 
     await expect(initCommand(commandDeps, true, { audit: mockAudit })).rejects.toThrow(
-      /Unset CHESTNUT_ANTHROPIC_API_KEY/,
+      /Unset the environment variable/,
     );
     // 失败不发布 config
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);

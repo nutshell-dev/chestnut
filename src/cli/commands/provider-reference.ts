@@ -190,9 +190,13 @@ export function providerTargetFingerprint(
   }));
 }
 
+export function humanProviderTarget(candidate: ProviderCandidate): string {
+  const role = candidate.role === 'primary' ? 'Primary' : `Fallback #${candidate.index + 1}`;
+  return candidate.label?.trim() ? `${role} ${JSON.stringify(candidate.label)}` : `${role} (no label)`;
+}
+
 export function formatProviderTarget(hit: ResolvedProviderReference): string {
-  const target = providerCandidateFacts(hit.candidate);
-  return `label=${JSON.stringify(target.label)} label_state=${target.label_state} role=${target.role} match=${hit.matchedBy}`;
+  return humanProviderTarget(hit.candidate);
 }
 
 function formatCandidate(hit: ProviderCandidate): string {

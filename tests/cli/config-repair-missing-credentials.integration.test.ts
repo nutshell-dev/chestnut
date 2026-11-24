@@ -59,6 +59,9 @@ describe('real CLI missing-credential repair chain', () => {
       expect(repaired.status).toBe(0);
       expect(repaired.execution.kind).toBe('gone');
       expect(repaired.stdout).toContain('repaired in place at revision 2');
+      expect(repaired.stdout).not.toContain(CONFIG_REPAIR_REF);
+      expect(repaired.stdout).not.toContain('CHESTNUT_PROVIDER_REPAIR');
+      expect(repaired.stderr).not.toContain(CONFIG_REPAIR_REF);
       expect(repaired.stderr).not.toContain('integration-secret');
       expect(server.requests.length).toBeGreaterThan(0);
 
@@ -112,6 +115,9 @@ describe('real CLI missing-credential repair chain', () => {
       expect(repaired.execution.kind).toBe('gone');
       expect(repaired.stdout).toContain('repaired in place at revision 2');
       expect(repaired.stdout).not.toContain('new-cli-secret');
+      expect(repaired.stdout).not.toContain(CONFIG_REPAIR_REF);
+      expect(repaired.stdout).not.toContain('CHESTNUT_PROVIDER_REPAIR');
+      expect(repaired.stderr).not.toContain(CONFIG_REPAIR_REF);
       expect(repaired.stderr).not.toContain('new-cli-secret');
 
       const raw = readConfigRepairRaw(workspace.root);
