@@ -102,7 +102,7 @@ function makeTempRoot(): string {
   fs.mkdirSync(path.join(dir, '.chestnut', 'claws', 'test-claw', 'outbox', 'pending'), { recursive: true });
   fs.writeFileSync(
     path.join(dir, '.chestnut', 'config.yaml'),
-    'llm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    model: claude-sonnet-4-5\n    api_key: ${PARSEINT_TEST_API_KEY}\n'
+    'llm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    label: main\n    model: claude-sonnet-4-5\n    api_key: ${PARSEINT_TEST_API_KEY}\n'
   );
   // phase 1247 Step C: claw outbox is now supervised 'required' and spawns a
   // detached watchdog. For this parseInt smoke test we switch to 'audit query',
