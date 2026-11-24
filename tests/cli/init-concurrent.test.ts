@@ -184,6 +184,7 @@ describe('initCommand — 完整 bootstrap 发布（Phase 1911 Step D）', () =>
     llm: {
       primary: {
         preset: 'anthropic',
+        label: 'winner-primary',
         api_key: '${ANTHROPIC_API_KEY}',
         model: 'claude',
         temperature: 0.7,

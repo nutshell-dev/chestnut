@@ -86,7 +86,7 @@ function writeGlobalConfig(): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'config.yaml'),
-    `version: '1'\nllm:\n  primary:\n    preset: anthropic\n    api_key: \${CLAW_CREATE_TEST_API_KEY}\n    model: claude-test\n`,
+    `version: '1'\nllm:\n  primary:\n    preset: anthropic\n    label: main\n    api_key: \${CLAW_CREATE_TEST_API_KEY}\n    model: claude-test\n`,
   );
 }
 

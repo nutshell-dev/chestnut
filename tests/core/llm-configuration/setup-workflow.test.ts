@@ -32,8 +32,9 @@ afterEach(() => {
   cleanupTempDirSync(projectDir);
 });
 
-function provider(model: string, baseUrl = 'https://direct.example.test') {
+function provider(model: string, baseUrl = 'https://direct.example.test', label = model) {
   return {
+    label,
     provider_id: 'custom:anthropic' as const,
     api_format: 'anthropic' as const,
     auth_profile: 'api_key' as const,
@@ -71,9 +72,9 @@ describe('LLM setup workflow', () => {
     }, {
       provider: provider('model'),
       candidates: [
-        { identity: 'candidate-a', config: provider('model', 'https://a.example.test') },
-        { identity: 'candidate-b', config: provider('model', 'https://winner.example.test') },
-        { identity: 'candidate-c', config: provider('model', 'https://not-called.example.test') },
+        { identity: 'candidate-a', config: provider('model', 'https://a.example.test', 'Candidate A') },
+        { identity: 'candidate-b', config: provider('model', 'https://winner.example.test', 'Candidate B') },
+        { identity: 'candidate-c', config: provider('model', 'https://not-called.example.test', 'Candidate C') },
       ],
     }, { kind: 'initialize' });
 
@@ -102,8 +103,8 @@ describe('LLM setup workflow', () => {
     }, {
       provider: provider('model'),
       candidates: [
-        { identity: 'a', config: provider('model', 'https://a.example.test') },
-        { identity: 'b', config: provider('model', 'https://b.example.test') },
+        { identity: 'a', config: provider('model', 'https://a.example.test', 'Candidate A') },
+        { identity: 'b', config: provider('model', 'https://b.example.test', 'Candidate B') },
       ],
     }, { kind: 'initialize' }, async (attempt) => {
       expect(attempt.candidates).toHaveLength(2);

@@ -49,7 +49,7 @@ function writeInitialConfig() {
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: anthropic\n    api_key: sk-ant-old\n  fallbacks:\n    - preset: openai\n      label: fb-one\n      api_key: sk-1\n    - preset: openai\n      label: fb-two\n      api_key: sk-2\n`,
+    `llm:\n  primary:\n    preset: anthropic\n    label: primary-old\n    api_key: sk-ant-old\n  fallbacks:\n    - preset: openai\n      label: fb-one\n      api_key: sk-1\n    - preset: openai\n      label: fb-two\n      api_key: sk-2\n`,
   );
 }
 
@@ -104,7 +104,7 @@ describe('config provider remove/move — audit emit (phase 1452 Step B)', () =>
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
     expect(vi.mocked(console.log)).toHaveBeenCalledWith(
-      '✓ Removed provider (label="fb-one" label_state=present role=fallback match=label) from fallbacks',
+      '✓ Removed provider (Fallback #1 "fb-one") from fallbacks',
     );
     expect(readAudit()).toContain('command=provider_remove');
   });

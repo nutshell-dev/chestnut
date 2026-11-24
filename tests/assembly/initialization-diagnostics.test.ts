@@ -31,6 +31,7 @@ async function commitMissingProvider(): Promise<void> {
     provider_id: 'custom:anthropic',
     api_format: 'anthropic',
     auth_profile: 'api_key',
+    label: 'main',
     api_key: '${PHASE2221_INIT_MISSING}',
     model: 'claude-test',
     base_url: 'https://example.test',

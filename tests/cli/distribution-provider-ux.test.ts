@@ -23,7 +23,7 @@ describe('passwordQuestion — 非 TTY', () => {
 });
 
 describe('setupDraftPreviewLines — 脱敏', () => {
-  it('只显示 credential reference，不包含明文 key', () => {
+  it('只显示固定脱敏状态，不包含明文 key 或内部 credential ref', () => {
     const lines = setupDraftPreviewLines({
       label: 'Anthropic',
       model: 'claude-3',
@@ -32,7 +32,8 @@ describe('setupDraftPreviewLines — 脱敏', () => {
       role: 'primary',
     });
     const text = lines.join('\n');
-    expect(text).toContain('${ANTHROPIC_API_KEY}');
+    expect(text).toContain('API key: Credential reference configured');
     expect(text).not.toContain('sk-live-secret');
+    expect(text).not.toContain('${ANTHROPIC_API_KEY}');
   });
 });

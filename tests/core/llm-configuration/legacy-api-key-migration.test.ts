@@ -19,8 +19,8 @@ let projectDir: string;
 
 function plaintextSource(): SharedLLMInput {
   return {
-    primary: { preset: 'anthropic', api_key: 'primary-secret', model: 'claude-test' },
-    fallbacks: [{ preset: 'openai', api_key: 'fallback-secret', model: 'gpt-test' }],
+    primary: { label: 'Primary', preset: 'anthropic', api_key: 'primary-secret', model: 'claude-test' },
+    fallbacks: [{ label: 'Fallback', preset: 'openai', api_key: 'fallback-secret', model: 'gpt-test' }],
   };
 }
 
@@ -93,6 +93,7 @@ describe('legacy API key migration', () => {
     fs.writeFileSync(configPath, [
       'llm:',
       '  primary:',
+      '    label: Claw Primary',
       '    preset: anthropic',
       '    api_key: claw-secret',
       '    model: claude-test',

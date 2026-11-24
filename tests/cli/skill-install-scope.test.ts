@@ -396,7 +396,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     process.env.SKILL_INSTALL_TEST_KEY = 'test';
     fsSync.writeFileSync(
       path.join(tmpDir, '.chestnut', 'config.yaml'),
-      'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: ${SKILL_INSTALL_TEST_KEY}\n    model: claude-test\n',
+      'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    label: test-primary\n    api_key: ${SKILL_INSTALL_TEST_KEY}\n    model: claude-test\n',
     );
 
     const runCli = (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> =>

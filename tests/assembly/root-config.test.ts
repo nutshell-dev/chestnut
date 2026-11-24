@@ -55,6 +55,7 @@ version: '1'
 llm:
   primary:
     preset: anthropic
+    label: main
     api_key: \${ROOT_CONFIG_TEST_API_KEY}
     model: claude-test
 ${extraLlmYaml}
@@ -66,7 +67,7 @@ function makeClawConfig(name = 'testclaw'): ClawConfig {
     name,
     tool_profile: 'full',
     max_concurrent_tasks: 3,
-    llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
+    llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
   };
 }
 
@@ -136,7 +137,7 @@ describe('RootConfigReader/Admin: global load/save', () => {
   it('saveGlobal 后可回读，invalid YAML 错误文本与旧 wrapper 一致', () => {
     admin.saveGlobalExclusive({
       version: '1',
-      llm: { primary: { preset: 'anthropic', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'claude-save' } },
+      llm: { primary: { preset: 'anthropic', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'claude-save' } },
     });
     expect(admin.loadGlobal().llm.primary.api_key).toBe('sk-test');
 
@@ -154,7 +155,7 @@ describe('RootConfigReader/Admin: claw load/save', () => {
       name: 'testclaw',
       tool_profile: 'full',
       max_concurrent_tasks: 3,
-      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
+      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
     });
     const claw = admin.loadClaw(clawPath);
     expect(claw?.name).toBe('testclaw');
@@ -219,7 +220,7 @@ describe('Assembly config write results (Phase 2154 Step B3)', () => {
 
 describe('RootConfigAdmin: patchPrimary', () => {
   it('目标字段变化、未知字段保留、caller patch 对象不被修改', async () => {
-    writeGlobalConfig(`  fallbacks:\n    - preset: openai\n      api_key: \${ROOT_CONFIG_TEST_API_KEY}\n      model: gpt-fb\n`);
+    writeGlobalConfig(`  fallbacks:\n    - preset: openai\n      label: fallback\n      api_key: \${ROOT_CONFIG_TEST_API_KEY}\n      model: gpt-fb\n`);
     admin.loadGlobal();
     const patch: Readonly<Record<string, unknown>> = Object.freeze({ model: 'claude-new' });
     await llmAdmin.patchPrimary(patch);
@@ -272,7 +273,7 @@ describe('resolveLLMConfig resolver', () => {
       name: 'overrideclaw',
       tool_profile: 'full',
       max_concurrent_tasks: 3,
-      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-ovr', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
+      llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-ovr', base_url: 'https://example.test/v1', temperature: 0.7, timeout_ms: 120000 } },
     });
     const clawCfg = admin.loadClaw(clawPath);
     const withClaw = resolveLLMConfig(globalCfg, clawCfg);
@@ -290,12 +291,12 @@ describe('RootConfigAdmin: saveGlobalExclusive (Phase 1910 Step D)', () => {
     const { GlobalConfigAlreadyExistsError } = await import('../../src/assembly/index.js');
     admin.saveGlobalExclusive({
       version: '1',
-      llm: { primary: { preset: 'anthropic', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'claude-winner' } },
+      llm: { primary: { preset: 'anthropic', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'claude-winner' } },
     });
 
     expect(() => admin.saveGlobalExclusive({
       version: '1',
-      llm: { primary: { preset: 'openai', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-loser' } },
+      llm: { primary: { preset: 'openai', label: 'main', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-loser' } },
     })).toThrow(GlobalConfigAlreadyExistsError);
 
     // 先写者内容原样保留

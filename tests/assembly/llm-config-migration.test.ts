@@ -37,7 +37,7 @@ function makeLegacyLLM(
   model = 'claude-legacy',
 ): SharedLLMInput {
   return {
-    primary: { preset: 'anthropic', api_key: apiKey, model },
+    primary: { preset: 'anthropic', label: 'main', api_key: apiKey, model },
     retry_attempts: 2,
   } as unknown as SharedLLMInput;
 }
@@ -297,7 +297,7 @@ describe('legacy root LLM migration', () => {
 
   it('未知 preset 保留旧 root、不写目标并留下 typed 安全证据', () => {
     const legacy = {
-      primary: { preset: 'not-a-preset', api_key: 'sk-root-secret' },
+      primary: { preset: 'not-a-preset', label: 'main', api_key: 'sk-root-secret' },
     } as unknown as SharedLLMInput;
     writeLegacyRoot(legacy);
     const before = fs.readFileSync(rootConfigPath(), 'utf8');

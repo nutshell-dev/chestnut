@@ -108,6 +108,7 @@ function writeInitialConfig() {
 revision: 1
 primary:
   provider_id: custom:anthropic
+  label: my-anthropic
   api_format: anthropic
   auth_profile: api_key
   api_key: sk-ant-old
