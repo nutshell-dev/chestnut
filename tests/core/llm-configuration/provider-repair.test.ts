@@ -57,10 +57,43 @@ describe('single-provider credential resolution', () => {
     expect(resolved.snapshot.config.primary.input.model).toBe('primary-model');
     expect(resolved.snapshot.config.primary.input.authentication).toMatchObject({ value: 'target-secret' });
     expect(resolved.snapshot.credentialFacts).toHaveProperty('PHASE2221_TARGET_KEY');
-    expect(() => store.readSnapshot()).toThrow(LLMConfigurationCredentialUnavailableError);
+    let missing: unknown;
+    try { store.readSnapshot(); } catch (error) { missing = error; }
+    expect(missing).toBeInstanceOf(LLMConfigurationCredentialUnavailableError);
+    expect((missing as LLMConfigurationCredentialUnavailableError).context).toEqual({
+      kind: 'document',
+      revision: { id: '2', revision: 2 },
+      targets: [{ slot: { role: 'fallback', index: 0 }, field: 'api_key' }],
+    });
+    expect(String(missing)).not.toContain('PHASE2221_MISSING_KEY');
   });
 
-  it('missing 与空环境值产生 typed failure，保留 ref 且不包含 secret', () => {
+  it('document 缺失按同次 raw 定位多个目标及非 API-key 字段', async () => {
+    const store = createLLMConfigurationDocumentStore(deps);
+    await store.commitExplicitProvider({ kind: 'initialize' }, {
+      ...provider('primary'),
+      extra_headers: { 'X-Target': '${PHASE2221_SHARED_MISSING}' },
+    });
+    await store.commitExplicitProvider({ kind: 'fallback' }, {
+      ...provider('fallback', '${PHASE2221_SHARED_MISSING}'),
+      extra_headers: { 'X-Target': '${PHASE2221_SHARED_MISSING}' },
+    });
+
+    let missing: unknown;
+    try { store.readSnapshot(); } catch (error) { missing = error; }
+    expect(missing).toBeInstanceOf(LLMConfigurationCredentialUnavailableError);
+    expect((missing as LLMConfigurationCredentialUnavailableError).context).toEqual({
+      kind: 'document',
+      revision: { id: '2', revision: 2 },
+      targets: [
+        { slot: { role: 'primary' }, field: 'other' },
+        { slot: { role: 'fallback', index: 0 }, field: 'multiple' },
+      ],
+    });
+    expect(String(missing)).not.toContain('PHASE2221_SHARED_MISSING');
+  });
+
+  it('missing 与空环境值产生无引用的 typed draft failure，且不包含 secret', () => {
     for (const value of [undefined, '']) {
       vi.stubEnv('PHASE2221_MISSING_KEY', value);
       let thrown: unknown;
@@ -70,7 +103,8 @@ describe('single-provider credential resolution', () => {
         thrown = error;
       }
       expect(thrown).toBeInstanceOf(LLMConfigurationCredentialUnavailableError);
-      expect((thrown as LLMConfigurationCredentialUnavailableError).ref).toBe('PHASE2221_MISSING_KEY');
+      expect((thrown as LLMConfigurationCredentialUnavailableError).context).toEqual({ kind: 'draft' });
+      expect(String(thrown)).not.toContain('PHASE2221_MISSING_KEY');
       expect(String(thrown)).not.toContain('target-secret');
     }
   });

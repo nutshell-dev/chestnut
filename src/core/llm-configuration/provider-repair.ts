@@ -61,7 +61,9 @@ export function snapshotLLMProviderDraft(
       return value.replace(/\$\{([^}]+)\}/g, (_match, ref: string) => {
         if (!hits.has(ref)) hits.set(ref, credentials.resolve(ref));
         const hit = hits.get(ref);
-        if (hit === undefined) throw new LLMConfigurationCredentialUnavailableError(ref);
+        if (hit === undefined) {
+          throw new LLMConfigurationCredentialUnavailableError({ kind: 'draft' });
+        }
         credentialSources[ref] = hit.source;
         credentialFacts[ref] = {
           source: hit.source,

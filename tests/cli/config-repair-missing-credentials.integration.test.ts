@@ -45,7 +45,7 @@ describe('real CLI missing-credential repair chain', () => {
         workspace, ['start', '--non-interactive'], context.signal,
       );
       expect(failedStart.status).toBe(3);
-      expect(failedStart.stderr).toContain(CONFIG_REPAIR_REF);
+      expect(failedStart.stderr).not.toContain(CONFIG_REPAIR_REF);
       expect(failedStart.stderr).toContain('config provider repair');
       expect(failedStart.stderr).not.toContain('corrupted');
       expect(failedStart.stderr).not.toContain('integration-secret');

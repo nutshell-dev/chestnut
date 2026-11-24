@@ -336,11 +336,15 @@ describe('start LLM gate (unit)', () => {
     expect(auditRec.entries[2][1]).toBe('reason=non_interactive');
   });
 
-  it('B2. 非交互缺 credential：保留 ref/repair 指引且零 probe/readline', async () => {
+  it('B2. 非交互缺 credential：隐藏 ref、保留 repair 指引且零 probe/readline', async () => {
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
     deps.llmConfiguration.loadGlobal.mockImplementation(() => {
-      throw new LLMConfigurationCredentialUnavailableError('PHASE2221_START_MISSING');
+      throw new LLMConfigurationCredentialUnavailableError({
+        kind: 'document',
+        revision: { id: '1', revision: 1 },
+        targets: [{ slot: { role: 'primary' }, field: 'api_key' }],
+      });
     });
 
     const err = await ensureStartLLMVerified(deps, {
@@ -349,17 +353,23 @@ describe('start LLM gate (unit)', () => {
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe(START_GATE_EXIT_CODE);
-    expect((err as CliError).message).toContain('PHASE2221_START_MISSING');
+    expect((err as CliError).message).not.toContain('PHASE2221_START_MISSING');
+    expect((err as CliError).cause).toBeInstanceOf(LLMConfigurationCredentialUnavailableError);
+    expect((err as CliError).cause).not.toHaveProperty('ref');
     expect((err as CliError).message).toContain('config provider repair');
     expect(conn.probeLLMConnection).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
   });
 
-  it('B3. start 交互 repair 传递缺 ref 时的原 raw 基线，重排后不改新目标', async () => {
+  it('B3. start 交互 repair 传递类型化目标的同 revision raw 基线', async () => {
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
     const deps = makeGateDeps(() => makeGlobal('model-A'));
     deps.llmConfiguration.loadGlobal.mockImplementation(() => {
-      throw new LLMConfigurationCredentialUnavailableError('ANTHROPIC_API_KEY');
+      throw new LLMConfigurationCredentialUnavailableError({
+        kind: 'document',
+        revision: { id: '1', revision: 1 },
+        targets: [{ slot: { role: 'primary' }, field: 'api_key' }],
+      });
     });
     const rawBaseline = {
       ...makeGlobal('model-A'),
@@ -380,6 +390,30 @@ describe('start LLM gate (unit)', () => {
       config: rawBaseline,
     });
     expect(h.repairProviderSlot.mock.calls[0][3].config.llm.primary.model).toBe('model-A');
+  });
+
+  it('B4. 失败定位 revision 已漂移时重读重验，不把旧位置交给 repair', async () => {
+    mockProbeOk();
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('model-B'));
+    deps.llmConfiguration.loadGlobal.mockImplementationOnce(() => {
+      throw new LLMConfigurationCredentialUnavailableError({
+        kind: 'document',
+        revision: { id: '1', revision: 1 },
+        targets: [{ slot: { role: 'fallback', index: 0 }, field: 'api_key' }],
+      });
+    });
+    deps.llmConfiguration.loadRaw.mockReturnValue({
+      ...makeGlobal('model-B'),
+      revision: { id: '2', revision: 2 },
+      workspaceRoot: '/current-workspace',
+    });
+
+    const verified = await ensureStartLLMVerified(deps, { audit: mockAudit, interactive: true });
+
+    expect(verified.probe.model).toBe('model-B');
+    expect(h.repairProviderSlot).not.toHaveBeenCalled();
+    expect(h.rlCreateCalls).toBe(0);
   });
 
   it('C. 交互 retry：失败留在向导内，retry 成功后放行', async () => {

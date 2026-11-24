@@ -136,9 +136,7 @@ function reportRuntimeReadiness(deps: ConfigCommandDeps): void {
     deps.llmConfiguration.store.readSnapshot();
   } catch (error) {
     if (error instanceof LLMConfigurationCredentialUnavailableError) {
-      console.error(
-        `⚠ Configuration saved, but LLM runtime is not ready: credential unavailable (${error.ref}).`,
-      );
+      console.error('⚠ Configuration saved, but LLM runtime is not ready: credential unavailable.');
       return;
     }
     console.error(`⚠ Configuration saved, but runtime readiness check failed: ${formatErr(error)}`);

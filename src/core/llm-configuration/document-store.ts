@@ -33,7 +33,10 @@ import type {
   SharedLLM,
   SharedLLMInput,
 } from './selection.js';
-import { LLMConfigurationCredentialUnavailableError } from './credential-errors.js';
+import {
+  LLMConfigurationCredentialUnavailableError,
+  type MissingCredentialTarget,
+} from './credential-errors.js';
 import { assertNoLegacyPlaintextApiKey } from './key-input.js';
 import {
   migrateLegacyApiKeysAtPath,
@@ -264,6 +267,34 @@ const legacyRawDocumentSchema = z.object({
   fallbacks: z.array(legacyRawProviderSchema).optional(),
 }).passthrough();
 
+function usesCredentialRef(value: unknown, ref: string): boolean {
+  if (typeof value === 'string') {
+    return Array.from(value.matchAll(/\$\{([^}]+)\}/g)).some(match => match[1] === ref);
+  }
+  if (value === null || typeof value !== 'object') return false;
+  return Object.values(value).some(child => usesCredentialRef(child, ref));
+}
+
+function locateMissingCredentialTargets(
+  raw: LLMConfigDocument,
+  ref: string,
+): MissingCredentialTarget[] {
+  const slots: LLMProviderSlot[] = [
+    { role: 'primary' },
+    ...(raw.fallbacks ?? []).map((_, index) => ({ role: 'fallback' as const, index })),
+  ];
+  return slots.flatMap<MissingCredentialTarget>(slot => {
+    const provider = slot.role === 'primary' ? raw.primary : raw.fallbacks?.[slot.index];
+    if (provider === undefined) return [];
+    const { api_key: apiKey, ...rest } = provider;
+    const key = usesCredentialRef(apiKey, ref);
+    const other = usesCredentialRef(rest, ref);
+    return key || other
+      ? [{ slot, field: key && other ? 'multiple' : key ? 'api_key' : 'other' }]
+      : [];
+  });
+}
+
 function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument {
   if (!isRecord(value)) {
     throw new Error(`Invalid LLM configuration document: expected object: ${configPath}`);
@@ -345,7 +376,14 @@ export function createLLMConfigurationDocumentStore(deps: {
                 identityRef: name,
               };
             }
-            if (hit === undefined) throw new LLMConfigurationCredentialUnavailableError(name);
+            if (hit === undefined) {
+              if (raw === undefined) throw new Error(`LLM configuration raw snapshot was not captured: ${configPath}`);
+              throw new LLMConfigurationCredentialUnavailableError({
+                kind: 'document',
+                revision: { id: String(raw.revision), revision: raw.revision },
+                targets: locateMissingCredentialTargets(raw, name),
+              });
+            }
             return hit.value;
           },
           validateRaw: (value) => {

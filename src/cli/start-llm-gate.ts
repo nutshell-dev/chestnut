@@ -22,7 +22,7 @@
 import * as readline from 'readline';
 import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
 type ApiFormat = llmProviderCatalog.ApiFormat;
-import type { LLMConfigurationAdmin, LLMProviderSlot } from '../core/llm-configuration/index.js';
+import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createAuthenticationCapability,
   LLMConfigurationCredentialUnavailableError,
@@ -386,26 +386,10 @@ async function verifyWithWizardResolved(
   return result.verified;
 }
 
-function providerContainsCredentialRef(value: unknown, ref: string): boolean {
-  if (typeof value === 'string') return value.includes(`\${${ref}}`);
-  if (Array.isArray(value)) return value.some(entry => providerContainsCredentialRef(entry, ref));
-  return value !== null && typeof value === 'object'
-    ? Object.values(value).some(entry => providerContainsCredentialRef(entry, ref))
-    : false;
-}
-
-function credentialSlots(document: ReturnType<LLMConfigurationAdmin['loadRaw']>['llm'], ref: string): LLMProviderSlot[] {
-  return [
-    ...(providerContainsCredentialRef(document.primary, ref) ? [{ role: 'primary' } as const] : []),
-    ...(document.fallbacks ?? []).flatMap((provider, index) =>
-      providerContainsCredentialRef(provider, ref) ? [{ role: 'fallback', index } as const] : []),
-  ];
-}
-
 function nonInteractiveCredentialError(error: LLMConfigurationCredentialUnavailableError): CliError {
   return new CliError(
-    `LLM credential unavailable (${error.ref}); start aborted before supervision. ` +
-    'Repair it with "chestnut config provider repair <reference>".',
+    'LLM credential unavailable; start aborted before supervision. ' +
+    'Repair the affected provider with "chestnut config provider repair <label>".',
     { code: START_GATE_EXIT_CODE, cause: error },
   );
 }
@@ -414,14 +398,16 @@ async function repairCredentialInteractively(
   deps: GateDeps,
   error: LLMConfigurationCredentialUnavailableError,
 ): Promise<'retry' | 'cancel'> {
-  // Capture the same raw revision/target identity that will guide the whole interaction.
+  if (error.context.kind !== 'document') throw error;
+  // Display details may be re-read only after proving they belong to the failed document.
   const config = deps.llmConfiguration.loadRaw();
-  const slots = credentialSlots(config.llm, error.ref);
-  if (slots.length === 0) throw error;
+  if (config.revision.id !== error.context.revision.id) return 'retry';
+  const targets = error.context.targets;
+  if (targets.length === 0) throw error;
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     for (;;) {
-      console.error(`LLM credential unavailable (${error.ref}). The workspace structure is valid.`);
+      console.error('LLM credential unavailable. The workspace structure is valid.');
       console.log('1. Repair provider');
       console.log('2. Retry full verification');
       console.log('n. Cancel start');
@@ -432,20 +418,23 @@ async function repairCredentialInteractively(
         console.log('Invalid choice.');
         continue;
       }
-      let slot = slots[0]!;
-      if (slots.length > 1) {
-        console.log('The reference is used by multiple providers; choose one target:');
-        slots.forEach((candidate, index) => {
-          console.log(`${index + 1}. ${candidate.role}${candidate.role === 'fallback' ? `[${candidate.index}]` : ''}`);
+      let target = targets[0]!;
+      if (targets.length > 1) {
+        console.log('The credential is used by multiple providers; choose one target:');
+        targets.forEach((candidate, index) => {
+          const slot = candidate.slot;
+          console.log(`${index + 1}. ${slot.role}${slot.role === 'fallback' ? `[${slot.index}]` : ''}`);
         });
         const selected = Number.parseInt(await ask(rl, '> '), 10) - 1;
-        if (!slots[selected]) {
+        if (!targets[selected]) {
           console.log('Invalid choice.');
           continue;
         }
-        slot = slots[selected];
+        target = targets[selected];
       }
-      await repairProviderSlot(deps, slot, rl, providerRepairBaselineForSlot(config, slot));
+      await repairProviderSlot(
+        deps, target.slot, rl, providerRepairBaselineForSlot(config, target.slot),
+      );
       return 'retry';
     }
   } finally {

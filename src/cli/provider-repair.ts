@@ -137,7 +137,7 @@ function reportRemainingCredentialFailures(deps: ProviderRepairDeps): void {
     deps.llmConfiguration.store.readSnapshot();
   } catch (error) {
     if (error instanceof LLMConfigurationCredentialUnavailableError) {
-      console.error(`⚠ Target saved, but the full LLM configuration is not ready: credential unavailable (${error.ref}).`);
+      console.error('⚠ Target saved, but the full LLM configuration is not ready: credential unavailable.');
       return;
     }
     console.error(`⚠ Target saved, but the full runtime readiness check failed: ${formatErr(error)}`);

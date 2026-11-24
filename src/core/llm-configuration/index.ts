@@ -81,6 +81,11 @@ export {
   snapshotLLMProviderTarget,
 } from './provider-repair.js';
 export type { LLMProviderSnapshot } from './provider-repair.js';
+export type {
+  MissingCredentialContext,
+  MissingCredentialField,
+  MissingCredentialTarget,
+} from './credential-errors.js';
 export {
   createLLMApplicationStore,
   createLLMNotificationStore,
