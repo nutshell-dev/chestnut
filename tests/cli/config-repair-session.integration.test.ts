@@ -24,6 +24,9 @@ import { cleanupTempDir, createTrackedTempDirSync, untrackTempDir } from '../uti
 const EXIT_WAIT_TIMEOUT_MS = 5_000;
 const SESSION_TIMEOUT_TEST_MS = 1_000;
 const EXIT_POLL_MS = 10;
+const HTTP_REQUEST_WAIT_TIMEOUT_MS = 5_000;
+const HTTP_REQUEST_POLL_MS = 10;
+const HTTP_PORT_REFUSED_TIMEOUT_MS = 1_000;
 const isolatedHosts: Array<{ host: string; runRoot: string }> = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
 
@@ -79,10 +82,10 @@ function startHangingRequest(baseUrl: string): Promise<void> {
 }
 
 async function waitForRequest(server: ConfigRepairServer): Promise<void> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + HTTP_REQUEST_WAIT_TIMEOUT_MS;
   while (server.requests.length === 0) {
     if (Date.now() >= deadline) throw new Error('HTTP fixture did not record the request');
-    await new Promise<void>(resolve => setTimeout(resolve, 10));
+    await new Promise<void>(resolve => setTimeout(resolve, HTTP_REQUEST_POLL_MS));
   }
 }
 
@@ -97,7 +100,7 @@ async function expectPortRefused(port: number): Promise<void> {
       if (error) reject(error);
       else resolve();
     };
-    socket.setTimeout(1_000);
+    socket.setTimeout(HTTP_PORT_REFUSED_TIMEOUT_MS);
     socket.once('connect', () => { finish(new Error(`fixture port ${port} still accepts connections`)); });
     socket.once('timeout', () => { finish(new Error(`fixture port ${port} did not refuse promptly`)); });
     socket.once('error', error => {
