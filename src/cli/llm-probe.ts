@@ -129,7 +129,8 @@ export async function probeLLMConnection(
       ok: false,
       errorType: classifyLLMErrorForDisplay(err),
       message: formatErr(err),
-      provider: llmProviderCall.describeProviderInput(snapshot.config.primary.input).providerId,
+      provider: snapshot.config.primary.displayName
+        ?? llmProviderCall.describeProviderInput(snapshot.config.primary.input).providerId,
       identity: snapshot.identity,
     };
   } finally {

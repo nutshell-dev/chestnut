@@ -37,7 +37,7 @@ function providerConnection() {
 function snapshot(): Parameters<typeof probeLLMConnection>[0] {
   return {
     config: {
-      primary: providerConnection(),
+      primary: { input: providerConnection(), callDefaults: {}, displayName: 'p' },
       fallbacks: [],
       retry: { maxAttempts: 3, delayMs: 1000 },
     },
@@ -50,11 +50,13 @@ const probes = [
     name: 'probeLLMConnection',
     run: () => probeLLMConnection(snapshot()),
     expectedSuccess: { ok: true, model: 'm', identity: 'snapshot-id' },
+    expectedProvider: 'p',
   },
   {
     name: 'checkLLMConnectionFor',
     run: () => checkLLMConnectionFor(providerConnection()),
     expectedSuccess: { ok: true, model: 'm' },
+    expectedProvider: 'api.test.invalid',
   },
 ] as const;
 
@@ -64,7 +66,7 @@ beforeEach(() => {
   mocks.create.mockReset().mockReturnValue({ call: mocks.call, close: mocks.close });
 });
 
-describe.each(probes)('$name lifecycle', ({ run, expectedSuccess }) => {
+describe.each(probes)('$name lifecycle', ({ run, expectedSuccess, expectedProvider }) => {
   it('closes exactly once after a successful call', async () => {
     await expect(run()).resolves.toEqual(expectedSuccess);
     expect(mocks.call).toHaveBeenCalledOnce();
@@ -77,7 +79,7 @@ describe.each(probes)('$name lifecycle', ({ run, expectedSuccess }) => {
   it('closes exactly once after a classified call failure', async () => {
     mocks.call.mockRejectedValue(new LLMModelNotFoundError('p', 'm', 'missing'));
     const result = await run();
-    expect(result).toMatchObject({ ok: false, errorType: 'model', provider: 'p' });
+    expect(result).toMatchObject({ ok: false, errorType: 'model', provider: expectedProvider });
     expect(mocks.close).toHaveBeenCalledOnce();
   });
 
