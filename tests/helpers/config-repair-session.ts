@@ -221,7 +221,9 @@ export class ConfigRepairSessionError extends Error {
 }
 
 export interface SessionOptions {
-  readonly mode?: 'cli' | 'finite' | 'orphan' | 'final-output' | 'single-prompt';
+  readonly mode?: 'cli' | 'finite' | 'orphan' | 'final-output' | 'single-prompt'
+    | 'split-prompt' | 'ignore-term' | 'hold-wrapper' | 'no-ready'
+    | 'bad-ready-json' | 'bad-ready-schema' | 'bad-ready-cwd';
   readonly lifetimeMs?: number;
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;
@@ -233,6 +235,8 @@ export interface SessionOptions {
   readonly captureTarget?: typeof captureExecutionTarget;
   readonly observeTarget?: typeof observeExecutionTarget;
   readonly terminateTarget?: typeof terminateExecutionTarget;
+  /** Test-only wrapper boundary; worker termination remains independently injectable. */
+  readonly terminateWrapper?: typeof terminateExecutionTarget;
 }
 
 function shellQuote(value: string): string {
@@ -247,6 +251,14 @@ function spawnPty(command: string[], env: NodeJS.ProcessEnv, cwd: string): Child
 }
 
 type CaptureAction = 'continue' | 'observe_only' | 'finish_unconfirmed';
+
+function assertNotCallerProcessGroup(identity: { leaderPid: number; processGroupId: number }): void {
+  const callerPgid = (process as NodeJS.Process & { pgid?: number }).pgid;
+  if (identity.leaderPid === process.pid || identity.processGroupId === process.pid
+    || identity.leaderPid === callerPgid || identity.processGroupId === callerPgid) {
+    throw new Error(`Refusing to signal the caller's own process group: ${JSON.stringify(identity)}`);
+  }
+}
 
 function captureAction(capture: ExecutionTargetCapture): CaptureAction {
   switch (capture.kind) {
@@ -436,11 +448,11 @@ export async function runConfigRepairSession(
   } catch (error) {
     return throwBeforeStart(baseResult, 'PTY spawn failed', error);
   }
-
   const deadline = Date.now() + (options.timeoutMs ?? CLI_CHILD_TIMEOUT_MS);
   const captureTarget = options.captureTarget ?? captureExecutionTarget;
   const observeTarget = options.observeTarget ?? observeExecutionTarget;
   const terminateTarget = options.terminateTarget ?? terminateExecutionTarget;
+  const terminateWrapper = options.terminateWrapper ?? terminateExecutionTarget;
   let stdout = '';
   let stderr = '';
   let status: number | null = null;
@@ -695,10 +707,9 @@ export async function runConfigRepairSession(
 
   if (child.pid !== undefined) {
     try {
-      wrapperCapture = captureExecutionTarget({
-        leaderPid: child.pid,
-        processGroupId: child.pid,
-      });
+      const identity = { leaderPid: child.pid, processGroupId: child.pid };
+      assertNotCallerProcessGroup(identity);
+      wrapperCapture = captureExecutionTarget(identity);
       recordAttempt('wrapper', 'capture', wrapperCapture);
     } catch (error) {
       recordError('wrapper.capture', error);
@@ -719,7 +730,9 @@ export async function runConfigRepairSession(
     );
     ready = validateReady(readyRaw, mode, workspace.root);
     try {
-      capture = captureTarget({ leaderPid: ready.pid, processGroupId: ready.processGroupId });
+      const identity = { leaderPid: ready.pid, processGroupId: ready.processGroupId };
+      assertNotCallerProcessGroup(identity);
+      capture = captureTarget(identity);
       recordAttempt('worker_group', 'capture', capture);
     } catch (error) {
       recordError('worker_group.capture', error);
@@ -800,7 +813,7 @@ export async function runConfigRepairSession(
       observeWrapper();
       if (wrapperObservation?.kind !== 'gone') {
         try {
-          wrapperTermination = await terminateExecutionTarget(wrapperCapture.target, 'caller_requested');
+          wrapperTermination = await terminateWrapper(wrapperCapture.target, 'caller_requested');
           recordAttempt('wrapper', 'terminate', wrapperTermination);
         } catch (error) {
           recordError('wrapper.terminate', error);
@@ -990,6 +1003,10 @@ export interface ConfigRepairServer {
 }
 
 interface ConfigRepairServerOptions {
+  /** Test-only real-listen boundary, used to occupy a selected port for EADDRINUSE. */
+  readonly listen?: (server: http.Server, onListening: () => void) => void;
+  /** Test-only observation of the real server for deterministic event/close faults. */
+  readonly onListening?: (server: http.Server) => void;
   /** Test-only delivery boundary; the listener and its sockets are always real. */
   readonly readAddress?: (server: http.Server) => ReturnType<http.Server['address']>;
   /** Test-only request persistence boundary. */
@@ -1247,12 +1264,15 @@ export async function startConfigRepairServer(
     await new Promise<void>((resolve, reject) => {
       const onStartupError = (error: Error): void => { reject(error); };
       server.once('error', onStartupError);
-      server.listen(0, '127.0.0.1', () => {
+      const onListening = (): void => {
         server.off('error', onStartupError);
         closeFacts.state = 'listening';
         resolve();
-      });
+      };
+      if (options.listen) options.listen(server, onListening);
+      else server.listen(0, '127.0.0.1', onListening);
     });
+    options.onListening?.(server);
     const address = (options.readAddress ?? (owned => owned.address()))(server);
     if (address === null || typeof address === 'string') throw new Error('integration server has no port');
     return {

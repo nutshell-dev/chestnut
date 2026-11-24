@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import {
   ConfigRepairSessionError,
   createConfigRepairWorkspace,
@@ -17,6 +18,7 @@ import {
 import {
   captureExecutionTarget,
   terminateExecutionTarget,
+  type ExecutionTargetCapture,
 } from '../../src/foundation/process-exec/index.js';
 import { inspectRetention } from '../utils/resource-retention.js';
 import { cleanupTempDir, createTrackedTempDirSync, untrackTempDir } from '../utils/temp.js';
@@ -27,6 +29,8 @@ const EXIT_POLL_MS = 10;
 const HTTP_REQUEST_WAIT_TIMEOUT_MS = 5_000;
 const HTTP_REQUEST_POLL_MS = 10;
 const HTTP_PORT_REFUSED_TIMEOUT_MS = 1_000;
+const EXTERNAL_CONSUMER_TIMEOUT_MS = 10_000;
+const RECLAIM_STALE_AGE_MS = 11 * 60 * 1000;
 const isolatedHosts: Array<{ host: string; runRoot: string }> = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
 
@@ -37,6 +41,22 @@ function useIsolatedRunRoot(): string {
   fs.mkdirSync(runRoot);
   process.env.CHESTNUT_RUN_ROOT = runRoot;
   return runRoot;
+}
+
+function externalGlobalSetupModuleUrl(runRoot: string): string {
+  const configDir = path.join(runRoot, '.config');
+  const utilsDir = path.join(runRoot, 'tests', 'utils');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(utilsDir, { recursive: true });
+  const globalSetup = fs.readFileSync(
+    path.resolve(__dirname, '../../.config/vitest-global-setup.ts'), 'utf8',
+  ).replace('../tests/utils/resource-retention.js', '../tests/utils/resource-retention.ts');
+  fs.writeFileSync(path.join(configDir, 'vitest-global-setup.ts'), globalSetup);
+  fs.copyFileSync(
+    path.resolve(__dirname, '../utils/resource-retention.ts'),
+    path.join(utilsDir, 'resource-retention.ts'),
+  );
+  return pathToFileURL(path.join(configDir, 'vitest-global-setup.ts')).href;
 }
 
 function httpFixtureDirs(runRoot: string): string[] {
@@ -111,12 +131,52 @@ async function expectPortRefused(port: number): Promise<void> {
 }
 
 async function reapIdentity(identity: { leaderPid: number; processGroupId: number }): Promise<void> {
+  const callerPgid = (process as NodeJS.Process & { pgid?: number }).pgid;
+  if (identity.leaderPid === process.pid || identity.processGroupId === process.pid
+    || identity.leaderPid === callerPgid || identity.processGroupId === callerPgid) {
+    throw new Error(`Refusing independent reaper access to the caller's own group: ${JSON.stringify(identity)}`);
+  }
   const capture = captureExecutionTarget(identity);
+  if (capture.kind === 'gone') return;
   if (!('target' in capture)) throw new Error(`controlled session identity cannot be reaped: ${capture.kind}`);
   const terminal = await terminateExecutionTarget(capture.target, 'caller_requested');
-  if (terminal.status !== 'gone') {
-    throw new Error(`controlled session did not reach a terminal state: ${terminal.status}`);
+  if (terminal.status === 'gone') return;
+
+  const confirmed = captureExecutionTarget(identity);
+  if (confirmed.kind === 'gone') return;
+  if (confirmed.kind !== 'captured') {
+    throw new AggregateError([terminal, confirmed], 'Independent reaper could not reconfirm the owned target');
   }
+  try {
+    process.kill(identity.leaderPid, 'SIGKILL');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+  const deadline = Date.now() + EXIT_WAIT_TIMEOUT_MS;
+  for (;;) {
+    const current = captureExecutionTarget(identity);
+    if (current.kind === 'gone') return;
+    if (Date.now() >= deadline) {
+      throw new AggregateError([terminal, current], 'Independent reaper did not confirm group exit');
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, EXIT_POLL_MS));
+  }
+}
+
+function indeterminateTermination(
+  target: Parameters<typeof terminateExecutionTarget>[0],
+  reason: string,
+) {
+  return {
+    status: 'indeterminate' as const,
+    identity: { leaderPid: target.leaderPid, processGroupId: target.processGroupId },
+    trigger: 'caller_requested' as const,
+    termSent: true,
+    killSent: true,
+    checkedAt: new Date().toISOString(),
+    reason,
+    evidence: { version: 1 as const, atMs: Date.now(), facts: [] },
+  };
 }
 
 async function reapControlledSession(
@@ -128,9 +188,13 @@ async function reapControlledSession(
   if (result.ready) {
     identities.push({ leaderPid: result.ready.pid, processGroupId: result.ready.processGroupId });
   } else {
+    const sidecar = path.join(workspace.root, 'worker-identity.json');
     const readyFile = fs.readdirSync(workspace.root).find(name => name.startsWith('.session-ready-'));
-    if (readyFile) {
-      const ready = JSON.parse(fs.readFileSync(path.join(workspace.root, readyFile), 'utf8')) as {
+    const identityFile = fs.existsSync(sidecar)
+      ? sidecar
+      : readyFile ? path.join(workspace.root, readyFile) : undefined;
+    if (identityFile) {
+      const ready = JSON.parse(fs.readFileSync(identityFile, 'utf8')) as {
         pid: number;
         processGroupId: number;
       };
@@ -1027,6 +1091,810 @@ describe('config repair session process lifecycle', () => {
       });
     } finally {
       discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+});
+
+
+describe('Phase 2237 Z04 HTTP lifecycle regressions', () => {
+  it('C22 preserves evidence after a real listen EADDRINUSE failure', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const blocker = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(0, '127.0.0.1', () => {
+        blocker.off('error', reject);
+        resolve();
+      });
+    });
+    const address = blocker.address();
+    if (address === null || typeof address === 'string') throw new Error('listen blocker has no port');
+    let closeConfirmed = false;
+    try {
+      const failure = await startConfigRepairServer({
+        listen: (server, onListening) => server.listen(address.port, '127.0.0.1', onListening),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toMatchObject({ code: 'EADDRINUSE' });
+      expect(failure.evidence.closeFacts.callback).toBe('not_listening');
+      closeConfirmed = failure.evidence.state === 'closed';
+      expect(closeConfirmed).toBe(true);
+      const [fixtureDir] = httpFixtureDirs(runRoot);
+      expect(inspectRetention(runRoot, fixtureDir)).toMatchObject({
+        kind: 'preserve', reasons: ['http_fixture_failed'],
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        blocker.close(error => error ? reject(error) : resolve());
+      });
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('C22 aggregates real socket and running server error events before closing', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const socketFault = new Error('controlled running socket error');
+    const serverFault = new Error('controlled running server error');
+    let connected!: net.Socket;
+    let owned!: http.Server;
+    let connection!: Promise<void>;
+    const server = await startConfigRepairServer({
+      onListening: instance => {
+        owned = instance;
+        connection = new Promise<void>(resolve => {
+          instance.once('connection', socket => {
+            connected = socket;
+            resolve();
+          });
+        });
+      },
+    });
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    const client = net.connect({ host: '127.0.0.1', port: Number(new URL(server.baseUrl).port) });
+    let closeConfirmed = false;
+    try {
+      await connection;
+      connected.emit('error', socketFault);
+      owned.emit('error', serverFault);
+      const failure = await server.close().catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(socketFault);
+      expect(failure.errors).toContain(serverFault);
+      expect(failure.evidence.errors).toEqual(expect.arrayContaining([
+        { operation: 'socket.error', error: socketFault },
+        { operation: 'server.error', error: serverFault },
+      ]));
+      closeConfirmed = failure.evidence.state === 'closed';
+      expect(closeConfirmed).toBe(true);
+      expect(inspectRetention(runRoot, fixtureDir)).toMatchObject({
+        kind: 'preserve', reasons: ['http_fixture_failed'],
+      });
+    } finally {
+      client.destroy();
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('C22 keeps close failure first when retained publication also fails', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const closeFault = new Error('controlled server close callback failure');
+    let port = 0;
+    const server = await startConfigRepairServer({
+      onListening: instance => {
+        const address = instance.address();
+        if (address === null || typeof address === 'string') throw new Error('server has no port');
+        port = address.port;
+        const actualClose = instance.close.bind(instance);
+        instance.close = ((callback?: (error?: Error) => void) => actualClose(
+          () => callback?.(closeFault),
+        )) as http.Server['close'];
+      },
+    });
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    const retentionPath = path.join(runRoot, 'test-resource-failures.jsonl');
+    fs.rmSync(retentionPath);
+    fs.mkdirSync(retentionPath);
+    let closeConfirmed = false;
+    try {
+      const failure = await server.close().catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(closeFault);
+      expect(failure.errors[0]).toBeInstanceOf(AggregateError);
+      expect(failure.errors[0].cause).toBe(closeFault);
+      expect(failure.errors[1]).toMatchObject({ name: 'RetentionWriteError' });
+      expect(failure.evidence.errors).toContainEqual({ operation: 'server.close', error: closeFault });
+      expect(failure.evidence.closeFacts.callback).toBe('error');
+      await expectPortRefused(port);
+      closeConfirmed = true;
+      expect(fs.existsSync(fixtureDir)).toBe(true);
+    } finally {
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('C22 records a close callback arriving after the observation deadline', async () => {
+    const runRoot = useIsolatedRunRoot();
+    let port = 0;
+    let releaseClose: (() => void) | undefined;
+    let released = false;
+    const server = await startConfigRepairServer({
+      onListening: instance => {
+        const address = instance.address();
+        if (address === null || typeof address === 'string') throw new Error('server has no port');
+        port = address.port;
+        const actualClose = instance.close.bind(instance);
+        instance.close = ((callback?: (error?: Error) => void) => {
+          releaseClose = () => {
+            released = true;
+            callback?.();
+          };
+          return actualClose(() => { /* hold only the callback past the deadline */ });
+        }) as http.Server['close'];
+      },
+    });
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    let closeConfirmed = false;
+    try {
+      const failure = await server.close().catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.evidence.state).toBe('unconfirmed');
+      expect(failure.evidence.closeFacts.callback).toBe('deadline');
+      expect(failure.evidence.errors.some((entry: { operation: string }) =>
+        entry.operation === 'server.close_deadline')).toBe(true);
+      await expectPortRefused(port);
+      expect(releaseClose).toBeDefined();
+      releaseClose!();
+      closeConfirmed = true;
+      const record = fs.readFileSync(path.join(runRoot, 'test-resource-failures.jsonl'), 'utf8');
+      expect(record).toContain('"event":"close_callback"');
+      expect(record).toContain('"lateFact"');
+      expect(fs.existsSync(fixtureDir)).toBe(true);
+    } finally {
+      if (!released) releaseClose?.();
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+});
+
+
+describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
+  it('C02 honors abort after spawn returns but before the ready wait begins', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const controller = new AbortController();
+    const primary = new Error('controlled spawn-return listener-window abort');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
+        spawnPty: (_command, env, cwd) => {
+          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+            cwd, env, detached: true, stdio: 'pipe',
+          });
+          controller.abort(primary);
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.firstStop).toEqual({ reason: 'session cancelled by caller', cause: primary });
+      expect(result.ready).toBeUndefined();
+      expect(result.wrapper.close.kind).toBe('closed');
+    } finally {
+      if (result?.wrapper.capture && 'target' in result.wrapper.capture) {
+        await reapIdentity(result.wrapper.capture.target);
+      }
+      if (result?.wrapper.close.kind === 'closed') discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C03 handles an asynchronous child error before ready without losing the cause', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled asynchronous child error');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        spawnPty: (_command, env, cwd) => {
+          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+            cwd, env, detached: true, stdio: 'pipe',
+          });
+          queueMicrotask(() => child.emit('error', primary));
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.firstStop).toEqual({ reason: 'PTY wrapper emitted error', cause: primary });
+      expect(result.errors).toContainEqual({ operation: 'wrapper.error', error: primary });
+      expect(result.ready).toBeUndefined();
+      expect(result.wrapper.close.kind).toBe('closed');
+    } finally {
+      if (result?.wrapper.capture && 'target' in result.wrapper.capture) {
+        await reapIdentity(result.wrapper.capture.target);
+      }
+      if (result?.wrapper.close.kind === 'closed') discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C03 records the no-PID fact before a controlled asynchronous spawn error', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        spawnPty: (_command, env, cwd) => {
+          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+            cwd, env, detached: true, stdio: 'pipe',
+          });
+          Object.defineProperty(child, 'pid', { value: undefined });
+          const fault = Object.assign(new Error('controlled asynchronous spawn ENOENT'), { code: 'ENOENT' });
+          queueMicrotask(() => child.emit('error', fault));
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.firstStop?.reason).toBe('PTY wrapper has no process identity');
+      expect(result.errors.some(entry => entry.operation === 'wrapper.error'
+        && (entry.error as NodeJS.ErrnoException).code === 'ENOENT')).toBe(true);
+      expect(result.wrapper.capture).toBeUndefined();
+      expect(result.ready).toBeUndefined();
+      expect(result.wrapper.close.kind).toBe('closed');
+      expect(fs.readFileSync(result.evidencePath, 'utf8')).toContain('ENOENT');
+    } finally {
+      if (result?.wrapper.close.kind === 'closed') discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C03 reports a real child close before any ready file appears', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        spawnPty: (_command, env, cwd) => spawn(process.execPath, ['-e', 'process.exit(0)'], {
+          cwd, env, detached: true, stdio: 'pipe',
+        }),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.firstStop?.reason).toBe('PTY wrapper closed before publishing a valid ready identity');
+      expect(result.firstStop?.cause).toBeInstanceOf(Error);
+      expect(result.status).toBe(0);
+      expect(result.ready).toBeUndefined();
+      expect(result.wrapper.close).toMatchObject({ kind: 'closed', status: 0 });
+      expect(fs.existsSync(result.evidencePath)).toBe(true);
+    } finally {
+      if (result?.wrapper.capture && 'target' in result.wrapper.capture) {
+        await reapIdentity(result.wrapper.capture.target);
+      }
+      if (result?.wrapper.close.kind === 'closed') discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C04 times out a missing ready file and independently reaps its sidecar identity', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'no-ready', lifetimeMs: 30_000,
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(failure.cause).toBeInstanceOf(Error);
+      expect((failure.cause as Error).message).toContain('ready handshake timed out');
+      expect(result.ready).toBeUndefined();
+      expect(result.execution.capture).toBeUndefined();
+      expect(fs.existsSync(path.join(workspace.root, 'worker-identity.json'))).toBe(true);
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it.each([
+    ['bad-ready-json', 'Unexpected end of JSON input'],
+    ['bad-ready-schema', 'PTY ready identity failed validation'],
+    ['bad-ready-cwd', 'PTY fixture cwd mismatch'],
+  ] as const)('C04 rejects %s without signalling its unvalidated ready identity', async (mode, message) => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode, lifetimeMs: 30_000,
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(failure.cause).toBeInstanceOf(Error);
+      expect((failure.cause as Error).message).toContain(message);
+      expect(result.ready).toBeUndefined();
+      expect(result.execution.capture).toBeUndefined();
+      expect(result.execution.termination).toBeUndefined();
+      expect(fs.existsSync(path.join(workspace.root, 'worker-identity.json'))).toBe(true);
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it.each(['gone', 'unknown'] as const)('C06 preserves a gone capture with %s group observation', async observed => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error(`controlled gone capture/${observed} observation`);
+    let result: ConfigRepairSessionResult | undefined;
+    let captureEvidence: Extract<ExecutionTargetCapture, { kind: 'captured' }>['evidence'] | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          captureEvidence = captured.evidence;
+          return { kind: 'gone', target: captured.target, evidence: captured.evidence };
+        },
+        observeTarget: target => {
+          if (!captureEvidence) throw new Error('controlled capture evidence was not installed');
+          return observed === 'gone'
+            ? { kind: 'gone', reason: 'absent', target, evidence: captureEvidence }
+            : { kind: 'unknown', reason: 'controlled_unknown_observation', target, evidence: captureEvidence };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.capture?.kind).toBe('gone');
+      expect(result.execution.observation?.kind).toBe(observed);
+      expect(result.execution.termination).toBeUndefined();
+      expect(result.execution.kind).toBe(observed === 'gone' ? 'gone' : 'unconfirmed');
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C08 records observe API throws and still attempts worker termination', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled primary before observe throws');
+    const observeFault = new Error('controlled observe API throw');
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        observeTarget: () => { throw observeFault; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.errors.filter(entry =>
+        entry.operation === 'worker_group.observe' && entry.error === observeFault)).toHaveLength(2);
+      expect(result.execution.termination?.status).toBe('gone');
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(fs.readFileSync(result.evidencePath, 'utf8')).toContain(observeFault.message);
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+
+  it('C11 escalates a real ignored SIGTERM to SIGKILL through the PTY receiver', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled stop for ignored TERM');
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'ignore-term', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.execution.termination).toMatchObject({
+        status: 'gone', termSent: true, killSent: true,
+      });
+      expect(failure.result.execution.kind).toBe('gone');
+      expect(fs.existsSync(failure.result.exitedPath)).toBe(false);
+    });
+  });
+
+  it('C12 retains only the wrapper when the worker is gone and streams close', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled worker-gone wrapper-hold stop');
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'hold-wrapper', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        terminateWrapper: async target => indeterminateTermination(target, 'controlled_wrapper_hold'),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.kind).toBe('gone');
+      expect(result.execution.termination?.status).toBe('gone');
+      expect(result.wrapper.close).toMatchObject({ kind: 'unconfirmed', reason: 'deadline' });
+      expect(result.wrapper.termination?.status).toBe('indeterminate');
+      expect(Object.values(result.streams).every(stream => stream.close.kind === 'closed')).toBe(true);
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['unconfirmed_wrapper'],
+      });
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C13 stops on a stdin write callback error without advancing the answer', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled stdin write callback error');
+      const failure = await runConfigRepairSession(workspace, [], [
+        { prompt: /PROMPT>/, value: 'not-written' },
+      ], new AbortController().signal, false, {
+        mode: 'single-prompt', lifetimeMs: 30_000,
+        spawnPty: (command, env, cwd) => {
+          const child = spawn(command[0], command.slice(1), { cwd, env, detached: true, stdio: 'pipe' });
+          child.stdin.write = ((...args: any[]) => {
+            const callback = [...args].reverse().find(arg => typeof arg === 'function') as
+              ((error?: Error | null) => void) | undefined;
+            queueMicrotask(() => callback?.(primary));
+            return true;
+          }) as typeof child.stdin.write;
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.firstStop).toEqual({ reason: 'PTY stdin write callback failed', cause: primary });
+      expect(failure.result.errors).toContainEqual({ operation: 'stdin.write_callback', error: primary });
+      expect(failure.message).toContain('answer 0/1');
+      expect(failure.result.execution.kind).toBe('gone');
+    });
+  });
+
+  it('C13 routes a real stdin stream error event through the same cleanup', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled stdin stream error');
+      const failure = await runConfigRepairSession(workspace, [], [
+        { prompt: /PROMPT>/, value: 'must-not-be-written' },
+      ], new AbortController().signal, false, {
+        mode: 'single-prompt', lifetimeMs: 30_000,
+        spawnPty: (command, env, cwd) => {
+          const child = spawn(command[0], command.slice(1), { cwd, env, detached: true, stdio: 'pipe' });
+          child.stdout.prependOnceListener('data', () => child.stdin.emit('error', primary));
+          return child;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.firstStop).toEqual({ reason: 'PTY stdin emitted error', cause: primary });
+      expect(failure.result.errors).toContainEqual({ operation: 'stdin.error', error: primary });
+      expect(failure.result.execution.kind).toBe('gone');
+      expect(fs.existsSync(path.join(workspace.root, 'input-observed.json'))).toBe(false);
+    });
+  });
+
+  it('C13 matches a prompt split across stdout chunks and writes exactly one answer', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const result = await runConfigRepairSession(workspace, [], [
+        { prompt: /PROMPT>/, value: 'split-answer' },
+      ], new AbortController().signal, false, {
+        mode: 'split-prompt', lifetimeMs: 5_000,
+        spawnPty: (command, env, cwd) => {
+          const child = spawn(command[0], command.slice(1), { cwd, env, detached: true, stdio: 'pipe' });
+          child.stdout.prependOnceListener('data', () => {
+            fs.writeFileSync(path.join(cwd, 'release-second-prompt-chunk'), 'release');
+          });
+          return child;
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(result.execution.kind).toBe('gone');
+      const input = JSON.parse(
+        fs.readFileSync(path.join(workspace.root, 'input-observed.json'), 'utf8'),
+      ) as string[];
+      expect(input).toHaveLength(1);
+      expect(input[0]).toBe('split-answer\n');
+    });
+  });
+
+  it('C14 preserves deterministic abort then child-error ordering', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const controller = new AbortController();
+      const primary = new Error('controlled first abort event');
+      const later = new Error('controlled second child error event');
+      let child: ReturnType<typeof spawn> | undefined;
+      const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        spawnPty: (command, env, cwd) => {
+          child = spawn(command[0], command.slice(1), { cwd, env, detached: true, stdio: 'pipe' });
+          return child;
+        },
+        onReady: () => {
+          controller.abort(primary);
+          child?.emit('error', later);
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.firstStop).toEqual({ reason: 'session cancelled by caller', cause: primary });
+      expect(failure.result.laterStops).toContainEqual({ reason: 'PTY wrapper emitted error', cause: later });
+      expect(failure.result.errors).toContainEqual({ operation: 'wrapper.error', error: later });
+      expect(failure.result.execution.kind).toBe('gone');
+    });
+  });
+
+  it('C14 persists error and close facts emitted after an unconfirmed return', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled stop before late wrapper facts');
+    const lateFault = new Error('controlled late wrapper error');
+    let child: ReturnType<typeof spawn> | undefined;
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'hold-wrapper', lifetimeMs: 30_000,
+        spawnPty: (command, env, cwd) => {
+          child = spawn(command[0], command.slice(1), { cwd, env, detached: true, stdio: 'pipe' });
+          return child;
+        },
+        onReady: () => { throw primary; },
+        terminateWrapper: async target => indeterminateTermination(target, 'controlled_late_fact_hold'),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.wrapper.close.kind).toBe('unconfirmed');
+      expect(result.retainedListeners).toEqual(expect.arrayContaining(['wrapper:error', 'wrapper:close']));
+      child?.emit('error', lateFault);
+      child?.emit('close', null, 'SIGKILL');
+      const evidence = fs.readFileSync(result.evidencePath, 'utf8');
+      expect(evidence).toContain(lateFault.message);
+      expect(evidence).toContain('"event": "close"');
+      const retention = fs.readFileSync(path.join(runRoot, 'test-resource-failures.jsonl'), 'utf8');
+      expect(retention).toContain(lateFault.message);
+      expect(retention).toContain('"lateFact"');
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C16 retains primary, worker termination, and wrapper termination errors together', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled C16 primary');
+    const workerFault = new Error('controlled C16 worker termination error');
+    const wrapperFault = new Error('controlled C16 wrapper termination error');
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'hold-wrapper', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        terminateTarget: async () => { throw workerFault; },
+        terminateWrapper: async () => { throw wrapperFault; },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.errors).toEqual(expect.arrayContaining([
+        { operation: 'worker_group.terminate', error: workerFault },
+        { operation: 'wrapper.terminate', error: wrapperFault },
+      ]));
+      const evidence = fs.readFileSync(result.evidencePath, 'utf8');
+      expect(evidence).toContain(primary.message);
+      expect(evidence).toContain(workerFault.message);
+      expect(evidence).toContain(wrapperFault.message);
+      await reapControlledSession(workspace, result);
+      reaped = true;
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+
+  it('C18 preserves remaining bytes and the original deletion failure', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const deletionFault = Object.assign(new Error('controlled workspace rm EIO'), { code: 'EIO' });
+    const sentinel = path.join(workspace.home, 'remaining-after-rm-failure');
+    fs.writeFileSync(sentinel, 'remaining-original-bytes');
+    const actualRm = fs.promises.rm.bind(fs.promises);
+    const rmSpy = vi.spyOn(fs.promises, 'rm').mockImplementation(async (target: any, ...args: any[]) => {
+      if (path.resolve(String(target)) === path.resolve(workspace.root)) {
+        fs.rmSync(path.join(workspace.root, '.chestnut', 'claws'), { recursive: true, force: true });
+        throw deletionFault;
+      }
+      return actualRm(target, ...args);
+    });
+    let discarded = false;
+    try {
+      const failure = await finishConfigRepairCase(workspace, async () => 42).catch(error => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure.cause).toBe(deletionFault);
+      expect(failure.message).toContain('Failed to clean up temp dir');
+      expect(fs.readFileSync(sentinel, 'utf8')).toBe('remaining-original-bytes');
+      expect(fs.existsSync(path.join(workspace.root, '.chestnut', 'claws'))).toBe(false);
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['test_failed'],
+      });
+      rmSpy.mockRestore();
+      discardControlledWorkspace(workspace);
+      discarded = true;
+    } finally {
+      rmSpy.mockRestore();
+      if (!discarded && !fs.existsSync(workspace.root)) untrackTempDir(workspace.root);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C19 independently reaps an unknown session without changing its original bytes', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const homeSentinel = path.join(workspace.home, 'unknown-session-home-bytes');
+    fs.writeFileSync(homeSentinel, Buffer.from([0, 1, 2, 255]));
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          return { ...captured, kind: 'unknown', reason: 'controlled_C19_unknown' };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      expect(result.execution.capture?.kind).toBe('unknown');
+      expect(result.execution.kind).toBe('unconfirmed');
+      expect(fs.existsSync(result.exitedPath)).toBe(false);
+      const readyFile = fs.readdirSync(workspace.root).find(name => name.startsWith('.session-ready-'));
+      expect(readyFile).toBeDefined();
+      const originalFiles = [
+        path.join(workspace.root, readyFile!),
+        result.evidencePath,
+        path.join(workspace.root, '.chestnut', 'config.yaml'),
+        homeSentinel,
+      ];
+      const originalBytes = originalFiles.map(file => fs.readFileSync(file));
+      expect(originalBytes[3]).toEqual(Buffer.from([0, 1, 2, 255]));
+
+      await cleanupTempDir(workspace.root);
+      originalFiles.forEach((file, index) => {
+        expect(fs.readFileSync(file)).toEqual(originalBytes[index]);
+      });
+      const owner = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
+      expect(owner.status).toBe(0);
+      const manifestPath = path.join(runRoot, 'manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        invocationId: 'controlled-C19-unknown-session',
+        pid: owner.pid,
+        worktree: path.join(runRoot, 'removed-worktree'),
+        startedAt: new Date().toISOString(),
+        runRoot,
+      }));
+      const teardownSource = `
+        import fs from 'node:fs';
+        import { createRunRootTeardown } from ${JSON.stringify(externalGlobalSetupModuleUrl(runRoot))};
+        const manifest = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+        await createRunRootTeardown(manifest)();
+      `;
+      const teardown = spawnSync(process.execPath, [
+        '--experimental-transform-types', '--input-type=module', '-e', teardownSource, manifestPath,
+      ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
+      expect(teardown.status, `${teardown.stdout}\n${teardown.stderr}`).toBe(1);
+      expect(teardown.stderr).toContain('unconfirmed_process_group');
+      originalFiles.forEach((file, index) => {
+        expect(fs.readFileSync(file)).toEqual(originalBytes[index]);
+      });
+
+      const stale = new Date(Date.now() - RECLAIM_STALE_AGE_MS);
+      fs.utimesSync(runRoot, stale, stale);
+      const reclaimSource = `
+        import { reclaimStaleRunRoots } from ${JSON.stringify(externalGlobalSetupModuleUrl(runRoot))};
+        reclaimStaleRunRoots(process.argv[1], 'next-invocation');
+      `;
+      const reclaim = spawnSync(process.execPath, [
+        '--experimental-transform-types', '--input-type=module', '-e', reclaimSource, path.dirname(runRoot),
+      ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
+      expect(reclaim.status, `${reclaim.stdout}\n${reclaim.stderr}`).toBe(0);
+      originalFiles.forEach((file, index) => {
+        expect(fs.readFileSync(file)).toEqual(originalBytes[index]);
+      });
+
+      await reapControlledSession(workspace, result);
+      reaped = true;
+      expect(captureExecutionTarget({
+        leaderPid: result.ready!.pid,
+        processGroupId: result.ready!.processGroupId,
+      }).kind).toBe('gone');
+      expect(fs.existsSync(result.exitedPath)).toBe(true);
+      originalFiles.forEach((file, index) => {
+        expect(fs.readFileSync(file)).toEqual(originalBytes[index]);
+      });
+    } finally {
+      if (reaped) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('C20 preserves the workspace when the independent reaper fails', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const reaperFault = Object.assign(new Error('controlled independent reaper EPERM'), { code: 'EPERM' });
+    const sentinel = path.join(workspace.home, 'preserve-after-reaper-failure');
+    fs.writeFileSync(sentinel, 'do-not-force-delete');
+    const actualKill = process.kill.bind(process);
+    let killSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let result: ConfigRepairSessionResult | undefined;
+    let reaped = false;
+    try {
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 30_000,
+        captureTarget: identity => {
+          const captured = captureExecutionTarget(identity);
+          if (captured.kind !== 'captured') throw new Error(`unexpected fixture capture: ${captured.kind}`);
+          return { ...captured, kind: 'unknown', reason: 'controlled_C20_unknown' };
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      result = (failure as ConfigRepairSessionError).result;
+      const workerPid = result.ready!.pid;
+      killSpy = vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: NodeJS.Signals | 0) => {
+        if ((pid === workerPid && signal === 0)
+          || (pid === -workerPid && (signal === 'SIGTERM' || signal === 'SIGKILL'))) throw reaperFault;
+        return actualKill(pid, signal);
+      });
+      const failedReap = await reapControlledSession(workspace, result).catch(error => error);
+      expect(failedReap).toBeInstanceOf(AggregateError);
+      expect(failedReap.errors.some((entry: unknown) => entry === reaperFault
+        || (typeof entry === 'object' && entry !== null && 'error' in entry && entry.error === reaperFault))).toBe(true);
+      expect(fs.readFileSync(sentinel, 'utf8')).toBe('do-not-force-delete');
+      expect(fs.existsSync(result.evidencePath)).toBe(true);
+      expect(captureExecutionTarget({ leaderPid: workerPid, processGroupId: workerPid }).kind).not.toBe('gone');
+
+      killSpy.mockRestore();
+      killSpy = undefined;
+      await reapControlledSession(workspace, result);
+      reaped = true;
+      expect(captureExecutionTarget({ leaderPid: workerPid, processGroupId: workerPid }).kind).toBe('gone');
+    } finally {
+      killSpy?.mockRestore();
+      if (reaped) discardControlledWorkspace(workspace);
+      else console.warn(`[test cleanup] Preserved workspace after unrecovered independent reaper: ${workspace.root}`);
       await cleanupTempDir(path.dirname(runRoot));
     }
   });
