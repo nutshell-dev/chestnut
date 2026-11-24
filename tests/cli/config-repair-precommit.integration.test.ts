@@ -21,12 +21,12 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  server.requests.length = 0;
+  server.resetRequests();
   server.setBehavior('sse');
 });
 
 afterAll(async () => {
-  await server.close();
+  if (server) await server.close();
 });
 
 function configPath(workspace: ConfigRepairWorkspace): string {

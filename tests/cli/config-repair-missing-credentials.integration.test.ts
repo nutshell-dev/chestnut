@@ -23,7 +23,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server.close();
+  if (server) await server.close();
 });
 
 function runInteractiveCli(
@@ -40,7 +40,7 @@ describe('real CLI missing-credential repair chain', () => {
   it('start fails before supervision, real Commander repair preserves the slot, and full raw/resolved reads recover', async context => {
     const workspace = createConfigRepairWorkspace(server.baseUrl);
     await finishConfigRepairCase(workspace, async () => {
-      server.requests.length = 0;
+      server.resetRequests();
       const failedStart = await runConfigRepairCli(
         workspace, ['start', '--non-interactive'], context.signal,
       );

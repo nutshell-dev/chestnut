@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as http from 'node:http';
+import type { Socket } from 'node:net';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 import { randomUUID } from 'node:crypto';
@@ -964,57 +965,290 @@ export interface ConfigRepairRequest {
 
 export interface ConfigRepairServer {
   readonly baseUrl: string;
-  readonly requests: ConfigRepairRequest[];
+  readonly requests: readonly ConfigRepairRequest[];
+  resetRequests(): void;
   setBehavior(behavior: ConfigRepairServerBehavior): void;
   close(): Promise<void>;
 }
 
-export async function startConfigRepairServer(): Promise<ConfigRepairServer> {
+interface ConfigRepairServerOptions {
+  /** Test-only delivery boundary; the listener and its sockets are always real. */
+  readonly readAddress?: (server: http.Server) => ReturnType<http.Server['address']>;
+  /** Test-only request persistence boundary. */
+  readonly appendRequest?: (recordPath: string, request: ConfigRepairRequest) => void;
+}
+
+type ConfigRepairServerState = 'created' | 'listening' | 'closing' | 'closed' | 'unconfirmed';
+const SERVER_CLOSE_TIMEOUT_MS = 5_000;
+
+export async function startConfigRepairServer(
+  options: ConfigRepairServerOptions = {},
+): Promise<ConfigRepairServer> {
+  const { dir, retention } = createScopedTempDirSync('config-repair-http-');
+  const requestLogPath = path.join(dir, 'requests.jsonl');
+  const appendRequest = options.appendRequest ?? ((recordPath: string, request: ConfigRepairRequest) => {
+    fs.appendFileSync(recordPath, `${JSON.stringify(request)}\n`, 'utf8');
+  });
   const requests: ConfigRepairRequest[] = [];
+  const ownerErrors: Array<{ operation: string; error: unknown }> = [];
+  const lateFacts: unknown[] = [];
+  const sockets = new Set<Socket>();
+  const socketClosures = new Map<Socket, Promise<void>>();
+  const closeFacts: {
+    state: ConfigRepairServerState;
+    callback: 'not_started' | 'not_listening' | 'pending' | 'closed' | 'error' | 'deadline';
+    callbackError?: unknown;
+    closeRequested: boolean;
+    closeAllConnections: boolean;
+    socketDisposals: Array<{ operation: string; outcome: unknown }>;
+    retentionCompleted: boolean;
+  } = {
+    state: 'created',
+    callback: 'not_started',
+    closeRequested: false,
+    closeAllConnections: false,
+    socketDisposals: [],
+    retentionCompleted: false,
+  };
   let behavior: ConfigRepairServerBehavior = 'sse';
+  let closing: Promise<void> | undefined;
+  let finalized = false;
+
+  const evidence = () => ({
+    state: closeFacts.state,
+    requests: [...requests],
+    closeFacts: { ...closeFacts, socketDisposals: [...closeFacts.socketDisposals] },
+    errors: [...ownerErrors],
+    lateFacts: [...lateFacts],
+  });
+  const persistLateFact = (fact: unknown): void => {
+    let recording: unknown;
+    try {
+      retention.retain({
+        code: 'http_fixture_failed',
+        error: fact,
+        evidence: { ...evidence(), lateFact: fact },
+      });
+    } catch (error) {
+      recording = error;
+    }
+    if (recording !== undefined) {
+      // EventEmitter callbacks have no caller to throw into. Keep both facts visible.
+      console.error('Failed to persist late HTTP fixture fact', encodeEvidence({ fact, recording }));
+    }
+  };
+  const recordLate = (resource: string, event: string, value?: unknown): void => {
+    const fact = { at: new Date().toISOString(), resource, event, value };
+    lateFacts.push(fact);
+    if (finalized) persistLateFact(fact);
+  };
+  const recordError = (operation: string, error: unknown): void => {
+    if (!ownerErrors.some(entry => entry.operation === operation && entry.error === error)) {
+      ownerErrors.push({ operation, error });
+    }
+  };
+  const fail = (operation: string, error: unknown): void => {
+    recordError(operation, error);
+    recordLate('owner', 'error', { operation, error });
+    if (!finalized) void closeOnce();
+  };
+
+  function closeOnce(): Promise<void> {
+    if (closing === undefined) {
+      closing = closeOwnedServer();
+      // Attach rejection handling immediately, while returning the original promise
+      // to every caller so afterAll observes the exact same settlement.
+      void closing.catch(error => { recordLate('close', 'rejected', error); });
+    }
+    return closing;
+  }
+
   const server = http.createServer((request, response) => {
+    request.on('error', error => { fail('request.error', error); });
+    response.on('error', error => { fail('response.error', error); });
     let body = '';
     request.setEncoding('utf8');
     request.on('data', chunk => { body += chunk; });
     request.on('end', () => {
-      let model: string | undefined;
       try {
-        const parsed = JSON.parse(body) as { model?: unknown };
-        if (typeof parsed.model === 'string') model = parsed.model;
-      } catch { /* non-JSON probe bodies still count as requests */ }
-      requests.push({ ...(model !== undefined && { model }), headers: request.headers });
-      if (behavior === 'hang') return;
-      if (behavior === 'reject') {
-        response.writeHead(401, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: { message: 'controlled provider rejection' } }));
-        return;
+        let model: string | undefined;
+        try {
+          const parsed = JSON.parse(body) as { model?: unknown };
+          if (typeof parsed.model === 'string') model = parsed.model;
+        } catch { /* non-JSON probe bodies still count as requests */ }
+        const observed = { ...(model !== undefined && { model }), headers: request.headers };
+        appendRequest(requestLogPath, observed);
+        requests.push(observed);
+        if (behavior === 'hang') return;
+        if (behavior === 'reject') {
+          response.writeHead(401, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ error: { message: 'controlled provider rejection' } }));
+          return;
+        }
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        const frames = [
+          { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
+          { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+        ];
+        for (const frame of frames) response.write(`data: ${JSON.stringify(frame)}\n\n`);
+        response.end('data: [DONE]\n\n');
+      } catch (error) {
+        fail('request.record_or_response', error);
+        response.destroy();
       }
-      response.writeHead(200, { 'content-type': 'text/event-stream' });
-      const frames = [
-        { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
-        { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
-      ];
-      for (const frame of frames) response.write(`data: ${JSON.stringify(frame)}\n\n`);
-      response.end('data: [DONE]\n\n');
     });
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
+  server.on('connection', socket => {
+    sockets.add(socket);
+    let confirmClosed!: () => void;
+    socketClosures.set(socket, new Promise<void>(resolve => { confirmClosed = resolve; }));
+    socket.on('error', error => { fail('socket.error', error); });
+    socket.once('close', () => {
+      sockets.delete(socket);
+      confirmClosed();
+      recordLate('socket', 'close');
+    });
   });
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('integration server has no port');
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    requests,
-    setBehavior(next) { behavior = next; },
-    async close() {
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) => {
-        server.close(error => error ? reject(error) : resolve());
-      });
-    },
+  server.on('error', error => { fail('server.error', error); });
+  server.on('close', () => { recordLate('server', 'close'); });
+
+  const failure = (): AggregateError => {
+    const first = ownerErrors[0]?.error ?? new Error('HTTP fixture close was not confirmed');
+    return Object.assign(
+      new AggregateError(
+        ownerErrors.map(entry => entry.error),
+        'Config repair HTTP fixture failed',
+        { cause: first },
+      ),
+      { evidence: evidence() },
+    );
   };
+  const retainFailure = (): never => {
+    const primary = failure();
+    try {
+      retention.retain({ code: 'http_fixture_failed', error: primary, evidence: evidence() });
+    } catch (recording) {
+      throw Object.assign(
+        new AggregateError(
+          [primary, recording],
+          'HTTP fixture and retention recording failed',
+          { cause: primary.cause },
+        ),
+        { evidence: evidence() },
+      );
+    }
+    throw primary;
+  };
+
+  async function closeOwnedServer(): Promise<void> {
+    if (finalized) return;
+    closeFacts.state = 'closing';
+    let resolveCallback!: () => void;
+    const callback = new Promise<void>(resolve => { resolveCallback = resolve; });
+    if (server.listening) {
+      closeFacts.callback = 'pending';
+      try {
+        server.close(error => {
+          if (error) {
+            closeFacts.callback = 'error';
+            closeFacts.callbackError = error;
+            recordError('server.close', error);
+          } else {
+            closeFacts.callback = 'closed';
+          }
+          recordLate('server', 'close_callback', error);
+          resolveCallback();
+        });
+        closeFacts.closeRequested = true;
+      } catch (error) {
+        closeFacts.callback = 'error';
+        closeFacts.callbackError = error;
+        recordError('server.close', error);
+        resolveCallback();
+      }
+    } else {
+      closeFacts.callback = 'not_listening';
+      resolveCallback();
+    }
+    try {
+      server.closeAllConnections();
+      closeFacts.closeAllConnections = true;
+    } catch (error) {
+      recordError('server.closeAllConnections', error);
+    }
+
+    let timer: NodeJS.Timeout | undefined;
+    const confirmation = await Promise.race([
+      Promise.all([callback, ...socketClosures.values()]).then(() => 'confirmed' as const),
+      new Promise<'deadline'>(resolve => {
+        timer = setTimeout(() => resolve('deadline'), SERVER_CLOSE_TIMEOUT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (confirmation === 'deadline') {
+      const callbackClosed = (): boolean => closeFacts.callback === 'closed';
+      closeFacts.callback = callbackClosed() ? 'closed' : 'deadline';
+      closeFacts.state = 'unconfirmed';
+      recordError(
+        'server.close_deadline',
+        new Error(`HTTP fixture close was not confirmed within ${SERVER_CLOSE_TIMEOUT_MS}ms`),
+      );
+      for (const socket of sockets) {
+        try {
+          socket.destroy();
+          closeFacts.socketDisposals.push({ operation: 'socket.destroy', outcome: 'called' });
+        } catch (error) {
+          closeFacts.socketDisposals.push({ operation: 'socket.destroy', outcome: error });
+          recordError('socket.destroy', error);
+        }
+      }
+    } else {
+      closeFacts.state = closeFacts.callback === 'error' ? 'unconfirmed' : 'closed';
+    }
+
+    if (ownerErrors.length === 0 && closeFacts.state === 'closed') {
+      try {
+        retention.complete();
+        closeFacts.retentionCompleted = true;
+      } catch (error) {
+        recordError('retention.complete', error);
+      }
+    }
+    if (ownerErrors.length === 0 && closeFacts.retentionCompleted) {
+      try {
+        await cleanupTempDir(dir);
+      } catch (error) {
+        recordError('retention.cleanup', error);
+      }
+    }
+    finalized = true;
+    if (ownerErrors.length > 0 || closeFacts.state !== 'closed') retainFailure();
+  }
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onStartupError = (error: Error): void => { reject(error); };
+      server.once('error', onStartupError);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', onStartupError);
+        closeFacts.state = 'listening';
+        resolve();
+      });
+    });
+    const address = (options.readAddress ?? (owned => owned.address()))(server);
+    if (address === null || typeof address === 'string') throw new Error('integration server has no port');
+    return {
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      requests,
+      resetRequests() { requests.length = 0; },
+      setBehavior(next) { behavior = next; },
+      close: closeOnce,
+    };
+  } catch (error) {
+    recordError('server.start', error);
+    await closeOnce();
+    throw error;
+  }
 }
 
 export function readConfigRepairRaw(root: string): {

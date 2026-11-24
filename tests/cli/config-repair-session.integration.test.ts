@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import * as http from 'node:http';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
@@ -7,6 +9,8 @@ import {
   createConfigRepairWorkspace,
   finishConfigRepairCase,
   runConfigRepairSession,
+  startConfigRepairServer,
+  type ConfigRepairServer,
   type ConfigRepairSessionResult,
   type ConfigRepairWorkspace,
 } from '../helpers/config-repair-session.js';
@@ -30,6 +34,77 @@ function useIsolatedRunRoot(): string {
   fs.mkdirSync(runRoot);
   process.env.CHESTNUT_RUN_ROOT = runRoot;
   return runRoot;
+}
+
+function httpFixtureDirs(runRoot: string): string[] {
+  return fs.readdirSync(runRoot)
+    .filter(name => name.startsWith('config-repair-http-'))
+    .map(name => path.join(runRoot, name));
+}
+
+function discardHttpFixtures(runRoot: string): void {
+  for (const dir of httpFixtureDirs(runRoot)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    untrackTempDir(dir);
+  }
+}
+
+async function postJson(baseUrl: string, model: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const request = http.request(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => { resolve(body); });
+    });
+    request.on('error', reject);
+    request.end(JSON.stringify({ model }));
+  });
+}
+
+function startHangingRequest(baseUrl: string): Promise<void> {
+  const request = http.request(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  const settled = new Promise<void>(resolve => {
+    request.on('error', () => { resolve(); });
+    request.on('close', () => { resolve(); });
+  });
+  request.end(JSON.stringify({ model: 'hanging-model' }));
+  return settled;
+}
+
+async function waitForRequest(server: ConfigRepairServer): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (server.requests.length === 0) {
+    if (Date.now() >= deadline) throw new Error('HTTP fixture did not record the request');
+    await new Promise<void>(resolve => setTimeout(resolve, 10));
+  }
+}
+
+async function expectPortRefused(port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) reject(error);
+      else resolve();
+    };
+    socket.setTimeout(1_000);
+    socket.once('connect', () => { finish(new Error(`fixture port ${port} still accepts connections`)); });
+    socket.once('timeout', () => { finish(new Error(`fixture port ${port} did not refuse promptly`)); });
+    socket.once('error', error => {
+      if ((error as NodeJS.ErrnoException).code === 'ECONNREFUSED') finish();
+      else finish(error);
+    });
+  });
 }
 
 async function reapIdentity(identity: { leaderPid: number; processGroupId: number }): Promise<void> {
@@ -98,7 +173,8 @@ afterEach(async () => {
     const { host, runRoot } = isolatedHosts.pop()!;
     untrackTempDir(host);
     const hasUnconfirmedWorkspace = fs.existsSync(runRoot) && fs.readdirSync(runRoot)
-      .some(name => name.startsWith('chestnut-config-repair-integration-'));
+      .some(name => name.startsWith('chestnut-config-repair-integration-')
+        || name.startsWith('config-repair-http-'));
     if (hasUnconfirmedWorkspace) {
       console.warn(`[test cleanup] Preserved controlled session host for independent reaping: ${host}`);
     } else {
@@ -106,6 +182,155 @@ afterEach(async () => {
     }
   }
   await Promise.resolve();
+});
+
+describe('config repair HTTP fixture lifecycle', () => {
+  it('closes a listener whose validated address cannot be delivered', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const primary = new Error('controlled address delivery failure');
+    let port: number | undefined;
+    let closeConfirmed = false;
+    try {
+      const failure = await startConfigRepairServer({
+        readAddress: server => {
+          const address = server.address();
+          if (address !== null && typeof address !== 'string') port = address.port;
+          throw primary;
+        },
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(primary);
+      expect(port).toBeGreaterThan(0);
+      await expectPortRefused(port!);
+      closeConfirmed = true;
+      const [fixtureDir] = httpFixtureDirs(runRoot);
+      expect(fixtureDir).toBeDefined();
+      expect(inspectRetention(runRoot, fixtureDir)).toMatchObject({
+        kind: 'preserve', reasons: ['http_fixture_failed'],
+      });
+    } finally {
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('closes a real hanging request without waiting for the runner deadline', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const server = await startConfigRepairServer();
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    server.setBehavior('hang');
+    const clientClosed = startHangingRequest(server.baseUrl);
+    try {
+      await waitForRequest(server);
+      await server.close();
+      await clientClosed;
+      expect(fs.existsSync(fixtureDir)).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns the same close settlement and completes its scope only once', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const server = await startConfigRepairServer();
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    const first = server.close();
+    const second = server.close();
+    expect(second).toBe(first);
+    await first;
+    await second;
+    expect(fs.existsSync(fixtureDir)).toBe(false);
+    expect(inspectRetention(runRoot, fixtureDir)).toEqual({ kind: 'allow' });
+  });
+
+  it('resets only the in-memory view after persisting request history', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const server = await startConfigRepairServer();
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    try {
+      await postJson(server.baseUrl, 'persisted-before-reset');
+      expect(server.requests).toHaveLength(1);
+      server.resetRequests();
+      expect(server.requests).toHaveLength(0);
+      const history = fs.readFileSync(path.join(fixtureDir, 'requests.jsonl'), 'utf8')
+        .trim().split('\n').map(line => JSON.parse(line) as { model?: string });
+      expect(history.map(request => request.model)).toEqual(['persisted-before-reset']);
+    } finally {
+      await server.close();
+    }
+    expect(fs.existsSync(fixtureDir)).toBe(false);
+  });
+
+  it('records a request write failure before changing the observation view', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const primary = new Error('controlled request JSONL write failure');
+    const server = await startConfigRepairServer({
+      appendRequest: () => { throw primary; },
+    });
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    let closeConfirmed = false;
+    try {
+      await postJson(server.baseUrl, 'not-observed').catch(() => undefined);
+      const failure = await server.close().catch(error => error);
+      closeConfirmed = failure.evidence?.state === 'closed';
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(primary);
+      expect(server.requests).toHaveLength(0);
+      expect(fs.existsSync(path.join(fixtureDir, 'requests.jsonl'))).toBe(false);
+      expect(inspectRetention(runRoot, fixtureDir)).toMatchObject({
+        kind: 'preserve', reasons: ['http_fixture_failed'],
+      });
+    } finally {
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('aggregates retention publication failure without replacing the request failure', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const primary = new Error('controlled request and retention failure');
+    const server = await startConfigRepairServer({
+      appendRequest: () => { throw primary; },
+    });
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    const retentionPath = path.join(runRoot, 'test-resource-failures.jsonl');
+    fs.rmSync(retentionPath);
+    fs.mkdirSync(retentionPath);
+    let closeConfirmed = false;
+    try {
+      await postJson(server.baseUrl, 'retention-failure').catch(() => undefined);
+      const failure = await server.close().catch(error => error);
+      closeConfirmed = failure.evidence?.state === 'closed';
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.errors[0]).toBeInstanceOf(AggregateError);
+      expect(failure.errors[0].cause).toBe(primary);
+      expect(failure.errors.some((error: unknown) =>
+        error instanceof Error && error.name === 'RetentionWriteError')).toBe(true);
+      expect(fs.existsSync(fixtureDir)).toBe(true);
+      expect(server.requests).toHaveLength(0);
+    } finally {
+      if (closeConfirmed) discardHttpFixtures(runRoot);
+    }
+  });
+
+  it('cleans a successful server scope without completing a failed case scope', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const server = await startConfigRepairServer();
+    const [fixtureDir] = httpFixtureDirs(runRoot);
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    const primary = new Error('controlled case failure with successful HTTP cleanup');
+    const failure = await finishConfigRepairCase(workspace, async () => {
+      await postJson(server.baseUrl, 'case-evidence');
+      throw primary;
+    }, { requests: () => server.requests }).catch(error => error);
+    expect(failure).toBe(primary);
+    await server.close();
+    expect(fs.existsSync(fixtureDir)).toBe(false);
+    expect(fs.existsSync(workspace.root)).toBe(true);
+    expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+      kind: 'preserve', reasons: ['test_failed'],
+    });
+    discardControlledWorkspace(workspace);
+  });
 });
 
 describe('config repair session process lifecycle', () => {
