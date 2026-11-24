@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ChildProcessLifecycleError,
+  type ChildProcessResult,
   runChildProcess,
   withCleanupPreservingError,
 } from './child-process.js';
@@ -266,8 +267,27 @@ async function runSampleCase(
   });
 }
 
-function expectIndependentTeardownAndReclaimPreserve(runRoot: string, sampleRoot: string): void {
-  const sampleBytes = fs.readFileSync(path.join(sampleRoot, 'package.json'));
+function expectClosedChild(
+  result: ChildProcessResult | undefined,
+  status: number,
+): asserts result is ChildProcessResult {
+  expect(result, 'the finite child must return its close facts').toBeDefined();
+  expect(result?.pid, 'the finite child must expose its actual PID').toEqual(expect.any(Number));
+  expect(result).toMatchObject({
+    status,
+    signal: null,
+    directChild: { state: 'exited', status, signal: null },
+    stdio: 'closed',
+    outputTruncated: false,
+  });
+}
+
+function expectIndependentTeardownAndReclaimPreserve(
+  runRoot: string,
+  artifactPath: string,
+  originalBytes: Buffer,
+): void {
+  expect(fs.readFileSync(artifactPath), 'after caller cleanup').toEqual(originalBytes);
   const owner = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' });
   expect(owner.status).toBe(0);
   const manifest = {
@@ -290,7 +310,7 @@ function expectIndependentTeardownAndReclaimPreserve(runRoot: string, sampleRoot
   ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
   expect(teardown.status, `${teardown.stdout}\n${teardown.stderr}`).toBe(1);
   expect(teardown.stderr).toContain('test_failed');
-  expect(fs.readFileSync(path.join(sampleRoot, 'package.json'))).toEqual(sampleBytes);
+  expect(fs.readFileSync(artifactPath), 'after independent teardown').toEqual(originalBytes);
 
   const stale = new Date(Date.now() - RECLAIM_STALE_AGE_MS);
   fs.utimesSync(runRoot, stale, stale);
@@ -302,7 +322,7 @@ function expectIndependentTeardownAndReclaimPreserve(runRoot: string, sampleRoot
     '--experimental-transform-types', '--input-type=module', '-e', reclaimSource, path.dirname(runRoot),
   ], { encoding: 'utf8', timeout: EXTERNAL_CONSUMER_TIMEOUT_MS });
   expect(reclaim.status, `${reclaim.stdout}\n${reclaim.stderr}`).toBe(0);
-  expect(fs.readFileSync(path.join(sampleRoot, 'package.json'))).toEqual(sampleBytes);
+  expect(fs.readFileSync(artifactPath), 'after independent reclaim').toEqual(originalBytes);
 }
 
 describe('test-cost resolved worker facts', () => {
@@ -347,7 +367,9 @@ describe('test-cost resolved worker facts', () => {
       await expect(runSampleCase(cases[0], new AbortController().signal, execute)).rejects.toBe(failure);
       expect(sampleRoot).not.toBe('');
       expect(fs.existsSync(sampleRoot)).toBe(true);
-      expectIndependentTeardownAndReclaimPreserve(isolatedRunRoot, sampleRoot);
+      const artifactPath = path.join(sampleRoot, 'package.json');
+      const originalBytes = fs.readFileSync(artifactPath);
+      expectIndependentTeardownAndReclaimPreserve(isolatedRunRoot, artifactPath, originalBytes);
     } finally {
       // The injected executor started no real process; remove this deliberately retained sandbox directly.
       if (sampleRoot) {
@@ -357,6 +379,154 @@ describe('test-cost resolved worker facts', () => {
       if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
       else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
       await cleanupTempDir(isolatedRunRoot);
+    }
+  });
+
+  it('preserves a real nonzero child failed-sample through teardown and reclaim', async context => {
+    const isolatedRunRoot = await createTrackedTempDir('chestnut-run-cost-real-nonzero-');
+    const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
+    process.env.CHESTNUT_RUN_ROOT = isolatedRunRoot;
+    const sentinel = Buffer.from([0x00, 0xff, 0x00, 0x01, 0xfe, 0x7f]);
+    const childSource = `
+      const fs = require('node:fs');
+      const metadata = Buffer.from(JSON.stringify({ pid: process.pid, cwd: process.cwd() }) + '\\n');
+      const sentinel = Buffer.from(${JSON.stringify([...sentinel])});
+      fs.writeFileSync('failed-sample', Buffer.concat([metadata, sentinel]));
+      process.stderr.write('controlled finite sample failure\\n');
+      process.exitCode = 7;
+    `;
+    let sampleRoot = '';
+    let childResult: ChildProcessResult | undefined;
+    const execute: typeof runChildProcess = async (_command, _args, options) => {
+      sampleRoot = options.cwd ?? '';
+      childResult = await runChildProcess(process.execPath, ['-e', childSource], options);
+      return childResult;
+    };
+
+    try {
+      await expect(runSampleCase(cases[0], context.signal, execute)).rejects.toMatchObject({
+        name: 'AssertionError',
+        message: expect.stringContaining('cost sample failed'),
+      });
+      expect(sampleRoot).not.toBe('');
+      expect(fs.existsSync(sampleRoot)).toBe(true);
+      expectClosedChild(childResult, 7);
+      expect(childResult.stderr).toContain('controlled finite sample failure');
+
+      const artifactPath = path.join(sampleRoot, 'failed-sample');
+      const originalBytes = fs.readFileSync(artifactPath);
+      expect(originalBytes.subarray(-sentinel.length)).toEqual(sentinel);
+      const metadata = JSON.parse(
+        originalBytes.subarray(0, -sentinel.length).toString('utf8'),
+      ) as { pid: number; cwd: string };
+      expect(metadata).toEqual({ pid: childResult.pid, cwd: fs.realpathSync(sampleRoot) });
+      expectIndependentTeardownAndReclaimPreserve(isolatedRunRoot, artifactPath, originalBytes);
+    } finally {
+      const childClosed = childResult?.directChild.state === 'exited' && childResult.stdio === 'closed';
+      if (childClosed && sampleRoot) {
+        fs.rmSync(sampleRoot, { recursive: true, force: true });
+        untrackTempDir(sampleRoot);
+      } else {
+        // Never remove evidence while a real direct child lacks confirmed exit and closed stdio.
+        if (sampleRoot) untrackTempDir(sampleRoot);
+        untrackTempDir(isolatedRunRoot);
+      }
+      if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
+      else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
+      if (childClosed) await cleanupTempDir(isolatedRunRoot);
+    }
+  });
+
+  it('preserves real exit-zero artifacts after a worker-fact assertion failure', async context => {
+    const sample = cases[0];
+    const isolatedRunRoot = await createTrackedTempDir('chestnut-run-cost-real-artifact-');
+    const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
+    process.env.CHESTNUT_RUN_ROOT = isolatedRunRoot;
+    const childSource = `
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const project = ${JSON.stringify(sample.project)};
+      const requestedWorkers = ${sample.requestedWorkers};
+      const workerConfiguration = {
+        maxWorkers: ${sample.actualWorkers + 1},
+        pool: 'threads',
+        groupOrder: ${sample.groupOrder},
+      };
+      const effectiveProjects = [{ projectName: project, workerConfiguration }];
+      const runDir = path.resolve(process.cwd(), '.test-cost-runs', 'controlled-worker-mismatch');
+      fs.mkdirSync(path.join(runDir, 'raw'), { recursive: true });
+      fs.mkdirSync(path.join(runDir, 'runs'), { recursive: true });
+      const writeJson = (name, value) => {
+        fs.writeFileSync(path.join(runDir, name), JSON.stringify(value, null, 2) + '\\n');
+      };
+      writeJson('raw/run-1-' + project + '.json', {
+        schemaVersion: 5,
+        run: { projectName: project, workerConfiguration },
+      });
+      writeJson('runs/run-1.json', { schemaVersion: 5, projects: effectiveProjects });
+      writeJson('manifest.json', {
+        schemaVersion: 5,
+        failed: false,
+        samplingMode: 'independent-project-processes',
+        effectiveProjects,
+        options: { workers: requestedWorkers },
+      });
+      writeJson('summary.json', {
+        schemaVersion: 5,
+        comparableFields: {
+          workers: requestedWorkers,
+          samplingMode: 'independent-project-processes',
+          effectiveProjects,
+        },
+      });
+      fs.writeFileSync(path.join(runDir, 'report.md'), [
+        'Requested max workers per project process: ' + requestedWorkers,
+        '| ' + project + ' | ' + requestedWorkers + ' | ' + workerConfiguration.maxWorkers +
+          ' | threads | ' + workerConfiguration.groupOrder + ' |',
+        'not regular \`test:run\` scheduling',
+      ].join('\\n'));
+      process.stdout.write(runDir + '\\n');
+    `;
+    let sampleRoot = '';
+    let childResult: ChildProcessResult | undefined;
+    const execute: typeof runChildProcess = async (_command, _args, options) => {
+      sampleRoot = options.cwd ?? '';
+      childResult = await runChildProcess(process.execPath, ['-e', childSource], options);
+      return childResult;
+    };
+
+    try {
+      await expect(runSampleCase(sample, context.signal, execute)).rejects.toMatchObject({
+        name: 'AssertionError',
+        message: expect.stringContaining('maxWorkers'),
+      });
+      expect(sampleRoot).not.toBe('');
+      expect(fs.existsSync(sampleRoot)).toBe(true);
+      expectClosedChild(childResult, 0);
+      expect(childResult.stdout.trim()).toBe(path.join(
+        fs.realpathSync(sampleRoot), '.test-cost-runs', 'controlled-worker-mismatch',
+      ));
+
+      const artifactPath = path.join(
+        childResult.stdout.trim(), 'raw', `run-1-${sample.project}.json`,
+      );
+      const originalBytes = fs.readFileSync(artifactPath);
+      expect(readJson<RawPayload>(artifactPath).run.workerConfiguration.maxWorkers)
+        .toBe(sample.actualWorkers + 1);
+      expectIndependentTeardownAndReclaimPreserve(isolatedRunRoot, artifactPath, originalBytes);
+    } finally {
+      const childClosed = childResult?.directChild.state === 'exited' && childResult.stdio === 'closed';
+      if (childClosed && sampleRoot) {
+        fs.rmSync(sampleRoot, { recursive: true, force: true });
+        untrackTempDir(sampleRoot);
+      } else {
+        // Never remove evidence while a real direct child lacks confirmed exit and closed stdio.
+        if (sampleRoot) untrackTempDir(sampleRoot);
+        untrackTempDir(isolatedRunRoot);
+      }
+      if (originalRunRoot === undefined) delete process.env.CHESTNUT_RUN_ROOT;
+      else process.env.CHESTNUT_RUN_ROOT = originalRunRoot;
+      if (childClosed) await cleanupTempDir(isolatedRunRoot);
     }
   });
 });
