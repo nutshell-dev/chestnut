@@ -138,6 +138,30 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
   });
 
+  it('provider repair 投递失败仍关联 commit receipt revision，并记录 failed 而不是改写保存事实', async () => {
+    writeActiveGeneration(tmpDir, 'motion', process.pid);
+    const failure = new Error('controlled inbox delivery failure');
+    const originalWrite = NodeFileSystem.prototype.writeAtomicSync;
+    vi.spyOn(NodeFileSystem.prototype, 'writeAtomicSync').mockImplementation(function (relative, content) {
+      const target = this.resolve(relative);
+      if (target.includes(`${path.sep}inbox${path.sep}pending${path.sep}`)) throw failure;
+      return originalWrite.call(this, relative, content);
+    });
+
+    await expect(notifyRunningDaemons(deps, 'repair', { id: 'repair-11' })).resolves.toBeUndefined();
+
+    expect(notification.record.mock.calls.map(call => ({
+      revision: call[0].revision,
+      status: call[0].status,
+    }))).toEqual([
+      { revision: 'repair-11', status: 'pending' },
+      { revision: 'repair-11', status: 'failed' },
+    ]);
+    expect(notification.record.mock.calls[1]?.[0].error).toBe(failure);
+    expect(deps.llmConfiguration.readRevision()).toEqual({ id: '7', revision: 7 });
+    expect(listInbox(tmpDir, 'motion')).toEqual([]);
+  });
+
   it('notification record throw → 保持既有独立故障提示、继续且不重试', async () => {
     const failure = new Error('rename failed');
     notification.record.mockImplementation(() => { throw failure; });

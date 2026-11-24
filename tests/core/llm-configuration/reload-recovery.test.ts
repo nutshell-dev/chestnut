@@ -109,14 +109,18 @@ describe('LLM configuration reload recovery', () => {
       reload: vi.fn(() => { throw new Error('apply rejected'); }),
     });
     await failed.runtime.recover();
-    expect(persistent.current()).toMatchObject({ revision: '4', outcome: 'failed' });
+    expect(persistent.current()).toMatchObject({
+      revision: '4', identity: 'identity-new', outcome: 'failed', publishPending: false,
+    });
 
     const restarted = build({
       initial: config('old'), saved: config('new'), revision: '4', store: persistent.store,
     });
     await restarted.runtime.recover();
     expect(restarted.reload).toHaveBeenCalledOnce();
-    expect(persistent.current()).toMatchObject({ revision: '4', outcome: 'applied' });
+    expect(persistent.current()).toMatchObject({
+      revision: '4', identity: 'identity-new', outcome: 'applied', publishPending: false,
+    });
   });
 
   it('相同 identity 的新 saved revision 只推进事实，不重复 reload', async () => {
@@ -162,7 +166,9 @@ describe('LLM configuration reload recovery', () => {
       publish: vi.fn().mockRejectedValue(new Error('publish failed')),
     });
     await first.runtime.recover();
-    expect(persistent.current()).toMatchObject({ outcome: 'applied', publishPending: true });
+    expect(persistent.current()).toMatchObject({
+      revision: '7', identity: 'identity-new', outcome: 'applied', publishPending: true,
+    });
 
     const publish = vi.fn().mockResolvedValue({ previousFact: 'missing' as const });
     const restarted = build({
@@ -172,6 +178,8 @@ describe('LLM configuration reload recovery', () => {
     await restarted.runtime.recover();
     expect(restarted.reload).not.toHaveBeenCalled();
     expect(publish).toHaveBeenCalledWith('identity-new');
-    expect(persistent.current()).toMatchObject({ outcome: 'applied', publishPending: false });
+    expect(persistent.current()).toMatchObject({
+      revision: '7', identity: 'identity-new', outcome: 'applied', publishPending: false,
+    });
   });
 });
