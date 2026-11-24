@@ -135,6 +135,48 @@ describe('real CLI missing-credential repair chain', () => {
     }, { requests: () => server.requests });
   }, INTEGRATION_TEST_TIMEOUT_MS);
 
+  it('双无名同 provider_id 的历史条目可逐条补名并按 label 修复', async context => {
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    await finishConfigRepairCase(workspace, async () => {
+      const initial = readConfigRepairRaw(workspace.root);
+      const { label: _label, ...unnamed } = initial.document.primary;
+      fs.writeFileSync(path.join(workspace.root, '.chestnut', 'llm', 'config.yaml'), yaml.dump({
+        ...initial.document,
+        primary: unnamed,
+        fallbacks: [{ ...unnamed }],
+      }));
+
+      const repaired = await runInteractiveCli(
+        workspace, ['config', 'provider', 'repair', 'custom:openai'], [
+          { prompt: /> : $/, value: '2' },
+          { prompt: /Provider label \(b = cancel\): $/, value: 'historical-fallback' },
+          { prompt: /Provider label \(b = cancel\): $/, value: 'historical-primary' },
+          { prompt: /> : $/, value: '2' },
+          { prompt: /New API key \(b = back\): $/, value: 'historical-fallback-secret' },
+        ], context.signal,
+      );
+      if (repaired.status !== 0) throw new Error(`historical repair failed: ${repaired.stderr}\n${repaired.stdout}`);
+      expect(repaired.stdout).not.toContain(CONFIG_REPAIR_REF);
+      expect(repaired.stderr).not.toContain(CONFIG_REPAIR_REF);
+      expect(repaired.stdout).not.toContain('CHESTNUT_PROVIDER_REPAIR');
+      const named = readConfigRepairRaw(workspace.root);
+      expect(named.document.revision).toBe(4);
+      expect(named.document.primary.label).toBe('historical-primary');
+      expect(named.document.fallbacks?.[0]?.label).toBe('historical-fallback');
+      expect(named.document.primary.api_key).toBe(`\${${CONFIG_REPAIR_REF}}`);
+
+      const primary = await runInteractiveCli(
+        workspace, ['config', 'provider', 'repair', 'historical-primary'], [
+          { prompt: /> : $/, value: '2' },
+          { prompt: /New API key \(b = back\): $/, value: 'historical-primary-secret' },
+        ], context.signal,
+      );
+      if (primary.status !== 0) throw new Error(`named primary repair failed: ${primary.stderr}\n${primary.stdout}`);
+      expect(primary.stdout).toContain('Primary "historical-primary"');
+      expect(readConfigRepairRaw(workspace.root).document.revision).toBe(5);
+    });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
+
   it('add 新 primary → 旧坏条目成为 fallback → remove 后完整配置恢复', async context => {
     const workspace = createConfigRepairWorkspace(server.baseUrl);
     await finishConfigRepairCase(workspace, async () => {

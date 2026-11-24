@@ -215,7 +215,7 @@ primary:
 `);
     vi.stubEnv('PHASE2221_REPAIR_MISSING', 'existing-secret');
     probe.mockResolvedValue({ ok: true, model: 'original-model', identity: 'probe' });
-    answers.queue = ['3', 'repaired-model'];
+    answers.queue = ['main', '3', 'repaired-model'];
 
     await createConfigCommand(configDeps).parseAsync([
       'node', 'test', 'provider', 'repair', 'custom:anthropic',
@@ -223,6 +223,7 @@ primary:
 
     const document = configDeps.llmConfiguration.store.read();
     expect(document.primary.model).toBe('repaired-model');
+    expect(document.primary.label).toBe('main');
     expect(document.primary.api_key).toBe('${PHASE2221_REPAIR_MISSING}');
     expect(document.primary).not.toHaveProperty('temperature');
     expect(document.primary).not.toHaveProperty('timeout_ms');

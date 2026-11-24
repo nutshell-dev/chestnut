@@ -75,7 +75,7 @@ describe('provider reference resolution', () => {
     if (result.kind === 'resolved') {
       expect(result.candidate.label).toBeUndefined();
       expect(formatProviderTarget(result)).toBe(
-        'label="(no label)" label_state=missing role=fallback match=provider_id',
+        'Fallback #1 (no label)',
       );
     }
   });
@@ -196,8 +196,8 @@ describe('provider reference resolution', () => {
     const present = resolveProviderReference(config({}, [{ label: PROVIDER_NO_LABEL_SENTINEL }]), PROVIDER_NO_LABEL_SENTINEL);
     if (missing.kind !== 'resolved' || present.kind !== 'resolved') throw new Error('expected resolved targets');
 
-    expect(formatProviderTarget(missing)).toContain('label_state=missing');
-    expect(formatProviderTarget(present)).toContain('label_state=present');
+    expect(formatProviderTarget(missing)).toBe('Primary (no label)');
+    expect(formatProviderTarget(present)).toBe('Fallback #1 "(no label)"');
     expect(() => llmProviderConfigSchema.parse(entry({ label: PROVIDER_NO_LABEL_SENTINEL })))
       .toThrow(/reserved no-label sentinel/);
   });

@@ -8,6 +8,9 @@ import {
   getLLMConfigurationPath,
   snapshotLLMConfig,
   LLMConfigurationMigrationError,
+  LLMConfigurationLabelRequiredError,
+  LLMProviderTargetChangedError,
+  llmProviderTargetFingerprint,
   LLMConfigurationAlreadyExistsError,
   LLMConfigurationRevisionConflictError,
   LLMProviderLabelAlreadyExistsError,
@@ -43,6 +46,7 @@ function referencedSource(): SharedLLMInput {
       auth_profile: 'api_key',
       api_key: '${LLM_DOCUMENT_TEST_KEY}',
       model: 'gpt-document-test',
+      label: 'fallback-label',
       base_url: 'https://fallback.example.test/v1',
     }],
   };
@@ -126,6 +130,7 @@ describe('LLM configuration document reads', () => {
     makeStore().createFromSource({
       primary: {
         preset: 'anthropic', api_key: '${LLM_DOCUMENT_TEST_KEY}', model: 'claude-document-test',
+        label: 'file-primary',
       },
     }, 'file-fact-seed');
 
@@ -213,14 +218,13 @@ describe('LLM configuration document mutations', () => {
     store.createFromSource(referencedSource(), 'test-seed');
 
     await store.patchPrimary({
-      label: undefined,
       base_url: undefined,
       max_tokens: 4096,
     });
 
     const document = store.read();
     expect(document.revision).toBe(2);
-    expect(document.primary).not.toHaveProperty('label');
+    expect(document.primary.label).toBe('primary-label');
     expect(document.primary).not.toHaveProperty('base_url');
     expect(document.primary).toMatchObject({
       api_key: '${LLM_DOCUMENT_TEST_KEY}',
@@ -228,6 +232,78 @@ describe('LLM configuration document mutations', () => {
       max_tokens: 4096,
     });
     expect(document.fallbacks).toEqual(referencedSource().fallbacks);
+  });
+
+  it('正常 mutate/commit 拒绝空标签，raw 历史读取仍可用', async () => {
+    const store = makeStore();
+    store.createFromSource(referencedSource(), 'labels-required');
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+
+    await expect(store.patchPrimary({ label: undefined }))
+      .rejects.toBeInstanceOf(LLMConfigurationLabelRequiredError);
+    await expect(store.commitExplicitProvider({ kind: 'initialize' }, {
+      ...referencedSource().primary, label: undefined,
+    })).rejects.toBeInstanceOf(LLMConfigurationLabelRequiredError);
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+  });
+
+  it('历史双无名条目按 revision/slot/fingerprint 逐条补名，冲突零写入', async () => {
+    const store = makeStore();
+    const source = referencedSource();
+    store.createFromSource({
+      ...source,
+      primary: { ...source.primary, label: undefined, provider_id: 'custom:shared' },
+      fallbacks: [{ ...source.fallbacks![0]!, label: undefined, provider_id: 'custom:shared' }],
+    }, 'historical-labels');
+    const initial = store.read();
+    expect(initial.primary.label).toBeUndefined();
+    expect(initial.fallbacks?.[0]?.label).toBeUndefined();
+    expect(() => store.readSnapshot()).toThrow(LLMConfigurationLabelRequiredError);
+
+    const primary = await store.assignMissingLabel({
+      slot: { role: 'primary' },
+      expectedRevisionId: '1',
+      expectedFingerprint: llmProviderTargetFingerprint(initial, { role: 'primary' }),
+      label: 'named-primary',
+    });
+    expect(primary.revision).toEqual({ id: '2', revision: 2 });
+    expect(primary.document.primary).toMatchObject({
+      label: 'named-primary', api_key: '${LLM_DOCUMENT_TEST_KEY}',
+    });
+    expect(primary.document.fallbacks?.[0]?.label).toBeUndefined();
+    expect(() => store.readSnapshot()).toThrow(LLMConfigurationLabelRequiredError);
+
+    const beforeConflict = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+    await expect(store.assignMissingLabel({
+      slot: { role: 'fallback', index: 0 },
+      expectedRevisionId: '1',
+      expectedFingerprint: llmProviderTargetFingerprint(primary.document, { role: 'fallback', index: 0 }),
+      label: 'named-fallback',
+    })).rejects.toBeInstanceOf(LLMConfigurationRevisionConflictError);
+    await expect(store.assignMissingLabel({
+      slot: { role: 'fallback', index: 0 },
+      expectedRevisionId: '2',
+      expectedFingerprint: 'wrong-target',
+      label: 'named-fallback',
+    })).rejects.toBeInstanceOf(LLMProviderTargetChangedError);
+    await expect(store.assignMissingLabel({
+      slot: { role: 'fallback', index: 0 },
+      expectedRevisionId: '2',
+      expectedFingerprint: llmProviderTargetFingerprint(primary.document, { role: 'fallback', index: 0 }),
+      label: 'named-primary',
+    })).rejects.toBeInstanceOf(LLMProviderLabelAlreadyExistsError);
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(beforeConflict);
+
+    const fallback = await store.assignMissingLabel({
+      slot: { role: 'fallback', index: 0 },
+      expectedRevisionId: '2',
+      expectedFingerprint: llmProviderTargetFingerprint(primary.document, { role: 'fallback', index: 0 }),
+      label: 'named-fallback',
+    });
+    expect(fallback.document.fallbacks?.[0]).toMatchObject({
+      label: 'named-fallback', api_key: '${LLM_DOCUMENT_TEST_KEY}',
+    });
+    expect(() => store.readSnapshot()).not.toThrow();
   });
 });
 

@@ -128,6 +128,7 @@ describe('CLI Config', () => {
             provider_id: 'anthropic',
             api_format: 'anthropic',
             auth_profile: 'api_key',
+            label: 'main',
             api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-haiku-4-5',
             max_tokens: 4096,
@@ -185,6 +186,7 @@ describe('CLI Config', () => {
             provider_id: 'anthropic',
             api_format: 'anthropic',
             auth_profile: 'api_key',
+            label: 'main',
             api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-haiku-4-5',
             max_tokens: 4096,
@@ -218,6 +220,7 @@ describe('CLI Config', () => {
             provider_id: 'anthropic',
             api_format: 'anthropic',
             auth_profile: 'api_key',
+            label: 'main',
             api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-haiku-4-5',
             max_tokens: 4096,
@@ -243,6 +246,7 @@ describe('CLI Config', () => {
             provider_id: 'anthropic',
             api_format: 'anthropic',
             auth_profile: 'api_key',
+            label: 'main',
             api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-haiku-4-5',
             max_tokens: 4096,
@@ -274,7 +278,7 @@ describe('CLI Config', () => {
       const configPath = getGlobalConfigPath();
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       // Single-quoted string: no JS template interpolation, ${} written literally
-      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    api_key: ${TEST_CLAW_API_KEY_EXPAND}\n    model: claude-haiku-4-5\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
+      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    label: main\n    api_key: ${TEST_CLAW_API_KEY_EXPAND}\n    model: claude-haiku-4-5\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
       const loaded = loadGlobalConfig({ fsFactory });
@@ -287,7 +291,7 @@ describe('CLI Config', () => {
       delete process.env.MISSING_CLAW_TEST_VAR_XYZ;
       const configPath = getGlobalConfigPath();
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    api_key: ${MISSING_CLAW_TEST_VAR_XYZ}\n    model: test\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
+      const rawYaml = 'version: "1"\nllm:\n  primary:\n    provider_id: anthropic\n    api_format: anthropic\n    auth_profile: api_key\n    label: main\n    api_key: ${MISSING_CLAW_TEST_VAR_XYZ}\n    model: test\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
       expect(() => loadGlobalConfig({ fsFactory })).toThrow(/MISSING_CLAW_TEST_VAR_XYZ/);

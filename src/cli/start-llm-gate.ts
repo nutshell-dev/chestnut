@@ -26,11 +26,12 @@ import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createAuthenticationCapability,
   LLMConfigurationCredentialUnavailableError,
+  LLMConfigurationLabelRequiredError,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
-import { providerRepairBaselineForSlot, repairProviderSlot } from './provider-repair.js';
+import { nameProviderSlot, providerRepairBaselineForSlot, repairProviderSlot } from './provider-repair.js';
 import { formatProviderTarget } from './commands/provider-reference.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
@@ -291,7 +292,8 @@ export async function ensureStartLLMVerified(
       if (now.operationalIdentity === preVerified.snapshot.operationalIdentity) return preVerified;
       audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=stale_preverified_identity`);
     } catch (error) {
-      if (!(error instanceof LLMConfigurationCredentialUnavailableError)) throw error;
+      if (!(error instanceof LLMConfigurationCredentialUnavailableError)
+        && !(error instanceof LLMConfigurationLabelRequiredError)) throw error;
       // A stale setup receipt cannot bypass the same typed repair/non-interactive gate.
     }
   }
@@ -408,13 +410,54 @@ function nonInteractiveCredentialError(
         }
       }
     } catch {
-      // The typed credential failure remains authoritative if display facts cannot be read.
+      // silent: the typed credential failure remains authoritative if display facts cannot be read.
     }
   }
   return new CliError(
     `LLM credential unavailable; start aborted before supervision. ${repair}`,
     { code: START_GATE_EXIT_CODE, cause: error },
   );
+}
+
+function nonInteractiveLabelError(error: LLMConfigurationLabelRequiredError): CliError {
+  return new CliError(
+    'LLM provider labels are missing; start aborted before supervision. ' +
+    'Run "chestnut config provider list", then name the affected entry with ' +
+    '"chestnut config provider repair <reference>".',
+    { code: START_GATE_EXIT_CODE, cause: error },
+  );
+}
+
+async function repairMissingLabelsInteractively(
+  deps: GateDeps,
+  error: LLMConfigurationLabelRequiredError,
+): Promise<'retry' | 'cancel'> {
+  const config = deps.llmConfiguration.loadRaw();
+  if (config.revision.id !== error.revision.id) return 'retry';
+  if (error.targets.length === 0) throw error;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    let slot = error.targets[0]!;
+    if (error.targets.length > 1) {
+      console.log('Multiple providers need labels; choose one historical entry:');
+      for (;;) {
+        error.targets.forEach((candidate, index) => {
+          const baseline = providerRepairBaselineForSlot(config, candidate);
+          console.log(`${index + 1}. ${formatProviderTarget(baseline.found)}`);
+        });
+        const selected = Number.parseInt(await ask(rl, '> '), 10) - 1;
+        if (error.targets[selected]) {
+          slot = error.targets[selected];
+          break;
+        }
+        console.log('Invalid choice.');
+      }
+    }
+    const named = await nameProviderSlot(deps, slot, rl, providerRepairBaselineForSlot(config, slot));
+    return named ? 'retry' : 'cancel';
+  } finally {
+    rl.close();
+  }
 }
 
 async function repairCredentialInteractively(
@@ -472,6 +515,14 @@ async function verifyWithWizard(
     try {
       return await verifyWithWizardResolved(deps, opts);
     } catch (error) {
+      if (error instanceof LLMConfigurationLabelRequiredError) {
+        if (!opts.interactive) throw nonInteractiveLabelError(error);
+        const action = await repairMissingLabelsInteractively(deps, error);
+        if (action === 'cancel') {
+          throw new CliError('LLM verification cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });
+        }
+        continue;
+      }
       if (!(error instanceof LLMConfigurationCredentialUnavailableError)) throw error;
       if (!opts.interactive) throw nonInteractiveCredentialError(deps, error);
       const action = await repairCredentialInteractively(deps, error);

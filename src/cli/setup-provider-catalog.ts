@@ -277,7 +277,7 @@ export function makeExplicitSetupProvider(input: ExplicitSetupDraft & { label?: 
     provider_id: providerId,
     api_format: catalogDirect ? choice.catalogApiFormat ?? input.apiFormat : input.apiFormat,
     auth_profile: input.authProfile,
-    ...(input.label !== undefined && { label: input.label }),
+    label: input.label ?? choice.id,
     ...(input.apiKey !== undefined && { api_key: input.apiKey }),
     model: input.model,
     ...(baseUrl !== undefined && { base_url: baseUrl }),

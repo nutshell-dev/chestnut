@@ -19,7 +19,7 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 import { llmOrchestratorConfigSchema, llmOrchestratorRuntimeConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { strictLLMProviderConfigSchema } = llmProviderConfigContract;
+const { strictLLMProviderConfigSchema, PROVIDER_NO_LABEL_SENTINEL } = llmProviderConfigContract;
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import {
   createLocalCredentials,
@@ -78,6 +78,13 @@ export type LLMSetupCommitTarget =
   | { readonly kind: 'fallback'; readonly position?: number }
   | { readonly kind: 'replace'; readonly slot: LLMProviderSlot };
 
+export interface AssignMissingLLMProviderLabel {
+  readonly slot: LLMProviderSlot;
+  readonly expectedRevisionId: string;
+  readonly expectedFingerprint: string;
+  readonly label: string;
+}
+
 export interface LLMConfigurationCommitResult {
   readonly target: LLMSetupCommitTarget;
   readonly revision: LLMConfigurationRevision;
@@ -112,6 +119,10 @@ export interface LLMConfigurationDocumentStore {
   mutate(
     fn: (fresh: LLMConfigDocument) => LLMConfigDocument,
   ): Promise<LLMConfigurationWriteResult>;
+  /** Compatibility write: name exactly one historical entry; other missing labels may remain. */
+  assignMissingLabel(
+    request: AssignMissingLLMProviderLabel,
+  ): Promise<LLMConfigurationCommitResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
   /** setup 的唯一业务提交口；target 之外的文档重建均由 store 负责。 */
   commitExplicitProvider(
@@ -142,6 +153,9 @@ export interface LLMConfigurationAdmin {
   mutateGlobalLocked(
     mutator: (config: { llm: SharedLLMInput; revision: LLMConfigurationRevision }) => void,
   ): Promise<LLMConfigurationWriteResult>;
+  assignMissingLabel(
+    request: AssignMissingLLMProviderLabel,
+  ): Promise<LLMConfigurationCommitResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
   commitExplicitProvider(
     target: LLMSetupCommitTarget,
@@ -180,6 +194,32 @@ export class LLMProviderLabelAlreadyExistsError extends Error {
   constructor(readonly label: string) {
     super(`A provider with label "${label}" already exists`);
     this.name = 'LLMProviderLabelAlreadyExistsError';
+  }
+}
+
+export class LLMProviderLabelInvalidError extends Error {
+  constructor() {
+    super('Provider label must be non-empty and must not use the reserved no-label sentinel');
+    this.name = 'LLMProviderLabelInvalidError';
+  }
+}
+
+export class LLMConfigurationLabelRequiredError extends Error {
+  readonly code = 'provider_label_required';
+
+  constructor(
+    readonly revision: LLMConfigurationRevision,
+    readonly targets: readonly LLMProviderSlot[],
+  ) {
+    super('Every LLM provider must have a unique non-empty label');
+    this.name = 'LLMConfigurationLabelRequiredError';
+  }
+}
+
+export class LLMProviderTargetChangedError extends Error {
+  constructor() {
+    super('LLM provider target changed before naming; no changes applied');
+    this.name = 'LLMProviderTargetChangedError';
   }
 }
 
@@ -295,6 +335,49 @@ function locateMissingCredentialTargets(
   });
 }
 
+function providerAtSlot(
+  document: LLMConfigDocument,
+  slot: LLMProviderSlot,
+): SharedLLMInput['primary'] {
+  const provider = slot.role === 'primary' ? document.primary : document.fallbacks?.[slot.index];
+  if (provider === undefined) throw new LLMProviderTargetChangedError();
+  return provider;
+}
+
+export function llmProviderTargetFingerprint(
+  document: LLMConfigDocument,
+  slot: LLMProviderSlot,
+): string {
+  return sha256Hex(stableStringify({ slot, provider: providerAtSlot(document, slot) }));
+}
+
+function missingLabelTargets(document: LLMConfigDocument): LLMProviderSlot[] {
+  return [
+    ...(document.primary.label?.trim() ? [] : [{ role: 'primary' } as const]),
+    ...(document.fallbacks ?? []).flatMap((provider, index) =>
+      provider.label?.trim() ? [] : [{ role: 'fallback' as const, index }]),
+  ];
+}
+
+function assertNormalDocumentLabels(document: LLMConfigDocument): void {
+  const missing = missingLabelTargets(document);
+  if (missing.length > 0) {
+    throw new LLMConfigurationLabelRequiredError(
+      { id: String(document.revision), revision: document.revision },
+      missing,
+    );
+  }
+  const seen = new Set<string>();
+  for (const provider of [document.primary, ...(document.fallbacks ?? [])]) {
+    const label = provider.label!.trim();
+    if (label === PROVIDER_NO_LABEL_SENTINEL || provider.label !== label) {
+      throw new LLMProviderLabelInvalidError();
+    }
+    if (seen.has(label)) throw new LLMProviderLabelAlreadyExistsError(label);
+    seen.add(label);
+  }
+}
+
 function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument {
   if (!isRecord(value)) {
     throw new Error(`Invalid LLM configuration document: expected object: ${configPath}`);
@@ -389,6 +472,7 @@ export function createLLMConfigurationDocumentStore(deps: {
           validateRaw: (value) => {
             assertNoLegacyPlaintextApiKey(value);
             raw = parseRawDocument(value, configPath);
+            assertNormalDocumentLabels(raw);
           },
         },
         configPath,
@@ -736,6 +820,11 @@ export function createLLMConfigurationDocumentStore(deps: {
       const metadata = documentMetadataSchema.parse(changed);
       const nextConfig = documentConfig(changed);
       llmOrchestratorConfigSchema.parse(nextConfig);
+      assertNormalDocumentLabels({
+        ...nextConfig,
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision: fresh.revision,
+      } as LLMConfigDocument);
       result = writeYamlConfig(deps, configPath, {
         ...nextConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
@@ -747,6 +836,56 @@ export function createLLMConfigurationDocumentStore(deps: {
       });
     });
     return result!;
+  };
+
+  const assignMissingLabel = async (
+    request: AssignMissingLLMProviderLabel,
+  ): Promise<LLMConfigurationCommitResult> => {
+    let committed: LLMConfigurationCommitResult | undefined;
+    await withYamlConfigLock(deps, configPath, () => {
+      const fresh = read();
+      if (String(fresh.revision) !== request.expectedRevisionId) {
+        throw new LLMConfigurationRevisionConflictError(
+          Number(request.expectedRevisionId), fresh.revision,
+        );
+      }
+      if (llmProviderTargetFingerprint(fresh, request.slot) !== request.expectedFingerprint) {
+        throw new LLMProviderTargetChangedError();
+      }
+      const target = providerAtSlot(fresh, request.slot);
+      if (target.label?.trim()) throw new LLMProviderTargetChangedError();
+      const label = request.label.trim();
+      if (!label || label === PROVIDER_NO_LABEL_SENTINEL) throw new LLMProviderLabelInvalidError();
+      if ([fresh.primary, ...(fresh.fallbacks ?? [])]
+        .some(entry => entry.label?.trim() === label)) {
+        throw new LLMProviderLabelAlreadyExistsError(label);
+      }
+      const next = request.slot.role === 'primary'
+        ? { ...fresh, primary: { ...target, label } }
+        : {
+          ...fresh,
+          fallbacks: (fresh.fallbacks ?? []).map((entry, index) =>
+            index === (request.slot.role === 'fallback' ? request.slot.index : -1)
+              ? { ...entry, label }
+              : entry),
+        };
+      // Keep this compatibility transaction narrow: other historical missing labels remain readable.
+      const nextConfig = documentConfig(next as LLMConfigDocument);
+      llmOrchestratorConfigSchema.parse(nextConfig);
+      const revision = fresh.revision + 1;
+      const write = writeYamlConfig(deps, configPath, {
+        ...nextConfig,
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision,
+      });
+      committed = {
+        target: { kind: 'replace', slot: request.slot },
+        revision: { id: String(revision), revision },
+        write,
+        document: read(),
+      };
+    });
+    return committed!;
   };
 
   const patchPrimary = async (
@@ -790,6 +929,9 @@ export function createLLMConfigurationDocumentStore(deps: {
         primary: provider,
         circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 60_000 },
       });
+      assertNormalDocumentLabels({
+        ...initial, schema_version: DOCUMENT_SCHEMA_VERSION, revision: 1,
+      } as LLMConfigDocument);
       let initialized: LLMConfigurationCommitResult | undefined;
       await withYamlConfigLock(deps, configPath, () => {
         try {
@@ -870,6 +1012,11 @@ export function createLLMConfigurationDocumentStore(deps: {
         next = { ...current, fallbacks };
       }
       const validated = llmOrchestratorConfigSchema.parse(next);
+      assertNormalDocumentLabels({
+        ...(target.kind === 'replace' ? next : validated),
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision: fresh.revision,
+      } as LLMConfigDocument);
       const revision = fresh.revision + 1;
       const write = writeYamlConfig(deps, configPath, {
         ...(target.kind === 'replace' ? next : validated),
@@ -897,6 +1044,7 @@ export function createLLMConfigurationDocumentStore(deps: {
       return { id: String(document.revision), revision: document.revision };
     },
     mutate,
+    assignMissingLabel,
     patchPrimary,
     commitExplicitProvider,
     createFromSource,
@@ -953,6 +1101,7 @@ export function createLLMConfiguration(deps: {
       mutator(view);
       return { ...view.llm, schema_version: fresh.schema_version, revision: fresh.revision } as LLMConfigDocument;
     }),
+    assignMissingLabel: (request) => store().assignMissingLabel(request),
     patchPrimary: (patch) => store().patchPrimary({ ...patch }),
     commitExplicitProvider: (target, explicitConfig, expectedRevision) =>
       store().commitExplicitProvider(target, explicitConfig, expectedRevision),

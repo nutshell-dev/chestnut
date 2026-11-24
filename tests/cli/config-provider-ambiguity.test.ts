@@ -436,7 +436,7 @@ fallbacks:
     );
   });
 
-  it('remove reports a unique no-label provider_id fallback without inventing an identity', async () => {
+  it('repair explicitly names a unique historical fallback before removal by label', async () => {
     writeConfig(`primary:
   label: main
   provider_id: custom:anthropic
@@ -452,15 +452,34 @@ fallbacks:
     base_url: https://openai.test
 `);
 
-    await runCommand(['provider', 'remove', 'custom:openai']);
+    rlAnswers.queue = ['legacy-openai', 'n'];
+    await runCommand(['provider', 'repair', 'custom:openai']);
+    expect(configDeps.llmConfiguration.store.read().fallbacks?.[0]?.label).toBe('legacy-openai');
+    await runCommand(['provider', 'remove', 'legacy-openai']);
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([]);
     expect(logLines.join('\n')).toContain(
-      '✓ Removed provider (Fallback #1 (no label)) from fallbacks',
+      '✓ Removed provider (Fallback #1 "legacy-openai") from fallbacks',
     );
   });
 
-  it('set-primary reports the actual no-label target and provider_id match', async () => {
+  it('ambiguous historical entry is explicitly selected and named', async () => {
+    writeSharedProviderConfig();
+    rlAnswers.queue = ['3', 'legacy-two', 'n'];
+
+    await runCommand(['provider', 'repair', 'custom:shared']);
+
+    const named = configDeps.llmConfiguration.store.read();
+    expect(named.primary.label).toBe('primary-label');
+    expect(named.fallbacks?.map(entry => entry.label)).toEqual(['one', 'legacy-two']);
+    expect(named.revision).toBe(8);
+    expect(named.fallbacks?.map(entry => entry.model)).toEqual(['model-one', 'model-two']);
+    await runCommand(['provider', 'remove', 'legacy-two']);
+    expect(configDeps.llmConfiguration.store.read().fallbacks?.map(entry => entry.label))
+      .toEqual(['one']);
+  });
+
+  it('set-primary reports the actual labelled target', async () => {
     vi.stubEnv('PROBE_KEY', 'synthetic-probe-key');
     writeConfig(`primary:
   label: main
@@ -471,7 +490,8 @@ fallbacks:
   model: claude-test
   base_url: https://anthropic.test
 fallbacks:
-  - provider_id: custom:openai
+  - label: fallback
+    provider_id: custom:openai
     api_format: openai
     auth_profile: api_key
     api_key: \${PROBE_KEY}
@@ -481,11 +501,11 @@ fallbacks:
     rlAnswers.queue = ['y'];
     connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-test' });
 
-    await runCommand(['provider', 'set-primary', 'custom:openai']);
+    await runCommand(['provider', 'set-primary', 'fallback']);
 
     expect(configDeps.llmConfiguration.store.read().primary).toMatchObject({ provider_id: 'custom:openai' });
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (Primary (no label)) is now primary',
+      '✓ Provider (Primary "fallback") is now primary',
     );
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
   });
@@ -499,7 +519,8 @@ fallbacks:
   model: claude-test
   base_url: https://anthropic.test
 fallbacks:
-  - provider_id: custom:openai
+  - label: fallback
+    provider_id: custom:openai
     api_format: openai
     auth_profile: ambient
     model: gpt-test
@@ -512,14 +533,14 @@ fallbacks:
     base_url: https://other.test
 `);
 
-    await runCommand(['provider', 'move', 'custom:openai', '2']);
+    await runCommand(['provider', 'move', 'fallback', '2']);
 
     expect(configDeps.llmConfiguration.store.read().fallbacks).toEqual([
       expect.objectContaining({ label: 'second', provider_id: 'custom:other' }),
       expect.objectContaining({ provider_id: 'custom:openai' }),
     ]);
     expect(logLines.join('\n')).toContain(
-      '✓ Provider (Fallback #2 (no label)) moved to fallback #2',
+      '✓ Provider (Fallback #2 "fallback") moved to fallback #2',
     );
   });
 

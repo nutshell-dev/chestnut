@@ -30,6 +30,7 @@ import {
 } from '../../src/cli/start-llm-gate.js';
 import {
   LLMConfigurationCredentialUnavailableError,
+  LLMConfigurationLabelRequiredError,
   snapshotLLMConfig,
 } from '../../src/core/llm-configuration/index.js';
 import {
@@ -43,6 +44,7 @@ const h = vi.hoisted(() => ({
   rlAnswers: { queue: [] as string[] },
   rlCreateCalls: 0,
   repairProviderSlot: vi.fn(),
+  nameProviderSlot: vi.fn(),
 }));
 
 vi.mock('readline', () => ({
@@ -59,6 +61,7 @@ vi.mock('readline', () => ({
 
 vi.mock('../../src/cli/provider-repair.js', () => ({
   repairProviderSlot: h.repairProviderSlot,
+  nameProviderSlot: h.nameProviderSlot,
   providerRepairBaselineForSlot: (config: unknown, slot: { role: 'primary' | 'fallback'; index?: number }) => ({
     config,
     found: {
@@ -244,6 +247,7 @@ beforeEach(() => {
   conn.probeLLMConnection.mockReset();
   conn.promptReconfigure.mockReset();
   h.repairProviderSlot.mockReset();
+  h.nameProviderSlot.mockReset();
   downstream.init.mockClear();
   downstream.motionInit.mockClear();
   downstream.chat.mockClear();
@@ -464,6 +468,35 @@ describe('start LLM gate (unit)', () => {
     expect(h.repairProviderSlot.mock.calls[0][1]).toEqual({ role: 'fallback', index: 0 });
     expect(h.repairProviderSlot.mock.calls[0][4]).toEqual({ initialAction: 'edit-key' });
     expect(conn.probeLLMConnection).not.toHaveBeenCalled();
+  });
+
+  it('E1. 历史缺标签在非交互启动给出补救入口，交互补名后重新验证', async () => {
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const labelError = () => new LLMConfigurationLabelRequiredError(
+      { id: '1', revision: 1 }, [{ role: 'primary' }],
+    );
+    const nonInteractive = makeGateDeps(() => makeGlobal('model-A'));
+    nonInteractive.llmConfiguration.loadGlobal.mockImplementation(() => { throw labelError(); });
+    const blocked = await ensureStartLLMVerified(nonInteractive, {
+      audit: mockAudit, interactive: false,
+    }).catch((value: unknown) => value);
+    expect(blocked).toBeInstanceOf(CliError);
+    expect((blocked as CliError).message).toContain('config provider repair');
+    expect(h.rlCreateCalls).toBe(0);
+
+    mockProbeOk();
+    const interactive = makeGateDeps(() => makeGlobal('model-A'));
+    interactive.llmConfiguration.loadGlobal.mockImplementationOnce(() => { throw labelError(); });
+    interactive.llmConfiguration.loadRaw.mockReturnValue({
+      ...makeGlobal('model-A'), revision: { id: '1', revision: 1 }, workspaceRoot: '/workspace',
+    });
+    h.nameProviderSlot.mockResolvedValue({ config: {}, found: {} });
+    const verified = await ensureStartLLMVerified(interactive, {
+      audit: mockAudit, interactive: true,
+    });
+    expect(verified.probe.model).toBe('model-A');
+    expect(h.nameProviderSlot).toHaveBeenCalledOnce();
+    expect(conn.probeLLMConnection).toHaveBeenCalledOnce();
   });
 
   it('B4. 失败定位 revision 已漂移时重读重验，不把旧位置交给 repair', async () => {

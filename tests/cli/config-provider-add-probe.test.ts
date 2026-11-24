@@ -123,7 +123,7 @@ function writeInitialConfig() {
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    `llm:\n  primary:\n    preset: anthropic\n    api_key: sk-ant-old\n`,
+    `llm:\n  primary:\n    preset: anthropic\n    label: main\n    api_key: sk-ant-old\n`,
   );
 }
 
@@ -352,7 +352,7 @@ describe('config provider add — primary probe', () => {
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.provider_id).toBe('custom:anthropic');
     expect(config.llm.primary.preset).toBeUndefined();
-    expect(config.llm.primary.label).toBeUndefined();
+    expect(config.llm.primary.label).toBe('main');
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'anthropic')).toBe(true);
   });
 

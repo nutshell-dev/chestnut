@@ -83,6 +83,7 @@ primary:
   provider_id: custom:anthropic
   api_format: anthropic
   auth_profile: api_key
+  label: main
   api_key: ${apiKey}
   model: claude-test
   base_url: https://api.anthropic.com

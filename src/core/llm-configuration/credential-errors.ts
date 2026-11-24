@@ -1,5 +1,9 @@
 import type { LLMProviderSlot } from './selection.js';
-import type { LLMConfigurationRevision } from './document-store.js';
+
+export interface MissingCredentialRevision {
+  readonly id: string;
+  readonly revision: number;
+}
 
 export type MissingCredentialField = 'api_key' | 'other' | 'multiple';
 
@@ -11,7 +15,7 @@ export type MissingCredentialTarget = Readonly<{
 export type MissingCredentialContext =
   | {
     readonly kind: 'document';
-    readonly revision: LLMConfigurationRevision;
+    readonly revision: MissingCredentialRevision;
     readonly targets: readonly MissingCredentialTarget[];
   }
   | { readonly kind: 'draft' };

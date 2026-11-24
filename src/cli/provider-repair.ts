@@ -3,8 +3,11 @@ import type * as readline from 'node:readline';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   LegacyPresetMigrationError,
+  LLMProviderLabelAlreadyExistsError,
+  LLMProviderLabelInvalidError,
   LLMSetupCommittedObserverError,
   executeLLMSetupAttempt,
+  llmProviderTargetFingerprint,
   providerAtLLMSlot,
   type LLMConfigurationAdmin,
   type LLMConfigurationCommitResult,
@@ -37,6 +40,7 @@ import { question as askQuestion } from './utils/prompt.js';
 import {
   formatAmbiguousProviderReference,
   formatProviderTarget,
+  humanProviderTarget,
   providerTargetFingerprint,
   resolveProviderReference,
   type ResolvedProviderReference,
@@ -99,6 +103,59 @@ function foundForSlot(
   return providerRepairBaselineForSlot(deps.llmConfiguration.loadRaw(), slot);
 }
 
+function rawDocumentFor(
+  config: ReturnType<LLMConfigurationAdmin['loadRaw']>,
+): Parameters<typeof llmProviderTargetFingerprint>[0] {
+  return { ...config.llm, schema_version: 1, revision: config.revision.revision };
+}
+
+/** Assign one historical name before entering the normal, fully validated repair commit. */
+export async function nameProviderSlot(
+  deps: ProviderRepairDeps,
+  slot: LLMProviderSlot,
+  rl: readline.Interface,
+  baseline?: ProviderRepairBaseline,
+): Promise<ProviderRepairBaseline | undefined> {
+  const initial = baseline ?? foundForSlot(deps, slot);
+  if (initial.found.candidate.label?.trim()) return initial;
+  for (;;) {
+    console.log(`Provider (${formatProviderTarget(initial.found)}) needs a unique label before it can run.`);
+    const input = (await askQuestion(rl, 'Provider label (b = cancel)')).trim();
+    if (input.toLowerCase() === 'b') return undefined;
+    if (!input) {
+      console.log('Provider label is required.');
+      continue;
+    }
+    try {
+      const commit = await deps.llmConfiguration.store.assignMissingLabel({
+        slot,
+        expectedRevisionId: initial.config.revision.id,
+        expectedFingerprint: llmProviderTargetFingerprint(rawDocumentFor(initial.config), slot),
+        label: input,
+      });
+      const { schema_version: _schemaVersion, revision: _revision, ...llm } = commit.document;
+      const config = {
+        llm,
+        revision: commit.revision,
+        workspaceRoot: initial.config.workspaceRoot,
+      };
+      const named = providerRepairBaselineForSlot(config, slot);
+      console.log(`✓ Provider (${formatProviderTarget(named.found)}) named at revision ${commit.revision.revision}`);
+      return named;
+    } catch (error) {
+      if (error instanceof LLMProviderLabelInvalidError) {
+        console.log('Provider label is invalid or reserved.');
+        continue;
+      }
+      if (error instanceof LLMProviderLabelAlreadyExistsError) {
+        console.log(`A provider with label ${JSON.stringify(input)} already exists.`);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 function assertStableTarget(
   deps: ProviderRepairDeps,
   slot: LLMProviderSlot,
@@ -140,7 +197,22 @@ export async function repairProviderSlot(
   options: { initialAction?: 'edit-key' } = {},
 ): Promise<ProviderRepairOutcome> {
   // Resolver and repair must share one raw target baseline; never re-resolve A into B.
-  const initial = baseline ?? foundForSlot(deps, slot);
+  let initial = baseline ?? foundForSlot(deps, slot);
+  const otherMissing = [
+    ...(!initial.config.llm.primary.label?.trim() ? [{ role: 'primary' } as const] : []),
+    ...(initial.config.llm.fallbacks ?? []).flatMap((provider, index) =>
+      provider.label?.trim() ? [] : [{ role: 'fallback' as const, index }]),
+  ];
+  const missing = [slot, ...otherMissing.filter(candidate =>
+    candidate.role !== slot.role
+    || (candidate.role === 'fallback' && (slot.role !== 'fallback' || candidate.index !== slot.index)))];
+  for (const missingSlot of missing) {
+    const named = await nameProviderSlot(
+      deps, missingSlot, rl, providerRepairBaselineForSlot(initial.config, missingSlot),
+    );
+    if (!named) return { kind: 'cancelled', reason: 'user_cancelled' };
+    initial = providerRepairBaselineForSlot(named.config, slot);
+  }
   const expected = {
     revision: initial.config.revision.id,
     fingerprint: providerTargetFingerprint(initial.config, initial.found),
@@ -269,10 +341,21 @@ export async function providerRepair(
   }
   await deps.llmConfiguration.migrateLegacyApiKeys(actionAuditFor(getChestnutRoot(), deps));
   const config = deps.llmConfiguration.loadRaw();
-  const resolution = resolveProviderReference(config, reference);
+  let resolution = resolveProviderReference(config, reference);
   if (resolution.kind === 'not_found') throw new CliError(`Provider "${reference}" not found`);
   if (resolution.kind === 'ambiguous_provider_reference') {
-    throw new CliError(formatAmbiguousProviderReference(resolution));
+    console.log('Multiple providers match; choose the exact historical entry to repair:');
+    resolution.candidates.forEach((candidate, index) => {
+      console.log(`${index + 1}. ${humanProviderTarget(candidate)}`);
+    });
+    const selected = Number.parseInt(await askQuestion(rl, '> '), 10) - 1;
+    const candidate = resolution.candidates[selected];
+    if (!candidate) throw new CliError(formatAmbiguousProviderReference(resolution));
+    resolution = {
+      kind: 'resolved',
+      candidate,
+      matchedBy: candidate.label === reference ? 'label' : 'provider_id',
+    };
   }
   const slot: LLMProviderSlot = resolution.candidate.role === 'primary'
     ? { role: 'primary' }

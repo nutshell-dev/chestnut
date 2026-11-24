@@ -64,6 +64,7 @@ export {
   createLLMConfigurationDocumentStore,
   getLLMConfigurationPath,
   llmConfigurationSourceDigest,
+  llmProviderTargetFingerprint,
   newLLMMigrationId,
   readLLMMigrationRecord,
   recordLLMMigrationSourceCleanup,
@@ -72,7 +73,10 @@ export {
   LLMConfigurationMigrationError,
   LLMConfigurationAlreadyExistsError,
   LLMConfigurationRevisionConflictError,
+  LLMConfigurationLabelRequiredError,
   LLMProviderLabelAlreadyExistsError,
+  LLMProviderLabelInvalidError,
+  LLMProviderTargetChangedError,
 } from './document-store.js';
 export {
   LLMConfigurationCredentialUnavailableError,
@@ -84,6 +88,7 @@ export type { LLMProviderSnapshot } from './provider-repair.js';
 export type {
   MissingCredentialContext,
   MissingCredentialField,
+  MissingCredentialRevision,
   MissingCredentialTarget,
 } from './credential-errors.js';
 export {
@@ -107,6 +112,7 @@ export type {
   LLMConfigurationDocumentMigrationResult,
   LLMConfigurationCommitResult,
   ExplicitLLMProviderConfig,
+  AssignMissingLLMProviderLabel,
 } from './document-store.js';
 export {
   executeLLMSetupAttempt,
