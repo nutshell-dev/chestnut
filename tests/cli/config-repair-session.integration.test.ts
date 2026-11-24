@@ -31,6 +31,8 @@ const HTTP_REQUEST_POLL_MS = 10;
 const HTTP_PORT_REFUSED_TIMEOUT_MS = 1_000;
 const EXTERNAL_CONSUMER_TIMEOUT_MS = 10_000;
 const RECLAIM_STALE_AGE_MS = 11 * 60 * 1000;
+// Finite lifetime for detached startup-error fixtures; independent cleanup must finish first.
+const DETACHED_CHILD_LIFETIME_MS = 30_000;
 const isolatedHosts: Array<{ host: string; runRoot: string }> = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
 
@@ -1268,7 +1270,7 @@ describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
     try {
       const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
         spawnPty: (_command, env, cwd) => {
-          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+          const child = spawn(process.execPath, ['-e', `setTimeout(() => {}, ${DETACHED_CHILD_LIFETIME_MS})`], {
             cwd, env, detached: true, stdio: 'pipe',
           });
           controller.abort(primary);
@@ -1298,7 +1300,7 @@ describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
     try {
       const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
         spawnPty: (_command, env, cwd) => {
-          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+          const child = spawn(process.execPath, ['-e', `setTimeout(() => {}, ${DETACHED_CHILD_LIFETIME_MS})`], {
             cwd, env, detached: true, stdio: 'pipe',
           });
           queueMicrotask(() => child.emit('error', primary));
@@ -1328,7 +1330,7 @@ describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
     try {
       const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
         spawnPty: (_command, env, cwd) => {
-          const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+          const child = spawn(process.execPath, ['-e', `setTimeout(() => {}, ${DETACHED_CHILD_LIFETIME_MS})`], {
             cwd, env, detached: true, stdio: 'pipe',
           });
           Object.defineProperty(child, 'pid', { value: undefined });
