@@ -31,6 +31,7 @@ import {
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
 import { providerRepairBaselineForSlot, repairProviderSlot } from './provider-repair.js';
+import { formatProviderTarget } from './commands/provider-reference.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -386,10 +387,32 @@ async function verifyWithWizardResolved(
   return result.verified;
 }
 
-function nonInteractiveCredentialError(error: LLMConfigurationCredentialUnavailableError): CliError {
+function nonInteractiveCredentialError(
+  deps: GateDeps,
+  error: LLMConfigurationCredentialUnavailableError,
+): CliError {
+  let repair = 'Run "chestnut config provider list" to identify the affected provider.';
+  if (error.context.kind === 'document' && error.context.targets.length === 1) {
+    try {
+      const config = deps.llmConfiguration.loadRaw();
+      if (config.revision.id === error.context.revision.id) {
+        const target = error.context.targets[0]!;
+        const provider = target.slot.role === 'primary'
+          ? config.llm.primary
+          : config.llm.fallbacks?.[target.slot.index];
+        const label = provider?.label?.trim();
+        const all = [config.llm.primary, ...(config.llm.fallbacks ?? [])];
+        if (label && /^[A-Za-z0-9._-]+$/.test(label)
+          && all.filter(entry => entry.label === label).length === 1) {
+          repair = `Repair it with "chestnut config provider repair ${label}".`;
+        }
+      }
+    } catch {
+      // The typed credential failure remains authoritative if display facts cannot be read.
+    }
+  }
   return new CliError(
-    'LLM credential unavailable; start aborted before supervision. ' +
-    'Repair the affected provider with "chestnut config provider repair <label>".',
+    `LLM credential unavailable; start aborted before supervision. ${repair}`,
     { code: START_GATE_EXIT_CODE, cause: error },
   );
 }
@@ -406,37 +429,31 @@ async function repairCredentialInteractively(
   if (targets.length === 0) throw error;
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    for (;;) {
-      console.error('LLM credential unavailable. The workspace structure is valid.');
-      console.log('1. Repair provider');
-      console.log('2. Retry full verification');
-      console.log('n. Cancel start');
-      const choice = (await ask(rl, '> ')).toLowerCase();
-      if (choice === 'n') return 'cancel';
-      if (choice === '2') return 'retry';
-      if (choice !== '1') {
-        console.log('Invalid choice.');
-        continue;
-      }
-      let target = targets[0]!;
-      if (targets.length > 1) {
-        console.log('The credential is used by multiple providers; choose one target:');
+    let target = targets[0]!;
+    if (targets.length > 1) {
+      console.log('The credential is used by multiple providers; choose one target:');
+      for (;;) {
         targets.forEach((candidate, index) => {
-          const slot = candidate.slot;
-          console.log(`${index + 1}. ${slot.role}${slot.role === 'fallback' ? `[${slot.index}]` : ''}`);
+          const baseline = providerRepairBaselineForSlot(config, candidate.slot);
+          console.log(`${index + 1}. ${formatProviderTarget(baseline.found)}`);
         });
         const selected = Number.parseInt(await ask(rl, '> '), 10) - 1;
-        if (!targets[selected]) {
-          console.log('Invalid choice.');
-          continue;
+        if (targets[selected]) {
+          target = targets[selected];
+          break;
         }
-        target = targets[selected];
+        console.log('Invalid choice.');
       }
-      await repairProviderSlot(
-        deps, target.slot, rl, providerRepairBaselineForSlot(config, target.slot),
-      );
-      return 'retry';
     }
+    const baseline = providerRepairBaselineForSlot(config, target.slot);
+    const reason = target.field === 'api_key' ? 'API key is missing' : 'a referenced credential is missing';
+    console.error(`LLM credential unavailable: ${reason}.`);
+    console.log(`Affected provider: ${formatProviderTarget(baseline.found)}`);
+    const outcome = await repairProviderSlot(
+      deps, target.slot, rl, baseline,
+      target.field === 'api_key' ? { initialAction: 'edit-key' } : {},
+    );
+    return outcome.kind === 'committed' ? 'retry' : 'cancel';
   } finally {
     rl.close();
   }
@@ -456,7 +473,7 @@ async function verifyWithWizard(
       return await verifyWithWizardResolved(deps, opts);
     } catch (error) {
       if (!(error instanceof LLMConfigurationCredentialUnavailableError)) throw error;
-      if (!opts.interactive) throw nonInteractiveCredentialError(error);
+      if (!opts.interactive) throw nonInteractiveCredentialError(deps, error);
       const action = await repairCredentialInteractively(deps, error);
       if (action === 'cancel') {
         throw new CliError('LLM verification cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });

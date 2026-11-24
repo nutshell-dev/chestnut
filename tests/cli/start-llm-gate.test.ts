@@ -59,7 +59,18 @@ vi.mock('readline', () => ({
 
 vi.mock('../../src/cli/provider-repair.js', () => ({
   repairProviderSlot: h.repairProviderSlot,
-  providerRepairBaselineForSlot: (config: unknown, slot: unknown) => ({ config, found: { slot } }),
+  providerRepairBaselineForSlot: (config: unknown, slot: { role: 'primary' | 'fallback'; index?: number }) => ({
+    config,
+    found: {
+      kind: 'resolved',
+      candidate: {
+        role: slot.role,
+        index: slot.role === 'primary' ? -1 : slot.index ?? 0,
+        label: 'main',
+      },
+      matchedBy: 'label',
+    },
+  }),
 }));
 
 // ── llm-connection-check mock（probe 缝；echo snapshot.identity 模拟真实回带）──
@@ -153,6 +164,7 @@ function makeGlobal(model: string) {
         provider_id: 'custom:anthropic',
         api_format: 'anthropic',
         auth_profile: 'api_key',
+        label: 'main',
         base_url: 'https://api.anthropic.com',
         api_key: '${ANTHROPIC_API_KEY}',
         model,
@@ -346,6 +358,10 @@ describe('start LLM gate (unit)', () => {
         targets: [{ slot: { role: 'primary' }, field: 'api_key' }],
       });
     });
+    const raw = makeGlobal('claude-x');
+    deps.llmConfiguration.loadRaw.mockReturnValue({
+      ...raw, revision: { id: '1', revision: 1 }, workspaceRoot: '/workspace',
+    });
 
     const err = await ensureStartLLMVerified(deps, {
       audit: mockAudit, interactive: false,
@@ -356,7 +372,7 @@ describe('start LLM gate (unit)', () => {
     expect((err as CliError).message).not.toContain('PHASE2221_START_MISSING');
     expect((err as CliError).cause).toBeInstanceOf(LLMConfigurationCredentialUnavailableError);
     expect((err as CliError).cause).not.toHaveProperty('ref');
-    expect((err as CliError).message).toContain('config provider repair');
+    expect((err as CliError).message).toContain('config provider repair main');
     expect(conn.probeLLMConnection).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
   });
@@ -390,6 +406,64 @@ describe('start LLM gate (unit)', () => {
       config: rawBaseline,
     });
     expect(h.repairProviderSlot.mock.calls[0][3].config.llm.primary.model).toBe('model-A');
+  });
+
+  it('C1. 单目标直接交接 API-key 输入，committed 后由 start 统一复查', async () => {
+    mockProbeOk();
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('model-A'));
+    deps.llmConfiguration.loadGlobal.mockImplementationOnce(() => {
+      throw new LLMConfigurationCredentialUnavailableError({
+        kind: 'document',
+        revision: { id: '1', revision: 1 },
+        targets: [{ slot: { role: 'primary' }, field: 'api_key' }],
+      });
+    });
+    deps.llmConfiguration.loadRaw.mockReturnValue({
+      ...makeGlobal('model-A'), revision: { id: '1', revision: 1 }, workspaceRoot: '/workspace',
+    });
+    h.repairProviderSlot.mockResolvedValue({ kind: 'committed' });
+
+    const verified = await ensureStartLLMVerified(deps, { audit: mockAudit, interactive: true });
+
+    expect(verified.probe.model).toBe('model-A');
+    expect(h.repairProviderSlot).toHaveBeenCalledTimes(1);
+    expect(h.repairProviderSlot.mock.calls[0][4]).toEqual({ initialAction: 'edit-key' });
+    expect(h.rlAnswers.queue).toEqual([]);
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('C2. 多目标仅在选择后交接，取消修复不会启动或重查为成功', async () => {
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('model-A'));
+    deps.llmConfiguration.loadGlobal.mockImplementation(() => {
+      throw new LLMConfigurationCredentialUnavailableError({
+        kind: 'document',
+        revision: { id: '1', revision: 1 },
+        targets: [
+          { slot: { role: 'primary' }, field: 'other' },
+          { slot: { role: 'fallback', index: 0 }, field: 'api_key' },
+        ],
+      });
+    });
+    const raw = makeGlobal('model-A');
+    deps.llmConfiguration.loadRaw.mockReturnValue({
+      ...raw,
+      llm: { ...raw.llm, fallbacks: [{ ...raw.llm.primary }] },
+      revision: { id: '1', revision: 1 },
+      workspaceRoot: '/workspace',
+    });
+    h.rlAnswers.queue = ['2'];
+    h.repairProviderSlot.mockResolvedValue({ kind: 'cancelled', reason: 'user_cancelled' });
+
+    const error = await ensureStartLLMVerified(deps, { audit: mockAudit, interactive: true })
+      .catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(START_GATE_EXIT_CODE);
+    expect(h.repairProviderSlot.mock.calls[0][1]).toEqual({ role: 'fallback', index: 0 });
+    expect(h.repairProviderSlot.mock.calls[0][4]).toEqual({ initialAction: 'edit-key' });
+    expect(conn.probeLLMConnection).not.toHaveBeenCalled();
   });
 
   it('B4. 失败定位 revision 已漂移时重读重验，不把旧位置交给 repair', async () => {

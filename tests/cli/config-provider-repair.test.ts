@@ -113,7 +113,8 @@ describe('config provider repair', () => {
     const ref = String(document.primary.api_key).slice(2, -1);
     expect(createAuthenticationSetup({ fsFactory }).resolveSync(ref)?.accessToken).toBe('new-primary-secret');
     expect(probe).toHaveBeenCalledOnce();
-    expect(errors.join('\n')).toContain('full LLM configuration is not ready');
+    expect(errors.join('\n')).toContain('LLM runtime is not ready: credential unavailable');
+    expect(errors.join('\n')).not.toContain('PHASE2221_REPAIR_MISSING');
     const evidence = fs.readFileSync(configPath(), 'utf8') + output.join('\n') + errors.join('\n');
     expect(evidence).not.toContain('new-primary-secret');
   });

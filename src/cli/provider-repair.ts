@@ -2,7 +2,6 @@
 import type * as readline from 'node:readline';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
-  LLMConfigurationCredentialUnavailableError,
   LegacyPresetMigrationError,
   LLMSetupCommittedObserverError,
   executeLLMSetupAttempt,
@@ -132,24 +131,13 @@ async function chooseRepairAction(rl: readline.Interface): Promise<LLMRepairActi
   }
 }
 
-function reportRemainingCredentialFailures(deps: ProviderRepairDeps): void {
-  try {
-    deps.llmConfiguration.store.readSnapshot();
-  } catch (error) {
-    if (error instanceof LLMConfigurationCredentialUnavailableError) {
-      console.error('⚠ Target saved, but the full LLM configuration is not ready: credential unavailable.');
-      return;
-    }
-    console.error(`⚠ Target saved, but the full runtime readiness check failed: ${formatErr(error)}`);
-  }
-}
-
 /** Repair a selected raw slot without resolving credentials in any other provider. */
 export async function repairProviderSlot(
   deps: ProviderRepairDeps,
   slot: LLMProviderSlot,
   rl: readline.Interface,
   baseline?: ProviderRepairBaseline,
+  options: { initialAction?: 'edit-key' } = {},
 ): Promise<ProviderRepairOutcome> {
   // Resolver and repair must share one raw target baseline; never re-resolve A into B.
   const initial = baseline ?? foundForSlot(deps, slot);
@@ -165,11 +153,13 @@ export async function repairProviderSlot(
   ) };
   assertStableTarget(deps, slot, expected);
   const audit = actionAuditFor(getChestnutRoot(), deps);
+  let initialAction = options.initialAction;
 
   try {
     for (;;) {
       console.log(`\nRepair provider (${formatProviderTarget(initial.found)}):`);
-      const action = await chooseRepairAction(rl);
+      const action = initialAction ?? await chooseRepairAction(rl);
+      initialAction = undefined;
       if (action === 'cancel') {
         console.log(SETUP_CANCELLED);
         return { kind: 'cancelled', reason: 'user_cancelled' };
@@ -251,7 +241,6 @@ export async function repairProviderSlot(
       }
       console.log(`✓ Provider (${formatProviderTarget(initial.found)}) repaired in place at revision ${outcome.commit.revision.revision}`);
       console.log(`✓ ${outcome.verified.model}`);
-      reportRemainingCredentialFailures(deps);
       return {
         kind: 'committed', target: initial.found, commit: outcome.commit, verified: outcome.verified,
       };

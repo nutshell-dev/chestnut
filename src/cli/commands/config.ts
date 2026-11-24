@@ -801,7 +801,10 @@ async function providerRepairCommand(deps: ConfigCommandDeps, reference: string)
   const rl = createRL();
   try {
     const outcome = await providerRepair(deps, reference, rl);
-    if (outcome.kind === 'committed') await notifyRunningDaemons(deps, 'repair', outcome.commit.revision);
+    if (outcome.kind === 'committed') {
+      await notifyRunningDaemons(deps, 'repair', outcome.commit.revision);
+      reportRuntimeReadiness(deps);
+    }
   } finally {
     rl.close();
   }

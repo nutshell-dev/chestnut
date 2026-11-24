@@ -84,6 +84,23 @@ describe('real CLI missing-credential repair chain', () => {
     }, { requests: () => server.requests });
   }, INTEGRATION_TEST_TIMEOUT_MS);
 
+  it('交互 start 直接交接修复，取消只提示一次且不启动', async context => {
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    await finishConfigRepairCase(workspace, async () => {
+      const started = await runInteractiveCli(workspace, ['start'], [
+        { prompt: /New API key \(b = back\): $/, value: 'b' },
+        { prompt: /> : $/, value: 'n' },
+      ], context.signal);
+      expect(started.status).toBe(3);
+      expect(started.execution.kind).toBe('gone');
+      expect(`${started.stdout}\n${started.stderr}`.match(/credential unavailable/gi) ?? []).toHaveLength(1);
+      expect(started.stdout).not.toContain(CONFIG_REPAIR_REF);
+      expect(started.stderr).not.toContain(CONFIG_REPAIR_REF);
+      expect(readConfigRepairRaw(workspace.root).document.revision).toBe(1);
+      expect(fs.existsSync(path.join(workspace.root, '.chestnut', 'motion', 'daemon'))).toBe(false);
+    });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
+
   it('缺 key → repair key 写独立 ref，且单字段提交不物化 defaults', async context => {
     const workspace = createConfigRepairWorkspace(server.baseUrl);
     await finishConfigRepairCase(workspace, async () => {
