@@ -170,7 +170,7 @@ describe('InstanceStateStore legacy intake', () => {
   it('preserves legacy facts, provenance, zero/absence and does not migrate V3 twice', async () => {
     const f = await fixture();
     const legacy = createInitialRecoveryState('foreground', {
-      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000,
+      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     }, 1_000);
     legacy.providers = [
       {

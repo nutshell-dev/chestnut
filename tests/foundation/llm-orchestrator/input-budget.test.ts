@@ -226,15 +226,15 @@ describe('configured candidate call defaults', () => {
     });
     await expect(owner.call({ messages: [{ role: 'user', content: 'hello' }] })).resolves.toBe(response);
     expect(fallbackPrepare).toHaveBeenCalledWith({
-      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 },
+      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
     expect(received[1]?.options.temperature).toBeUndefined();
     expect(received[1]?.options.maxTokens).toBeUndefined();
     expect(received[1]?.options).toMatchObject({
-      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 },
-      timeoutMs: 2_000,
+      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
+      timeoutMs: 2_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
-    expect(received[0]?.options.callDefaults).toMatchObject({ timeoutMs: 1_000, temperature: 0.1, maxTokens: 111 });
+    expect(received[0]?.options.callDefaults).toMatchObject({ timeoutMs: 1_000, temperature: 0.1, maxTokens: 111 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     await owner.close();
   });
 });

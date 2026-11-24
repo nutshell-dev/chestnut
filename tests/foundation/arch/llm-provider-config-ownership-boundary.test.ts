@@ -21,14 +21,14 @@ const reconfigure = read('../../../src/cli/llm-connection-check.ts');
 describe('LLM provider config ownership boundary', () => {
   it('moves schema, config type, and adapter to the L1 public barrel only', () => {
     expect(providerBarrel).toMatch(/export \* as llmProviderConfigContract from '\.\/capabilities\/config-contract\.js';/);
-    expect(providerConfigFacade).toMatch(/export\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
-    expect(providerConfigFacade).toMatch(/export\s*type\s*\{\s*LLMProviderConfig\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*llmProviderConfigSchema, strictLLMProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*type\s*\{\s*LLMProviderConfig, StrictLLMProviderConfig\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
     expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderInput\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
     expect(providerConfigFacade).not.toMatch(/toProviderConnection|providerConnectionFromResolvedConfig|\bProviderConfig\b/);
     expect(orchestratorBarrel).not.toMatch(/\b(?:llmProviderConfigSchema|LLMProviderConfig|toProviderConfig|FORMAT_MAP)\b/);
     expect(orchestratorBarrel).not.toMatch(/\bllmOrchestratorConfigSchema\b/);
     expect(configurationBarrel).toMatch(/export\s*\{\s*llmOrchestratorConfigSchema\s*\}\s*from\s*'\.\/config-schema\.js';/);
-    expect(configurationSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/\.\.\/foundation\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
+    expect(configurationSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/\.\.\/foundation\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema, strictLLMProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
   });
 
   it('keeps legacy preset resolution out of the active adapter', () => {

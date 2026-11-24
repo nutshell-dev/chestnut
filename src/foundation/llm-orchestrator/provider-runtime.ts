@@ -143,7 +143,8 @@ export class LLMProviderRuntime implements ProviderRuntime {
   }
 
   private getSdkClient(candidateConfig: ProviderCandidateConfig): ProviderHandle {
-    const created = this.providerFactory.create(candidateInput(candidateConfig));
+    const input = candidateInput(candidateConfig);
+    const created = this.providerFactory.create(input);
     const key = providerCacheKey(created.descriptor);
     const cached = this.sdkClientCache.get(key);
     if (cached) {
