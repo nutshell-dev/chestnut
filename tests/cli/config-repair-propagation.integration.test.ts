@@ -12,6 +12,11 @@ import {
   type ConfigRepairWorkspace,
 } from '../helpers/config-repair-session.js';
 import { withCleanupPreservingError } from '../utils/child-process.js';
+import {
+  getActiveDir,
+  makeDaemonDir,
+  PID_FILE,
+} from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import {
   createLLMApplicationStore,
@@ -125,6 +130,32 @@ async function stopOwnedMotion(workspace: ConfigRepairWorkspace): Promise<void> 
   expect(stopped.status, `${stopped.stdout}\n${stopped.stderr}`).toBe(0);
 }
 
+function activeDaemonPidFile(workspace: ConfigRepairWorkspace): string {
+  const daemonDir = makeDaemonDir(path.join(workspace.root, '.chestnut', 'motion'));
+  return path.join(getActiveDir(daemonDir), PID_FILE);
+}
+
+function readActiveDaemonPid(workspace: ConfigRepairWorkspace): number | undefined {
+  const file = activeDaemonPidFile(workspace);
+  if (!fs.existsSync(file)) return undefined;
+  const record = JSON.parse(fs.readFileSync(file, 'utf8')) as { pid?: unknown };
+  return typeof record.pid === 'number' && Number.isSafeInteger(record.pid) && record.pid > 1
+    ? record.pid
+    : undefined;
+}
+
+async function stopMotionAndConfirm(
+  workspace: ConfigRepairWorkspace,
+  returnedPid?: number,
+): Promise<void> {
+  // A start result can be lost after the daemon has already published its
+  // generation. Read that owned record instead of depending on a returned PID.
+  const recordedPid = returnedPid ?? readActiveDaemonPid(workspace);
+  await stopOwnedMotion(workspace);
+  if (recordedPid !== undefined) await waitForPidGone(recordedPid);
+  else expect(fs.existsSync(activeDaemonPidFile(workspace))).toBe(false);
+}
+
 describe('real CLI repair save notify and Motion application', () => {
   it('online daemon applies the saved revision and settles publication', async context => {
     const workspace = createConfigRepairWorkspace(server.baseUrl);
@@ -156,10 +187,7 @@ describe('real CLI repair save notify and Motion application', () => {
         expect(publishStates.at(-1)).toBe(false);
         expect(server.requests.some(request => request.model === 'after-repair')).toBe(true);
       }, async () => {
-        if (pid !== undefined) {
-          await stopOwnedMotion(workspace);
-          await waitForPidGone(pid);
-        }
+        await stopMotionAndConfirm(workspace, pid);
       });
     });
   }, PROPAGATION_TEST_TIMEOUT_MS);
@@ -192,43 +220,83 @@ describe('real CLI repair save notify and Motion application', () => {
           publish_pending: false,
         });
       }, async () => {
-        if (pid !== undefined) {
-          await stopOwnedMotion(workspace);
-          await waitForPidGone(pid);
-        }
+        await stopMotionAndConfirm(workspace, pid);
       });
     });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 
-  it.each(['work cancellation', 'uncertain start result'])(
-    'cleanup uses an independent signal after %s and stops the real daemon',
-    async scenario => {
-      const workspace = createConfigRepairWorkspace(server.baseUrl);
-      writeWorkspaceCredential(workspace);
-      await finishConfigRepairCase(workspace, async () => {
-        const controller = new AbortController();
-        const primary = new Error(`controlled ${scenario}`);
-        let pid: number | undefined;
-        const failure = await withCleanupPreservingError(async () => {
-          await runCommand(workspace, ['init'], controller.signal);
-          await runCommand(workspace, ['motion', 'init'], controller.signal);
-          const started = await runCommand(workspace, ['motion', 'daemon'], controller.signal);
-          pid = daemonPid(started.stdout);
-          controller.abort(primary);
-          throw primary;
-        }, async () => {
-          if (pid !== undefined) {
-            await stopOwnedMotion(workspace);
-            await waitForPidGone(pid);
-          }
-        }).catch(error => error);
+  it('cleanup after work cancellation stops the known daemon PID', async () => {
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    writeWorkspaceCredential(workspace);
+    await finishConfigRepairCase(workspace, async () => {
+      const controller = new AbortController();
+      const primary = new Error('controlled work cancellation');
+      let pid: number | undefined;
+      const failure = await withCleanupPreservingError(async () => {
+        await runCommand(workspace, ['init'], controller.signal);
+        await runCommand(workspace, ['motion', 'init'], controller.signal);
+        const started = await runCommand(workspace, ['motion', 'daemon'], controller.signal);
+        pid = daemonPid(started.stdout);
+        controller.abort(primary);
+        throw primary;
+      }, async () => {
+        await stopMotionAndConfirm(workspace, pid);
+      }).catch(error => error);
 
-        expect(failure).toBe(primary);
-        expect(pid).toBeGreaterThan(1);
-        if (pid === undefined) throw new Error('daemon was not started');
-        await waitForPidGone(pid);
-      });
-    },
-    PROPAGATION_TEST_TIMEOUT_MS,
-  );
+      expect(failure).toBe(primary);
+      expect(pid).toBeGreaterThan(1);
+      if (pid === undefined) throw new Error('daemon was not started');
+      await waitForPidGone(pid);
+    });
+  }, PROPAGATION_TEST_TIMEOUT_MS);
+
+  it('cleanup after start result delivery failure stops the daemon without a returned PID', async () => {
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    writeWorkspaceCredential(workspace);
+    await finishConfigRepairCase(workspace, async () => {
+      const controller = new AbortController();
+      const primary = new Error('controlled start result delivery failure');
+      let returnedPid: number | undefined;
+      let recordedPid: number | undefined;
+      const failure = await withCleanupPreservingError(async () => {
+        await runCommand(workspace, ['init'], controller.signal);
+        await runCommand(workspace, ['motion', 'init'], controller.signal);
+        const started = await runConfigRepairCli(workspace, ['motion', 'daemon'], controller.signal);
+        expect(started.status).toBe(0);
+        recordedPid = readActiveDaemonPid(workspace);
+        expect(recordedPid).toBeGreaterThan(1);
+        controller.abort(primary);
+        // The real start succeeded, but its result never reaches the caller.
+        throw primary;
+      }, async () => {
+        await stopMotionAndConfirm(workspace, returnedPid);
+      }).catch(error => error);
+
+      expect(failure).toBe(primary);
+      expect(returnedPid).toBeUndefined();
+      expect(recordedPid).toBeGreaterThan(1);
+      if (recordedPid === undefined) throw new Error('daemon record was not published');
+      await waitForPidGone(recordedPid);
+    });
+  }, PROPAGATION_TEST_TIMEOUT_MS);
+
+  it('cleanup after a pre-start failure does not invent or skip workspace stop', async () => {
+    const workspace = createConfigRepairWorkspace(server.baseUrl);
+    writeWorkspaceCredential(workspace);
+    await finishConfigRepairCase(workspace, async () => {
+      const controller = new AbortController();
+      const primary = new Error('controlled pre-start failure');
+      const failure = await withCleanupPreservingError(async () => {
+        await runCommand(workspace, ['init'], controller.signal);
+        await runCommand(workspace, ['motion', 'init'], controller.signal);
+        controller.abort(primary);
+        throw primary;
+      }, async () => {
+        await stopMotionAndConfirm(workspace);
+      }).catch(error => error);
+
+      expect(failure).toBe(primary);
+      expect(readActiveDaemonPid(workspace)).toBeUndefined();
+    });
+  }, PROPAGATION_TEST_TIMEOUT_MS);
 });
