@@ -119,8 +119,9 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
       },
     };
     const orchestrator = buildOrchestrator(primary, [fallback]);
+    const observations: Array<{ name: string; model: string; isFallback: boolean }> = [];
 
-    const gen = orchestrator.stream({});
+    const gen = orchestrator.withProviderObserver(fact => { observations.push(fact); }).stream({});
     // 迭代直到首个非-provider_failed chunk（fb 首 chunk）yield
     let firstContentChunk: any = null;
     while (true) {
@@ -133,9 +134,11 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     }
     expect(firstContentChunk).toMatchObject({ type: 'text_delta', delta: 'fb-first' });
 
-    // 此刻 currentStreamingProvider 应反映 fallback adapter（不是 primary、不是 null）
-    const infoDuringFallback = orchestrator.getProviderInfo();
-    expect(infoDuringFallback).toEqual({ name: 'fallback', model: 'fallback-model', isFallback: true });
+    // 当前请求由 invocation observer 交付；实例摘要不被进行中的 fallback 污染。
+    expect(observations).toEqual([
+      expect.objectContaining({ name: 'fallback', model: 'fallback-model', isFallback: true }),
+    ]);
+    expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
 
     // drain
     while (!(await gen.next()).done) {}

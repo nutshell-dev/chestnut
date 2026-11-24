@@ -36,7 +36,6 @@ function referencedSource(): SharedLLMInput {
       model: 'claude-document-test',
       label: 'primary-label',
       base_url: 'https://primary.example.test',
-      extra_headers: { 'X-Test-Secret': '${LLM_DOCUMENT_TEST_HEADER}' },
     },
     fallbacks: [{
       provider_id: 'custom:openai',
@@ -76,7 +75,7 @@ describe('LLM configuration document reads', () => {
 
     expect(raw).toEqual({ ...source, schema_version: 1, revision: 1 });
     expect(raw.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
-    expect(raw.primary.extra_headers).toEqual({ 'X-Test-Secret': '${LLM_DOCUMENT_TEST_HEADER}' });
+    expect(raw.primary.extra_headers).toBeUndefined();
     expect(raw.primary.temperature).toBeUndefined();
     expect(raw.retry_attempts).toBeUndefined();
     expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
@@ -94,7 +93,6 @@ describe('LLM configuration document reads', () => {
     });
     expect(first.credentials).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'primary', ref: 'LLM_DOCUMENT_TEST_KEY', source: 'env' }),
-      expect.objectContaining({ role: 'primary.extra_headers.X-Test-Secret', ref: 'LLM_DOCUMENT_TEST_HEADER', source: 'env' }),
     ]));
     const explicit = firstAdmin.loadSnapshot();
     expect(explicit.raw.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
@@ -114,7 +112,7 @@ describe('LLM configuration document reads', () => {
       .not.toBe(first.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision);
     expect(restarted.credentials.find(entry => entry.role === 'primary')?.credentialRevision)
       .toBe(restarted.credentialFacts.LLM_DOCUMENT_TEST_KEY?.revision);
-    expect(restarted.config.primary.authentication).toMatchObject({
+    expect(restarted.config.primary.input.authentication).toMatchObject({
       kind: 'api_key',
       value: 'rotated-primary-secret',
     });
@@ -162,7 +160,7 @@ describe('LLM configuration document reads', () => {
     const resolved = store.readResolved();
 
     expect(resolved.primary.api_key).toBe('resolved-primary-secret');
-    expect(resolved.primary.extra_headers).toEqual({ 'X-Test-Secret': 'resolved-header-secret' });
+    expect(resolved.primary.extra_headers).toBeUndefined();
     expect(resolved.fallbacks?.[0]?.api_key).toBe('resolved-primary-secret');
     expect(resolved.primary.temperature).toBe(0.7);
     expect(resolved.retry_attempts).toEqual(expect.any(Number));
@@ -228,7 +226,6 @@ describe('LLM configuration document mutations', () => {
       api_key: '${LLM_DOCUMENT_TEST_KEY}',
       model: 'claude-document-test',
       max_tokens: 4096,
-      extra_headers: { 'X-Test-Secret': '${LLM_DOCUMENT_TEST_HEADER}' },
     });
     expect(document.fallbacks).toEqual(referencedSource().fallbacks);
   });
@@ -255,12 +252,11 @@ describe('migrateLegacyDocument', () => {
         preset: 'anthropic',
         model: 'claude-document-legacy',
         api_key: 'sk-document-migration-secret',
-        extra_headers: { Authorization: 'Bearer document-header-secret' },
       },
       fallbacks: [{
-        provider_id: 'amazon-bedrock',
-        auth_profile: 'ambient',
-        model: 'anthropic.claude-sonnet-4-6',
+        provider_id: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        api_key: 'sk-document-fallback-secret',
       }],
       retry_attempts: 2,
     };
@@ -285,9 +281,10 @@ describe('migrateLegacyDocument', () => {
         api_key: 'sk-document-migration-secret',
       },
       fallbacks: [{
-        provider_id: 'amazon-bedrock',
-        api_format: 'bedrock-converse-stream',
-        auth_profile: 'ambient',
+        provider_id: 'anthropic',
+        api_format: 'anthropic-messages',
+        auth_profile: 'api_key',
+        base_url: 'https://api.anthropic.com',
       }],
     });
     expect(store.read().primary).not.toHaveProperty('preset');
@@ -308,11 +305,42 @@ describe('migrateLegacyDocument', () => {
     const evidenceBefore = fs.readFileSync(evidencePath, 'utf8');
     expect(evidenceBefore).not.toContain('sk-document-migration-secret');
     expect(evidenceBefore).not.toContain('document-header-secret');
+    expect(evidence).toMatchObject({
+      connection_fact_sources: [
+        { role: 'primary', field: 'base_url', source: 'preset:anthropic' },
+        { role: 'fallbacks[0]', field: 'base_url', source: 'catalog:anthropic' },
+      ],
+    });
 
     await expect(store.migrateLegacyDocument()).resolves.toEqual({ outcome: 'noop' });
     expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(targetBefore);
     expect(fs.readFileSync(evidencePath, 'utf8')).toBe(evidenceBefore);
     expect(store.readRevision().revision).toBe(8);
+  });
+
+  it.each([
+    {
+      name: 'headers', code: 'unsupported_headers',
+      primary: { preset: 'anthropic', model: 'claude-document-legacy', api_key: '${LLM_DOCUMENT_TEST_KEY}', extra_headers: { 'X-Test': 'secret-header' } },
+    },
+    {
+      name: 'auth', code: 'unsupported_auth',
+      primary: { provider_id: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-6', auth_profile: 'ambient' },
+    },
+    {
+      name: 'credential', code: 'credential_ref_required',
+      primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', model: 'claude-document-legacy', base_url: 'https://primary.example.test' },
+    },
+  ])('不支持旧连接 $name 停写并保留 revision/原文', async ({ code, primary }) => {
+    const source = { primary };
+    writeRawDocument(source, 12);
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+    await expect(makeStore().migrateLegacyDocument()).rejects.toMatchObject({ code });
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+    expect(makeStore().readRevision().revision).toBe(12);
+    expect(readLLMMigrationRecord(deps, documentMigrationId(source))).toMatchObject({
+      outcome: 'failed', source_revision: 12, target_write: 'not_written', migration_error: `${code}: primary`,
+    });
   });
 
   it('覆盖前写 pending；目标已显式但成功证据缺失时按 digest/revision 补齐 migrated', async () => {
@@ -591,7 +619,7 @@ describe('createFromSource migration', () => {
     expect(readLLMMigrationRecord(deps, 'migration-conflict')).toBeUndefined();
   });
 
-  it('迁移证据只保存摘要与状态，不包含 key、header 秘密或引用名', () => {
+  it('失败迁移证据只保存摘要与状态，不包含 key、header 秘密或引用名', () => {
     const store = makeStore();
     const source: SharedLLMInput = {
       primary: {
@@ -611,30 +639,21 @@ describe('createFromSource migration', () => {
     };
     const migrationId = 'migration-evidence';
 
-    store.createFromSource(source, migrationId);
+    expect(() => store.createFromSource(source, migrationId)).toThrow(LegacyPresetMigrationError);
 
     const digest = llmConfigurationSourceDigest(source);
-    const targetDigest = llmConfigurationSourceDigest(migrateLegacyLLMConfig(source).config);
     const evidence = readLLMMigrationRecord(deps, migrationId);
     expect(evidence).toMatchObject({
       schema_version: 1,
       migration_id: migrationId,
       source_digest: digest,
-      target_digest: targetDigest,
-      target_revision: 1,
-      preset_migration: true,
+      target_digest: '',
+      outcome: 'failed',
+      migration_error: 'unsupported_headers: primary',
+      target_write: 'not_written',
       source_cleanup: 'pending',
     });
-    expect(Object.keys(evidence ?? {}).sort()).toEqual([
-      'migration_id',
-      'preset_migration',
-      'schema_version',
-      'source_cleanup',
-      'source_digest',
-      'target_digest',
-      'target_revision',
-      'target_write',
-    ]);
+    expect(fs.existsSync(getLLMConfigurationPath())).toBe(false);
     const evidencePath = path.join(
       projectDir, '.chestnut', 'llm', 'migration', `${migrationId}.yaml`,
     );

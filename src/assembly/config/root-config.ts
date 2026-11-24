@@ -12,6 +12,7 @@
 import {
   isInitialized,
   loadGlobalConfig,
+  readRawRootLLM,
   loadClawConfig,
   saveGlobalConfigExclusive,
   migrateRootLLMConfigLocked,
@@ -37,6 +38,8 @@ export interface RootConfigReader {
   isInitialized(): boolean;
   /** 读取 global config；missing 时 fail-loud（`Global config not found.`）。 */
   loadGlobal(): ClawGlobalConfig;
+  /** Retained root LLM source for raw repair; never resolves or migrates it. */
+  loadRawLLM(): import('../../core/llm-configuration/index.js').SharedLLMInput | undefined;
   /** 读取指定路径的 claw config；文件不存在返回 undefined。 */
   loadClaw(configPath: string): ClawConfig | undefined;
 }
@@ -89,6 +92,7 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
   return {
     isInitialized: () => isInitialized(deps),
     loadGlobal: () => loadGlobalConfig(deps),
+    loadRawLLM: () => readRawRootLLM(deps),
     loadClaw: (configPath) => loadClawConfig(deps, configPath),
     saveGlobalExclusive: (config) => saveGlobalConfigExclusive(deps, config),
     migrateLLMConfiguration: () => migrateRootLLMConfigLocked(deps),

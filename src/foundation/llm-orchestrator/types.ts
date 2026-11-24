@@ -12,6 +12,7 @@ import type { llmProviderCall } from '../llm-provider/index.js';
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 type ProviderInput = llmProviderCall.ProviderInput;
 type ProviderFactory = llmProviderCall.ProviderFactory;
+type ProviderCallDefaults = llmProviderCall.ProviderCallDefaults;
 type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
 type LLMResponse = llmProviderCall.LLMResponse;
 type ProviderUsage = llmProviderCall.ProviderUsage;
@@ -31,10 +32,22 @@ export interface LLMRecoveryFacts {
   readonly startupId?: string;
 }
 
+/** 单次 invocation 实际交付输出的 provider 事实；与实例最近成功摘要分离。 */
+export type InvocationProviderObservation = Readonly<{
+  invocationId: string;
+  name: string;
+  model: string;
+  isFallback: boolean;
+}>;
+
+export type InvocationProviderObserver = (fact: InvocationProviderObservation) => void;
+
 /**
  * LLM call options — extends L1 base with L2b orchestration fields.
  */
 export interface LLMCallOptions extends L1LLMCallOptions {
+  /** 仅描述本次 invocation 实际交付输出的候选；观察失败不得改变调用结果。 */
+  onProviderObservation?: InvocationProviderObserver;
   /** Hard timeout for non-streaming call() — wall-clock ceiling */
   hardTimeoutMs?: number;
   /** Idle timeout for stream() — reset on each chunk */
@@ -45,6 +58,15 @@ export interface LLMCallOptions extends L1LLMCallOptions {
   recoveryFacts?: LLMRecoveryFacts;
 }
 
+/** Atomic candidate projection: one persisted choice supplies both connection and call defaults. */
+export interface ConfiguredProviderCandidate {
+  readonly input: ProviderInput;
+  readonly callDefaults: ProviderCallDefaults;
+  readonly displayName?: string;
+}
+
+export type ProviderCandidateConfig = ProviderInput | ConfiguredProviderCandidate;
+
 /**
  * LLM service configuration with failover
  */
@@ -54,8 +76,8 @@ export type LLMInstanceLifecycle =
   | { mode: 'durable'; fs: FileSystem; stateDir?: string };
 
 export interface LLMOrchestratorConfig {
-  primary: ProviderInput;
-  fallbacks?: ProviderInput[];
+  primary: ProviderCandidateConfig;
+  fallbacks?: ProviderCandidateConfig[];
   maxAttempts: number;
   retryDelayMs: number;
   events: LLMEventSink;
@@ -101,8 +123,8 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST; primaryProvider: string; winnerProvider: string }
   | { type: typeof STREAM_EVENT_NAMES.ALL_PROVIDERS_CONTEXT_EXCEEDED; totalAttempted: number; skippedCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RACE_LOSER_CLEANED; provider: string; reason: string; schemaVersion?: 1; invocationId?: string; attemptId?: string; providerAttemptId?: string }
-  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; preset: string; model: string }
-  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; preset: string; model: string }
+  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; protocol?: string; preset?: string; model: string }
+  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; protocol?: string; preset?: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string }
   | { type: typeof STREAM_EVENT_NAMES.LEGACY_CONFIG_IGNORED; field: 'circuitBreaker'; reason: 'provider_retry_at_policy'; value: { failureThreshold: number; resetTimeoutMs: number } }
   // Phase 1968 Step B：provider 调用路径可审计（LLM-CALL-SUCCESS-PROVENANCE-NOT-AUDITABLE）。
@@ -206,7 +228,10 @@ export type InputBudgetResult =
  * 经本 capability 消费，stream/call 等宽面仅经转发面（RuntimeDependencies.llmOrchestrator）传递。
  */
 export interface LLMRuntimeCapability {
+  /** 实例摘要：最近成功候选；无成功记录时为 primary，绝不表示某个进行中的请求。 */
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  /** 为调用方投影请求独享的 provider 观察；旧窄测试 double 可缺省。 */
+  withProviderObserver?(observer: InvocationProviderObserver): LLMOrchestrator;
   /**
    * Phase 1944 Step B：失败处置事实查询（只读、无副作用，不调度 retry、不改状态）。
    * 描述传入主失败的 owner 结论；rollback 的 AggregateError 包装由 Runtime 在包装前
@@ -279,12 +304,14 @@ export interface LLMCallCapability {
 }
 
 /**
- * LLMOrchestrator interface — 业务执行面，仅 call/stream/getProviderInfo。
+ * LLMOrchestrator interface — 业务执行面 call/stream 与实例 provider 摘要。
+ * 请求级 provider 事实经 withProviderObserver 投影的 invocation 回调交付。
  * Runtime 管理、健康检查与恢复 owner 能力由各自的 capability 显式声明。
  *
  * Implemented by LLMOrchestratorImpl class.
  */
 export interface LLMOrchestrator extends LLMCallCapability {
   stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk>;
+  /** 实例最近成功摘要；不描述进行中 invocation。 */
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
 }

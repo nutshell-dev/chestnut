@@ -58,6 +58,12 @@ export function estimatePromptTokens(options: LLMCallOptions): number {
     + estimateToolsTokens(tools);
 }
 
+/** Defer the legacy compatibility estimate to the first candidate that needs it. */
+export function deferLegacyEstimate(options: LLMCallOptions): () => number {
+  let cached: number | undefined;
+  return () => (cached ??= estimatePromptTokens(options));
+}
+
 /**
  * 动态调用 timeout：基础配置时间 + 按输入规模增加的生成/传输余量，封顶 10min。
  * 输入越大 → 给越长 wall-clock；持续有 chunk 的 stream 仍由 idle timeout 判定。

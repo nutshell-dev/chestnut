@@ -1,6 +1,7 @@
 /**
- * 旧 recovery.providers 的显式兼容解释。当前恢复安排只读统一 provider states；
+ * 旧 recovery.providers 的显式离线兼容解释。当前恢复安排只读统一 provider states；
  * 本模块不写文件、不调用 provider，也不产生另一份 retryAt 权威。
+ * 实例 Store 的自动迁移只映射并保留原始 facts，不调用这里的释放转换。
  */
 import type {
   LLMInstanceRecoveryProviderFact,
@@ -20,7 +21,7 @@ export interface LegacyReleaseResult {
   changed: boolean;
 }
 
-/** 仅供旧记录迁移/兼容测试解释；生产 schedule 不得传入旧 recovery 对象。 */
+/** 仅供离线旧记录解释/兼容测试；生产 schedule 不得传入旧 recovery 对象。 */
 export function deriveLegacyRecoverySchedule(
   state: Pick<LLMInstanceRecoveryState, 'providers'>,
   revision: number,
@@ -41,7 +42,10 @@ export function deriveLegacyRecoverySchedule(
     : { kind: 'at', revision, resumeAt: earliest };
 }
 
-/** 在 begin 接受到新事实后转换旧字段；同一输入重放不会重复释放或删除证据。 */
+/**
+ * 仅供调用方持有原始记录时的显式离线历史转换/兼容测试。
+ * 不得由现役 begin 或自动磁盘迁移调用；同一输入重放幂等，且不突变输入。
+ */
 export function applyLegacyRecoveryRelease(
   providers: readonly LLMInstanceRecoveryProviderFact[],
   input: LegacyReleaseInput,

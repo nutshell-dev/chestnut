@@ -122,14 +122,14 @@ export async function probeLLMConnection(
   let callFailure: { error: unknown } | undefined;
   try {
     await svc.call({ messages: [{ role: 'user', content: 'Hi' }], maxTokens: LLM_PROBE_MAX_TOKENS });
-    return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
+    return { ok: true, model: snapshot.config.primary.input.model, identity: snapshot.identity };
   } catch (err) {
     callFailure = { error: err };
     return {
       ok: false,
       errorType: classifyLLMErrorForDisplay(err),
       message: formatErr(err),
-      provider: llmProviderCall.describeProviderInput(snapshot.config.primary).providerId,
+      provider: llmProviderCall.describeProviderInput(snapshot.config.primary.input).providerId,
       identity: snapshot.identity,
     };
   } finally {
@@ -156,7 +156,7 @@ export async function checkLLMConnectionFor(
   { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
   const svc = createLLMOrchestrator(toOrchestratorConfig({
-    primary: provider,
+    primary: { input: provider, callDefaults: {} },
     fallbacks: [],
     retry: { maxAttempts: 1, delayMs: 0 },
   }, {

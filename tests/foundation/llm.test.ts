@@ -100,7 +100,7 @@ function createAnthropicSseResponse(text: string): Response {
       });
 
       expect((response.content[0] as { text: string }).text).toBe('Primary response');
-      expect(service.getProviderInfo()!.name).toBe('primary');
+      expect(service.getProviderInfo()!.name).toBe('api.anthropic.com');
     });
 
     it('should failover to fallback when primary fails', async () => {
@@ -245,7 +245,7 @@ function createAnthropicSseResponse(text: string): Response {
 
       await service.call({ messages: [{ role: 'user', content: 'Hi' }] });
       const info = service.getProviderInfo()!;
-      expect(info.name).toBe('primary');
+      expect(info.name).toBe('api.anthropic.com');
       expect(info.model).toBe('claude-3-test');
       expect(info.isFallback).toBe(false);
     });

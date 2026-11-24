@@ -27,6 +27,7 @@ import { ExternalAbortError } from '../../../src/foundation/llm-provider/abort-h
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
+import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -896,6 +897,54 @@ describe('PiAiAdapter — anthropic-messages 协议', () => {
 });
 
 describe('PiAiAdapter — model 解析与 catalog', () => {
+  it.each([
+    { catalogModel: 'k3', wireModel: 'k3-256k', contextWindow: 262_144, source: 'catalog' },
+    { catalogModel: 'k3-256k', wireModel: 'k3.1-pro', contextWindow: 1_000_000, source: 'heuristic' },
+  ] as const)('Phase 2235 Step C：$catalogModel metadata / $wireModel request 的 endpoint、guard 与 meter 窗口一致', async ({
+    catalogModel, wireModel, contextWindow, source,
+  }) => {
+    const config = toProviderConfig(llmProviderConfigSchema.parse({
+      provider_id: 'kimi-coding',
+      api_format: 'anthropic',
+      auth_profile: 'api_key',
+      api_key: 'synthetic-key',
+      model: wireModel,
+      base_url: 'https://api.kimi.com/coding',
+      catalog_provider: 'kimi-coding',
+      catalog_model: catalogModel,
+    }));
+    const endpoint = resolvePiAiModel(await loadPiAiRuntime(), config);
+    expect(endpoint.model).toMatchObject({
+      id: wireModel, api: 'anthropic-messages', contextWindow,
+    });
+
+    const inputTokens = contextWindow + 1;
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { id: 'm1', usage: { input_tokens: inputTokens } } })}`,
+      `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 0 } })}`,
+      'event: message_stop\ndata: {"type":"message_stop"}',
+    ]));
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = createLLMProvider(config);
+    const meter = await adapter.prepareInputMeter();
+    expect(meter.descriptor).toMatchObject({
+      model: wireModel, contextWindow,
+      windowResolution: { contextWindow, source, modelId: wireModel },
+    });
+    expect(meter.descriptor.windowResolution).toBe(endpoint.resolution.window);
+
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch(error => error);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    if (!(err instanceof LLMContextExceededError)) throw err;
+    expect(err.providerMessage).toContain(`input ${inputTokens} > ${contextWindow}`);
+    expect(err.inputBudget?.descriptor).toMatchObject({ contextWindow });
+    expect(err.inputBudget?.descriptor.windowResolution).toBe(endpoint.resolution.window);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/^https:\/\/api\.kimi\.com\/coding\/v1\/messages/);
+    expect(JSON.parse(init.body as string).model).toBe(wireModel);
+  });
+
   it('catalog 命中（deepseek/deepseek-v4-pro）：api 与 baseUrl 取 catalog 权威', async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
     vi.stubGlobal('fetch', fetchMock);

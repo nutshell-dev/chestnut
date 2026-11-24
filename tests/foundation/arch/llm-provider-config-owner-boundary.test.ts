@@ -40,8 +40,8 @@ describe('ProviderInput owner boundary', () => {
   });
 
   it('keeps legacy config and credential runtime out of the L2 public config', () => {
-    expect(orchestratorTypes).toMatch(/primary:\s*ProviderInput/);
-    expect(orchestratorTypes).toMatch(/fallbacks\?:\s*ProviderInput\[\]/);
+    expect(orchestratorTypes).toMatch(/primary:\s*ProviderCandidateConfig/);
+    expect(orchestratorTypes).toMatch(/fallbacks\?:\s*ProviderCandidateConfig\[\]/);
     expect(orchestratorTypes).toMatch(/providerFactory:\s*ProviderFactory/);
     for (const source of [orchestratorTypes, orchestratorRuntime]) {
       expect(source).not.toMatch(/\bProviderConnection\b/);

@@ -12,7 +12,7 @@ import {
   sourceFiles,
 } from './llm-provider-capability-surface-helpers.js';
 describe('Phase 2173 C6: LLMProvider capability surface', () => {
-  it('locks the seven namespace façades and ROOT_COMPAT barrel exports', () => {
+  it('locks the eight namespace façades and ROOT_COMPAT barrel exports', () => {
     const surface = readBarrelSurface();
     expect(surface.namespaces).toEqual(Object.fromEntries(
       Object.entries(FACADES).map(([name, facade]) => [name, facade.module]),

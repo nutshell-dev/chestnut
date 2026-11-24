@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
+import { createLLMProvider, createProviderFromInput } from '../../../src/foundation/llm-provider/provider-factory.js';
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
+import { buildEffectiveCallOptions } from '../../../src/foundation/llm-provider/pi-ai-call-options.js';
 import type {
   LLMCallOptions,
   ProviderConfig,
@@ -16,7 +17,7 @@ const THINKING_BUDGET_TOKENS = 1_024;
 interface WireBody {
   model: string;
   messages: Array<{ role: string; content: Array<Record<string, unknown>> }>;
-  max_tokens: number;
+  max_tokens?: number;
   stream: boolean;
   system: Array<Record<string, unknown>>;
   temperature?: number;
@@ -176,6 +177,62 @@ describe('DeepSeek Anthropic actual SDK wire', () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+});
+
+describe('four-field input with candidate call defaults', () => {
+  it('keeps copied/rebuilt input and meter/request defaults equivalent', async () => {
+    const captures: CapturedRequest[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      captures.push(await captureRequest(input, init));
+      return syntheticAnthropicResponse();
+    }));
+    const input = {
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      model: 'deepseek-flash[1m]',
+      protocol: 'anthropic' as const,
+      authentication: { kind: 'api_key' as const, value: 'synthetic-only' },
+    };
+    const callDefaults = {
+      thinking: true,
+      thinkingEffort: 'low' as const,
+      thinkingBudgetTokens: THINKING_BUDGET_TOKENS,
+      maxTokens: CONFIG_MAX_TOKENS,
+      temperature: 0,
+    };
+    for (const candidate of [input, { ...input, authentication: { ...input.authentication } }]) {
+      const handle = createProviderFromInput(candidate);
+      const meter = await handle.provider.prepareInputMeter({ callDefaults });
+      expect(meter.descriptor.effectiveMaxTokens).toBe(CONFIG_MAX_TOKENS);
+      await handle.provider.call({ ...createOptions({}), callDefaults });
+    }
+    expect(captures).toHaveLength(2);
+    for (const capture of captures) {
+      expect(capture.body.max_tokens).toBe(CONFIG_MAX_TOKENS + THINKING_BUDGET_TOKENS);
+      expect(capture.body.thinking).toMatchObject({ type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS });
+      expect(capture.body).not.toHaveProperty('temperature');
+    }
+  });
+
+  it('omits an unset maxTokens and preserves explicit zero temperature', async () => {
+    let captured: CapturedRequest | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      captured = await captureRequest(input, init);
+      return syntheticAnthropicResponse();
+    }));
+    const handle = createProviderFromInput({
+      baseUrl: 'https://api.deepseek.com/anthropic', model: 'deepseek-flash[1m]', protocol: 'anthropic',
+      authentication: { kind: 'api_key', value: 'synthetic-only' },
+    });
+    const effective = buildEffectiveCallOptions(createConfig({ maxTokens: undefined }), {
+      callDefaults: { thinking: false, temperature: 0 },
+    });
+    expect(effective).not.toHaveProperty('maxTokens');
+    await handle.provider.call({ ...createOptions({}), callDefaults: { thinking: false, temperature: 0 } });
+    // The SDK owns its unset default; L1 does not invent or persist a maxTokens value.
+    expect(captured?.body.max_tokens).toBe(65_536);
+    expect(captured?.body.temperature).toBe(0);
+    expect(captured?.body.thinking).toEqual({ type: 'disabled' });
   });
 });
 

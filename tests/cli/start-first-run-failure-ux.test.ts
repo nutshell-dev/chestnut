@@ -24,7 +24,6 @@ import {
 import { CliError } from '../../src/cli/errors.js';
 import { START_GATE_EXIT_CODE } from '../../src/cli/start-llm-gate.js';
 import { createAuthenticationSetup } from '../../src/core/llm-configuration/setup.js';
-import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
@@ -144,7 +143,7 @@ function resetRun() {
   conn.probeLLMConnection.mockReset();
   conn.probeLLMConnection.mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) => {
     conn.probeCalls++;
-    const next = conn.probeQueue.shift() ?? { ok: true as const, model: snapshot.config.primary.model };
+    const next = conn.probeQueue.shift() ?? { ok: true as const, model: snapshot.config.primary.input.model };
     return next.ok
       ? { ok: true as const, model: next.model, identity: snapshot.identity }
       : { ...next, identity: snapshot.identity };
@@ -234,7 +233,7 @@ describe('first-run wizard — 展示与提交', () => {
     // 候选与最终配置使用同一显式 probe 入口。
     const probed = conn.probeLLMConnection.mock.calls[0]?.[0]?.config?.primary;
     expect(probed).not.toHaveProperty('defaults');
-    expect(resolvedProviderConfig(probed)).toMatchObject({
+    expect(probed.callDefaults).toMatchObject({
       thinkingMode: 'adaptive',
       thinkingEffort: 'max',
       dropThinkingBlocks: true,

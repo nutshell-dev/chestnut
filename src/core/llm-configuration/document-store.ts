@@ -17,9 +17,9 @@ import {
 } from '../../foundation/config-store/index.js';
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
-import { llmOrchestratorConfigSchema } from './config-schema.js';
+import { llmOrchestratorConfigSchema, llmOrchestratorRuntimeConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { llmProviderConfigSchema } = llmProviderConfigContract;
+const { strictLLMProviderConfigSchema } = llmProviderConfigContract;
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import {
   createLocalCredentials,
@@ -51,7 +51,7 @@ const documentMetadataSchema = z.object({
   schema_version: z.literal(DOCUMENT_SCHEMA_VERSION),
   revision: z.number().int().positive(),
 });
-const resolvedDocumentSchema = llmOrchestratorConfigSchema.extend({
+const resolvedDocumentSchema = llmOrchestratorRuntimeConfigSchema.extend({
   schema_version: z.literal(DOCUMENT_SCHEMA_VERSION),
   revision: z.number().int().positive(),
 });
@@ -68,7 +68,7 @@ export type LLMConfigurationDocumentMigrationResult =
     readonly targetRevision: number;
     readonly write: LLMConfigurationWriteResult;
   };
-export type ExplicitLLMProviderConfig = z.input<typeof llmProviderConfigSchema>;
+export type ExplicitLLMProviderConfig = z.input<typeof strictLLMProviderConfigSchema>;
 export type LLMSetupCommitTarget =
   | { readonly kind: 'initialize' }
   | { readonly kind: 'primary' }
@@ -199,6 +199,8 @@ interface MigrationRecord {
   source_revision?: number;
   target_revision?: number;
   preset_migration?: boolean;
+  /** Non-secret provenance for endpoints supplied only by explicit legacy migration. */
+  connection_fact_sources?: readonly { readonly role: string; readonly field: 'base_url'; readonly source: string }[];
   migration_error?: string;
   outcome?: 'pending' | 'migrated' | 'failed';
   target_write: AtomicWriteResult['kind'] | 'not_written';
@@ -231,6 +233,37 @@ function documentConfig(document: LLMConfigDocument): SharedLLMInput {
   return config;
 }
 
+function connectionFactSources(
+  source: SharedLLMInput,
+  target: SharedLLMInput,
+): NonNullable<MigrationRecord['connection_fact_sources']> {
+  const facts: { role: string; field: 'base_url'; source: string }[] = [];
+  const pairs = [
+    { role: 'primary', before: source.primary, after: target.primary },
+    ...(target.fallbacks ?? []).map((after, index) => ({
+      role: `fallbacks[${index}]`, before: source.fallbacks?.[index], after,
+    })),
+  ];
+  for (const { role, before, after } of pairs) {
+    const legacy = before as unknown as Record<string, unknown> | undefined;
+    if (legacy?.base_url !== undefined || after.base_url === undefined) continue;
+    const origin = typeof legacy?.preset === 'string'
+      ? `preset:${legacy.preset}`
+      : `catalog:${String(legacy?.provider_id ?? after.provider_id)}`;
+    facts.push({ role, field: 'base_url', source: origin });
+  }
+  return facts;
+}
+
+const legacyRawProviderSchema = z.record(z.unknown()).refine(
+  provider => provider.label !== '(no label)',
+  { message: 'label must not use the reserved no-label sentinel' },
+);
+const legacyRawDocumentSchema = z.object({
+  primary: legacyRawProviderSchema,
+  fallbacks: z.array(legacyRawProviderSchema).optional(),
+}).passthrough();
+
 function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument {
   if (!isRecord(value)) {
     throw new Error(`Invalid LLM configuration document: expected object: ${configPath}`);
@@ -238,7 +271,13 @@ function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument
   const metadata = documentMetadataSchema.parse(value);
   const { schema_version: _schemaVersion, revision: _revision, ...config } = value;
   // 校验但不回写 parse 结果，避免 mutation 将 defaults 物化或展开引用。
-  llmOrchestratorConfigSchema.parse(config);
+  try {
+    llmOrchestratorConfigSchema.parse(config);
+  } catch {
+    // silent: Raw repair/remove must remain available for structurally identifiable legacy
+    // slots even when their connection behavior is no longer runtime-supported.
+    legacyRawDocumentSchema.parse(config);
+  }
   return { ...config, ...metadata } as LLMConfigDocument;
 }
 
@@ -499,6 +538,7 @@ export function createLLMConfigurationDocumentStore(deps: {
         source_revision: metadata.revision,
         target_revision: targetRevision,
         preset_migration: true,
+        connection_fact_sources: connectionFactSources(source as SharedLLMInput, migration.config),
         outcome: 'pending',
         target_write: 'not_written',
         source_cleanup: 'pending',
@@ -526,6 +566,7 @@ export function createLLMConfigurationDocumentStore(deps: {
         source_revision: metadata.revision,
         target_revision: confirmed.revision,
         preset_migration: true,
+        connection_fact_sources: connectionFactSources(source as SharedLLMInput, migration.config),
         outcome: 'migrated',
         target_write: write.kind,
         source_cleanup: write.kind,
@@ -560,6 +601,7 @@ export function createLLMConfigurationDocumentStore(deps: {
           target_digest: '',
           ...(sourceRevision !== undefined ? { source_revision: sourceRevision } : {}),
           migration_error: `${error.code}: ${error.role}`,
+          outcome: 'failed',
           target_write: 'not_written',
           source_cleanup: 'pending',
         };
@@ -638,6 +680,7 @@ export function createLLMConfigurationDocumentStore(deps: {
       ...(sourceRevision !== undefined ? { source_revision: sourceRevision } : {}),
       target_revision: existing.revision,
       preset_migration: migration.migrated,
+      connection_fact_sources: connectionFactSources(source, targetSource),
       target_write: confirmedBarrier.kind,
       source_cleanup: 'pending',
     });
@@ -698,7 +741,7 @@ export function createLLMConfigurationDocumentStore(deps: {
   ): Promise<LLMConfigurationCommitResult> => {
     // Normal setup accepts only the explicit schema. Legacy presets must have
     // already crossed the explicit migration boundary; never resolve them here.
-    const provider = llmProviderConfigSchema.parse(explicitConfig);
+    const provider = strictLLMProviderConfigSchema.parse(explicitConfig);
     // Replacement validates defaults but persists the explicit raw fields only.
     const rawProvider = target.kind === 'replace' ? explicitConfig : provider;
     if (target.kind === 'initialize') {

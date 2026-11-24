@@ -5,7 +5,6 @@ import type { LLMProvider } from './types.js';
 import {
   describeProviderInput,
   resolveInternalConnection,
-  resolvedProviderConfig,
   toInternalProviderConfig,
   type ProviderConnection,
   type ProviderHandle,
@@ -66,12 +65,6 @@ export function createProviderFromConnection(
   connection: ProviderConnection,
   options?: ProviderInputFactoryOptions,
 ): LLMProvider {
-  const resolved = resolvedProviderConfig(connection);
-  if (resolved) {
-    validateProviderConfig(resolved);
-    return new PiAiAdapter(withFactoryAudit(resolved, options?.auditLog), options);
-  }
-
   if (!connection.model.trim()) {
     throw new LLMError(
       `ProviderConnection.model is required (provider="${connection.providerId || 'unknown'}")`,

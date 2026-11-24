@@ -44,6 +44,9 @@ function candidate(
     role,
     index,
     ...(entry.label !== undefined ? { label: entry.label } : {}),
+    ...((entry as { preset?: unknown }).preset !== undefined
+      ? { preset: String((entry as { preset?: unknown }).preset) }
+      : {}),
     ...(entry.provider_id !== undefined ? { provider_id: entry.provider_id } : {}),
     ...(entry.base_url !== undefined ? { base_url: summarizeProviderBaseUrl(entry.base_url) } : {}),
     ...(entry.model !== undefined ? { model: entry.model } : {}),

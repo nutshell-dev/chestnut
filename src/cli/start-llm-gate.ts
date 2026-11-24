@@ -364,7 +364,7 @@ async function verifyWithWizardResolved(
             const now = readLLMSnapshot(deps);
             if (now.operationalIdentity === reconfigured.operationalIdentity) {
               audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, 'via=reconfigure');
-              result = { verified: { snapshot: reconfigured, probe: { model: reconfigured.config.primary.model }, via: 'start' } };
+              result = { verified: { snapshot: reconfigured, probe: { model: reconfigured.config.primary.input.model }, via: 'start' } };
             } else {
               audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=snapshot_drift`, `attempt=reconfigure`);
               result = await probeUntilStable(deps, audit, now, 'retry');

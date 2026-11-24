@@ -25,6 +25,7 @@ import type {
   CatalogIdentityConfig,
   CatalogResolution,
   CatalogWireIdentity,
+  ContextWindowResolution,
 } from './catalog-resolution-types.js';
 export type {
   CatalogResolution,
@@ -164,6 +165,32 @@ function wireIdentity(config: CatalogIdentityConfig): Readonly<CatalogWireIdenti
   });
 }
 
+/** Actual-model reasoning is used only when every static catalog entry agrees. */
+export function catalogModelReasoning(modelId: string): boolean | undefined {
+  // Window-only suffixes such as [1m] do not create a different reasoning capability.
+  const capabilityId = modelId.replace(/\[[^\]]+\]$/, '');
+  const matches = Object.entries(MODEL_CATALOG)
+    .filter(([key]) => key.endsWith(`/${capabilityId}`))
+    .map(([, entry]) => entry.reasoning);
+  if (matches.length === 0 || matches.some(value => value !== matches[0])) return undefined;
+  return matches[0];
+}
+
+/** metadata-only 能力可借用；窗口必须按实际请求模型重新解析。 */
+function resolveMetadataOnlyWindow(
+  identity: Omit<Extract<CatalogResolution, { kind: 'metadata_only' }>, 'window'>,
+): ContextWindowResolution {
+  if (identity.wire.model === identity.modelId) {
+    return resolveContextWindowForIdentity(identity);
+  }
+  return resolveContextWindowForIdentity({
+    kind: 'custom',
+    providerId: identity.providerId,
+    modelId: identity.wire.model,
+    revision: identity.revision,
+  });
+}
+
 /**
  * Provider/model 身份的唯一同步解析入口。SDK 只负责把 catalog_model 实例化，
  * 不再决定它是不是合法目录身份；凭证和 endpoint 策略仍留在各自边界。
@@ -194,7 +221,7 @@ export function resolveCatalogIdentity(
     };
     return Object.freeze({
       ...identity,
-      window: resolveContextWindowForIdentity(identity),
+      window: resolveMetadataOnlyWindow(identity),
     });
   }
 
@@ -227,6 +254,43 @@ export function resolveCatalogIdentity(
   return Object.freeze({
     ...identity,
     window: resolveContextWindowForIdentity({ ...identity, providerHint: config.name }),
+  });
+}
+
+export interface CatalogConnectionCandidateInput {
+  readonly providerId: string;
+  readonly model: string;
+  readonly baseUrl: string;
+  readonly protocol: ApiFormat;
+  readonly apiKey: string;
+}
+
+export interface PersistedConnectionCandidate {
+  readonly base_url: string;
+  readonly model: string;
+  readonly api_format: ApiFormat;
+  readonly auth_profile: 'api_key';
+  readonly api_key: string;
+}
+
+/** Validate user-selected catalog facts without reading legacy presets or changing the selection. */
+export function resolveCatalogConnectionCandidate(
+  input: CatalogConnectionCandidateInput,
+): PersistedConnectionCandidate {
+  catalogProviderEntry(input.providerId);
+  if (!catalogModelKnown(input.providerId, input.model)) {
+    throw new CatalogModelNotFoundError(input.providerId, input.model);
+  }
+  validateCatalogAuthProfile(input.providerId, 'api_key');
+  validateCatalogProtocol(input.providerId, input.protocol);
+  if (!input.baseUrl.trim()) throw new Error(`Catalog provider "${input.providerId}": baseUrl is required`);
+  if (!input.apiKey.trim()) throw new Error(`Catalog provider "${input.providerId}": apiKey is required`);
+  return Object.freeze({
+    base_url: input.baseUrl,
+    model: input.model,
+    api_format: input.protocol,
+    auth_profile: 'api_key',
+    api_key: input.apiKey,
   });
 }
 

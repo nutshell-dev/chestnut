@@ -89,8 +89,8 @@ describe('LLMConfiguration selection / identity', () => {
   it('claw 只覆盖 primary，scope 与 ref 可审计且共享策略不变', () => {
     const global = createGlobalConfigSchema().parse(input);
     const snapshot = snapshotLLMConfig(global, override, { clawId: 'claw-a' });
-    expect(snapshot.config.primary.model).toBe('gpt-override');
-    expect(snapshot.config.fallbacks.map(provider => provider.model)).toEqual(['gpt-fixed']);
+    expect(snapshot.config.primary.input.model).toBe('gpt-override');
+    expect(snapshot.config.fallbacks.map(provider => provider.input.model)).toEqual(['gpt-fixed']);
     expect(snapshot.config.retry).toEqual({ maxAttempts: 4, delayMs: RETRY_DELAY_FIXTURE_MS });
     expect(snapshot.config.legacyCircuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: CIRCUIT_RESET_FIXTURE_MS });
     expect(snapshot.scope).toMatchObject({ primarySource: 'claw_override', clawId: 'claw-a' });
@@ -138,14 +138,13 @@ describe('LLMConfiguration selection / identity', () => {
     expect(serialized).not.toContain('sk-second-secret-value');
   });
 
-  it('model/baseUrl/protocol/behavior 与 extra header 名改变 stable 和 operational identity', () => {
+  it('model/baseUrl/protocol 改变连接身份，调用默认值只改变 operational identity', () => {
     const base = {
       provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
       label: 'provider-fixed',
       api_key: '${PRIMARY_KEY}',
       model: 'claude-fixed', base_url: 'https://provider.example.test',
       temperature: 0.4,
-      extra_headers: { 'X-Account': '${HEADER_A}' },
     } as const;
     const first = snapshotWithPrimary(base);
     const changes: Array<readonly [string, SharedLLMInput['primary']]> = [
@@ -153,38 +152,29 @@ describe('LLMConfiguration selection / identity', () => {
       ['baseUrl', { ...base, base_url: 'https://other.example.test' }],
       ['protocol', { ...base, provider_id: 'custom:openai', api_format: 'openai' }],
       ['behavior', { ...base, temperature: 0.8 }],
-      ['extra header name', { ...base, extra_headers: { 'X-Other': '${HEADER_A}' } }],
     ];
 
     for (const [field, primary] of changes) {
       const changed = snapshotWithPrimary(primary);
-      expect(changed.identity, field).not.toBe(first.identity);
+      if (field === 'behavior') expect(changed.identity, field).toBe(first.identity);
+      else expect(changed.identity, field).not.toBe(first.identity);
       expect(changed.operationalIdentity, field).not.toBe(first.operationalIdentity);
     }
   });
 
-  it('extra header secret 值只改变 operational identity，稳定投影不泄露该值', () => {
+  it('旧 extra_headers 在运行投影中 fail closed，且不泄露 header 值', () => {
     const base = {
       provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key',
       api_key: '${PRIMARY_KEY}',
       model: 'claude-fixed', base_url: 'https://provider.example.test',
-      extra_headers: { 'X-Account': 'header-first-secret' },
+      extra_headers: { 'X-Account': 'header-secret-value' },
     } as const;
-    const first = snapshotWithPrimary(base);
-    const rotated = snapshotWithPrimary({
-      ...base,
-      extra_headers: { 'X-Account': 'header-second-secret' },
-    });
-
-    expect(rotated.identity).toBe(first.identity);
-    expect(rotated.operationalIdentity).not.toBe(first.operationalIdentity);
-    const stableEvidence = JSON.stringify({
-      identity: rotated.identity,
-      credentials: rotated.credentials,
-      auth: rotated.auth,
-    });
-    expect(stableEvidence).not.toContain('header-first-secret');
-    expect(stableEvidence).not.toContain('header-second-secret');
+    expect(() => snapshotWithPrimary(base)).toThrow(/extra_headers/);
+    try {
+      snapshotWithPrimary(base);
+    } catch (error) {
+      expect(String(error)).not.toContain('header-secret-value');
+    }
   });
 
   it('不同 credentialRef/accountId 改变 auth identity，来源变化只改变 provenance', () => {
@@ -217,37 +207,7 @@ describe('LLMConfiguration selection / identity', () => {
     expect(refChanged.auth[0]?.credentialRef).toBe('OTHER_KEY');
   });
 
-  it('extra header 的 ref/account 变化也改变稳定身份，来源变化不改变', () => {
-    const withHeader = (ref: string) => ({
-      llm: {
-        primary: {
-          provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test',
-          extra_headers: { 'X-Account': ref },
-        },
-      },
-    } as const);
-    const owner = credentialsWith({
-      PRIMARY_KEY: { source: 'env' }, HEADER_A: { source: 'file', accountId: 'account-a' },
-      HEADER_B: { source: 'file', accountId: 'account-a' },
-    });
-    const first = snapshotLLMConfigInput(withHeader('${HEADER_A}'), { credentials: owner });
-    const refChanged = snapshotLLMConfigInput(withHeader('${HEADER_B}'), { credentials: owner });
-    const sourceChanged = snapshotLLMConfigInput(withHeader('${HEADER_A}'), {
-      credentials: credentialsWith({
-        PRIMARY_KEY: { source: 'env' }, HEADER_A: { source: 'env', accountId: 'account-a' },
-      }),
-    });
-    const accountChanged = snapshotLLMConfigInput(withHeader('${HEADER_A}'), {
-      credentials: credentialsWith({
-        PRIMARY_KEY: { source: 'env' }, HEADER_A: { source: 'file', accountId: 'account-b' },
-      }),
-    });
-    expect(refChanged.identity).not.toBe(first.identity);
-    expect(accountChanged.identity).not.toBe(first.identity);
-    expect(sourceChanged.identity).toBe(first.identity);
-  });
-
-  it('header provenance 保留 raw ref，并以 effective header key 判定 configured fallback', () => {
+  it('旧 header 引用仍可由 raw 配置定位，但不进入运行身份', () => {
     const source = {
       llm: {
         primary: {
@@ -257,60 +217,17 @@ describe('LLMConfiguration selection / identity', () => {
       },
     } as const;
     const parsed = createGlobalConfigSchema().parse(source);
-    const configured = snapshotLLMConfig({ ...parsed, raw: source.llm });
-    expect(configured.credentials).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: 'primary.extra_headers.X-Account', ref: 'HEADER_A', configured: true,
-      }),
-    ]));
-
-    const missingEffectiveHeader = snapshotLLMConfig({
-      ...parsed,
-      llm: {
-        ...parsed.llm,
-        primary: { ...parsed.llm.primary, extra_headers: undefined },
-      },
-      raw: source.llm,
-    });
-    expect(missingEffectiveHeader.credentials).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: 'primary.extra_headers.X-Account', ref: 'HEADER_A', configured: false,
-      }),
-    ]));
+    expect(parsed.llm.primary.extra_headers).toEqual({ 'X-Account': '${HEADER_A}' });
+    expect(() => snapshotLLMConfig({ ...parsed, raw: source.llm })).toThrow(/extra_headers/);
   });
 
-  it('oauth/ambient 使用稳定命名空间，api_key profile 缺凭据 fail closed', () => {
+  it('oauth/ambient 与缺失 api_key 均在运行投影中 fail closed', () => {
     const oauthPrimary = { provider_id: 'openai-codex', api_format: 'openai-codex-responses', auth_profile: 'oauth', model: 'gpt-6.1-sol' } as const;
-    const oauth = snapshotLLMConfigInput({ llm: { primary: oauthPrimary } });
-    const labeledOauth = snapshotWithPrimary({ ...oauthPrimary, label: 'labeled-codex' });
-    const ambient = snapshotLLMConfigInput({ llm: { primary: { provider_id: 'amazon-bedrock', api_format: 'bedrock-converse-stream', auth_profile: 'ambient', model: 'anthropic.claude-sonnet-4-6' } } });
+    const ambientPrimary = { provider_id: 'amazon-bedrock', api_format: 'bedrock-converse-stream', auth_profile: 'ambient', model: 'anthropic.claude-sonnet-4-6' } as const;
     const unresolvedInput = { llm: { primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', model: 'claude-fixed', base_url: 'https://provider.example.test' } } } as const;
-    expect(() => snapshotLLMConfigInput(unresolvedInput)).toThrow(/api_key is required/);
-    expect(oauth.auth[0]).toMatchObject({
-      provider: 'openai-codex', credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX', status: 'stable',
-    });
-    expect(oauth.credentials[0]).toMatchObject({
-      ref: 'PI_AI_CREDENTIAL_OPENAI_CODEX', source: 'unresolved', configured: false,
-    });
-    expect(labeledOauth.auth[0]).toMatchObject({
-      provider: 'labeled-codex', credentialRef: 'PI_AI_CREDENTIAL_OPENAI_CODEX',
-    });
-    expect(ambient.auth[0]).toMatchObject({ credentialRef: 'ambient:amazon-bedrock', status: 'stable' });
-    expect(ambient.credentials[0]).toMatchObject({ ref: 'ambient:amazon-bedrock', configured: true });
-  });
-
-  it('api_key reference 与 oauth/ambient profile 组合仍优先保留显式 credential provenance', () => {
-    const oauth = snapshotWithPrimary({ provider_id: 'openai-codex', api_format: 'openai-codex-responses', auth_profile: 'oauth', model: 'gpt-6.1-sol', api_key: '${CODEX_KEY}' });
-    const ambient = snapshotWithPrimary({ provider_id: 'amazon-bedrock', api_format: 'bedrock-converse-stream', auth_profile: 'ambient', model: 'anthropic.claude-sonnet-4-6', api_key: '${BEDROCK_KEY}' });
-
-    expect(oauth.auth[0]).toMatchObject({
-      provider: 'openai-codex', authProfile: 'oauth', credentialRef: 'CODEX_KEY', status: 'stable',
-    });
-    expect(oauth.credentials[0]).toMatchObject({ ref: 'CODEX_KEY', configured: true });
-    expect(ambient.auth[0]).toMatchObject({
-      provider: 'amazon-bedrock', authProfile: 'ambient', credentialRef: 'BEDROCK_KEY', status: 'stable',
-    });
-    expect(ambient.credentials[0]).toMatchObject({ ref: 'BEDROCK_KEY', configured: true });
+    expect(() => snapshotWithPrimary(oauthPrimary)).toThrow(/api_key connection/);
+    expect(() => snapshotWithPrimary(ambientPrimary)).toThrow(/api_key connection/);
+    expect(() => snapshotLLMConfigInput(unresolvedInput)).toThrow(/api_key/);
   });
 
   it('raw fallback evidence 缺失仍 fail closed', () => {

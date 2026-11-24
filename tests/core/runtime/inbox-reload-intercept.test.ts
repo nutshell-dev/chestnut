@@ -166,7 +166,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     expect(ack).toHaveBeenCalledTimes(1);
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('provider=mock-provider.test'),
       expect.stringContaining('fallbacks=0'),
       expect.stringContaining('triggered_by=1'),
       // Phase 1826: 应用时记录配置身份修订（owner 借此重新评估、重复修订不重放）。
@@ -492,7 +492,7 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     expect(result.injected).toEqual([]);
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('provider=mock-provider.test'),
       expect.stringContaining('fallbacks=0'),
       expect.stringContaining('triggered_by=1'),
       expect.stringContaining('revision='),
@@ -569,7 +569,7 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     );
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('provider=mock-provider.test'),
       expect.stringContaining('fallbacks=0'),
       expect.stringContaining('triggered_by=1'),
       expect.stringContaining('revision='),
@@ -764,7 +764,7 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     expect(reloadFn).toHaveBeenCalledTimes(1);
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('provider=mock-provider.test'),
       expect.stringContaining('fallbacks=0'),
       expect.stringContaining('triggered_by=1'),
       expect.stringContaining('revision='),

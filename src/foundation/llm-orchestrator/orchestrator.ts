@@ -18,6 +18,7 @@ import type {
   LLMStreamChunk,
   InputBudgetRequest,
   InputBudgetResult,
+  InvocationProviderObserver,
 } from './types.js';
 import {
   LLMRecoveryControllerImpl,
@@ -202,8 +203,21 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     }
   }
 
+  /** 实例最近成功摘要；不得用于推断任何进行中 invocation 的候选。 */
   getProviderInfo(): { name: string; model: string; isFallback: boolean } {
     return this.invocationExecutor.getProviderInfo();
+  }
+
+  withProviderObserver(observer: InvocationProviderObserver): LLMOrchestrator {
+    const observedOptions = (options: LLMCallOptions): LLMCallOptions => ({
+      ...options,
+      onProviderObservation: observer,
+    });
+    return {
+      call: options => this.call(observedOptions(options)),
+      stream: options => this.stream(observedOptions(options)),
+      getProviderInfo: () => this.getProviderInfo(),
+    };
   }
 
   getFailureDisposition(error: unknown): LLMFailureDisposition {

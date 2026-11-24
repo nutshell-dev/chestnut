@@ -5,14 +5,39 @@ type ProviderDescriptor = llmProviderCall.ProviderDescriptor;
 type ProviderFactory = llmProviderCall.ProviderFactory;
 type ProviderHandle = llmProviderCall.ProviderHandle;
 type ProviderInput = llmProviderCall.ProviderInput;
-import type { LLMEventSink, LLMOrchestratorConfig } from './types.js';
+type ProviderCallDefaults = llmProviderCall.ProviderCallDefaults;
+import type {
+  ConfiguredProviderCandidate,
+  LLMEventSink,
+  LLMOrchestratorConfig,
+  ProviderCandidateConfig,
+} from './types.js';
 import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
+
+function candidateInput(candidate: ProviderCandidateConfig): ProviderInput {
+  return 'input' in candidate ? candidate.input : candidate;
+}
+
+function candidateCallDefaults(candidate: ProviderCandidateConfig): ProviderCallDefaults {
+  return 'input' in candidate ? candidate.callDefaults : {};
+}
+
+function normalizeCandidate(candidate: ProviderCandidateConfig): ConfiguredProviderCandidate {
+  return {
+    input: candidateInput(candidate),
+    callDefaults: candidateCallDefaults(candidate),
+    ...('input' in candidate && candidate.displayName !== undefined
+      ? { displayName: candidate.displayName }
+      : {}),
+  };
+}
 
 export interface PreparedProviderReload {
   readonly config: LLMOrchestratorConfig;
   readonly primary: LLMProvider;
   readonly fallbacks: readonly LLMProvider[];
   readonly descriptors: readonly ProviderDescriptor[];
+  readonly candidates: readonly ConfiguredProviderCandidate[];
   readonly providerIds: readonly string[];
   readonly legacyProviderIds: readonly string[];
   readonly oldKeys: ReadonlySet<string>;
@@ -22,6 +47,8 @@ export interface ProviderRuntime {
   primary(): LLMProvider;
   fallbacks(): readonly LLMProvider[];
   descriptors(): readonly ProviderDescriptor[];
+  callDefaults?(adapter: LLMProvider): ProviderCallDefaults;
+  displayName?(adapter: LLMProvider): string;
   config(): LLMOrchestratorConfig;
   providerIds(): readonly string[];
   legacyProviderIds(): readonly string[];
@@ -40,6 +67,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
   private activePrimary: LLMProvider;
   private activeFallbacks: LLMProvider[];
   private activeDescriptors: readonly ProviderDescriptor[];
+  private activeCandidates: readonly ConfiguredProviderCandidate[];
   private activeProviderIds: readonly string[];
   private activeLegacyProviderIds: readonly string[];
   private activeConfigGeneration = 0;
@@ -49,6 +77,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
     this.events = config.events;
     this.providerFactory = config.providerFactory;
     this.activeConfig = config;
+    this.activeCandidates = [config.primary, ...(config.fallbacks ?? [])].map(normalizeCandidate);
     const primary = this.getSdkClient(config.primary);
     const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
     this.activePrimary = primary.provider;
@@ -68,6 +97,16 @@ export class LLMProviderRuntime implements ProviderRuntime {
 
   descriptors(): readonly ProviderDescriptor[] {
     return this.activeDescriptors;
+  }
+
+  callDefaults(adapter: LLMProvider): ProviderCallDefaults {
+    const index = [this.activePrimary, ...this.activeFallbacks].findIndex(candidate => candidate === adapter);
+    return this.activeCandidates[index]?.callDefaults ?? {};
+  }
+
+  displayName(adapter: LLMProvider): string {
+    const index = [this.activePrimary, ...this.activeFallbacks].findIndex(candidate => candidate === adapter);
+    return this.activeCandidates[index]?.displayName ?? adapter.name;
   }
 
   config(): LLMOrchestratorConfig {
@@ -91,22 +130,35 @@ export class LLMProviderRuntime implements ProviderRuntime {
     return this.sdkClientCache;
   }
 
-  private getSdkClient(input: ProviderInput): ProviderHandle {
-    const created = this.providerFactory.create(input);
+  private retireUnused(provider: LLMProvider): void {
+    try {
+      const result = (provider as { close?: () => Promise<void> | void }).close?.();
+      if (result instanceof Promise) {
+        void result.catch(error => this.events.emit({ type: 'provider_close_failed', error: String(error) }));
+      }
+    } catch (error) {
+      // silent: close failures are isolated and exposed through provider_close_failed.
+      this.events.emit({ type: 'provider_close_failed', error: String(error) });
+    }
+  }
+
+  private getSdkClient(candidateConfig: ProviderCandidateConfig): ProviderHandle {
+    const created = this.providerFactory.create(candidateInput(candidateConfig));
     const key = providerCacheKey(created.descriptor);
     const cached = this.sdkClientCache.get(key);
     if (cached) {
       this.events?.emit({
         type: 'sdk_client_cache_hit',
-        preset: cached.descriptor.protocol || 'unknown',
+        protocol: cached.descriptor.protocol || 'unknown',
         model: cached.descriptor.model || 'unknown',
       });
+      if (cached.provider !== created.provider) this.retireUnused(created.provider);
       return cached;
     }
     this.sdkClientCache.set(key, created);
     this.events?.emit({
       type: 'sdk_client_cache_miss',
-      preset: created.descriptor.protocol || 'unknown',
+      protocol: created.descriptor.protocol || 'unknown',
       model: created.descriptor.model || 'unknown',
     });
     return created;
@@ -126,6 +178,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
       descriptors,
       providerIds: descriptors.map(providerIdentity),
       legacyProviderIds: descriptors.map(legacyProviderIdentity),
+      candidates: [config.primary, ...(config.fallbacks ?? [])].map(normalizeCandidate),
       oldKeys,
     };
   }
@@ -153,10 +206,10 @@ export class LLMProviderRuntime implements ProviderRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    const allToClose = [
+    const allToClose = [...new Set([
       ...[...this.sdkClientCache.values()].map(handle => handle.provider),
       ...this.pendingClose,
-    ];
+    ])];
     const results = await Promise.allSettled(allToClose.map(provider => {
       const maybeClose = (provider as { close?: () => Promise<void> | void }).close?.();
       return maybeClose instanceof Promise ? maybeClose : Promise.resolve();

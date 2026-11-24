@@ -12,6 +12,7 @@ import {
   type LLMInstanceStateV1,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
+import { createInitialRecoveryState } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
 const dirs: string[] = [];
@@ -164,6 +165,79 @@ describe('InstanceStateStore legacy intake', () => {
     expect(migrated).toMatchObject({ schema_version: 3, revision: 5, updatedAt: '1970-01-01T00:01:40.000Z' });
     expect(migrated.providers).toEqual([{ providerId: 'provider-a', status: 'available', consecutiveFailures: 0 }]);
     expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'))).toEqual(migrated);
+  });
+
+  it('preserves legacy facts, provenance, zero/absence and does not migrate V3 twice', async () => {
+    const f = await fixture();
+    const legacy = createInitialRecoveryState('foreground', {
+      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000,
+    }, 1_000);
+    legacy.providers = [
+      {
+        providerId: 'provider-a', errorClass: 'rate_limit', at: '1970-01-01T00:00:01.000Z',
+        consecutiveFailures: 0, detail: 'zero is evidence', rateLimitFailures: 0,
+      },
+      {
+        providerId: 'retired', errorClass: 'permanent', at: '1970-01-01T00:00:02.000Z',
+        consecutiveFailures: 2, detail: 'retired history',
+      },
+    ];
+    legacy.importedSources = ['status/upstream-recovery.json#schema_version=1'];
+    const legacyPath = path.join(f.dir, 'status', 'llm-recovery-state.json');
+    const raw = JSON.stringify(legacy);
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fsNative.writeFileSync(legacyPath, raw);
+
+    const migrated = f.makeStore().load();
+    expect(migrated.recovery.providers).toEqual([
+      expect.objectContaining({
+        providerId: 'provider-a', consecutiveFailures: 0, rateLimitFailures: 0, blocking: false,
+      }),
+      expect.objectContaining({ providerId: 'retired', detail: 'retired history', blocking: false }),
+    ]);
+    expect(migrated.recovery.providers[0]).not.toHaveProperty('rateLimitBlocked');
+    expect(migrated.recovery.providers[0]).not.toHaveProperty('retryAt');
+    expect(migrated.recovery.importedSources).toEqual(['status/upstream-recovery.json#schema_version=1']);
+    expect(migrated.providers[0]?.lastError?.migrationSources).toEqual([
+      'llm-recovery-state.json#schema_version=1:providers[provider-a]',
+    ]);
+    expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
+
+    expect(f.makeStore().load()).toEqual(migrated);
+    expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
+  });
+
+  it('retains the original V1 record after migration write failure and retries the same import', async () => {
+    const f = await fixture();
+    const legacy: LLMInstanceStateV1 = {
+      schema_version: 1,
+      revision: 4,
+      updatedAt: '1970-01-01T00:00:01.000Z',
+      providers: [{
+        providerId: 'provider-a',
+        breaker: { state: 'closed', consecutiveFailures: 0, lastFailureClass: null },
+      }],
+      lastSuccess: null,
+    };
+    const raw = JSON.stringify(legacy);
+    fsNative.mkdirSync(path.dirname(f.statePath), { recursive: true });
+    fsNative.writeFileSync(f.statePath, raw);
+    let fail = true;
+    const fs = wrapAtomic(f.fs, original => {
+      if (fail) throw new Error('injected migration failure');
+      return original();
+    });
+    const store = f.makeStore({ fs });
+
+    expect(() => store.load()).toThrow('injected migration failure');
+    expect(fsNative.readFileSync(f.statePath, 'utf8')).toBe(raw);
+
+    fail = false;
+    const migrated = store.load();
+    expect(migrated).toMatchObject({ schema_version: 3, revision: 5 });
+    expect(migrated.providers).toEqual([{ providerId: 'provider-a', status: 'available', consecutiveFailures: 0 }]);
+    expect(migrated.providers[0]).not.toHaveProperty('lastError');
+    expect(f.makeStore({ fs }).load()).toEqual(migrated);
   });
 
   it('does not read legacy recovery when V3 exists', async () => {

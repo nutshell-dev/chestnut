@@ -22,7 +22,7 @@ export interface InputBudgetObservation {
 export async function observeInputBudget(
   provider: LLMProvider,
   options: LLMCallOptions,
-  legacyEstimate: number,
+  legacyEstimate: () => number,
 ): Promise<InputBudgetObservation> {
   if (typeof provider.prepareInputMeter !== 'function') {
     return {
@@ -30,7 +30,7 @@ export async function observeInputBudget(
         kind: 'estimated',
         method: 'legacy-cl100k',
         reason: 'adapter_capability_missing',
-        tokens: legacyEstimate,
+        tokens: legacyEstimate(),
       },
     };
   }
@@ -38,6 +38,7 @@ export async function observeInputBudget(
     const meter = await provider.prepareInputMeter({
       maxTokens: options.maxTokens,
       temperature: options.temperature,
+      ...(options.callDefaults !== undefined ? { callDefaults: options.callDefaults } : {}),
     });
     return { meter, measurement: meter.measure(options) };
   } catch (error) {

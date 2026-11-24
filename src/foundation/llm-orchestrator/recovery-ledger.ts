@@ -6,7 +6,6 @@ import { formatErr, newUuid } from '../node-utils/index.js';
 import type { LLMEvent, LLMRecoveryFacts } from './types.js';
 import type { LLMErrorClass } from './errors.js';
 import type { ProviderAdmission } from './provider-admission.js';
-import { applyLegacyRecoveryRelease } from './legacy-recovery-compat.js';
 import type { InstanceStateStore } from './instance-state-store.js';
 import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
@@ -62,6 +61,7 @@ export interface RecoveryLedgerDeps {
 
 export interface RecoveryLedger {
   snapshot(): RecoveryLedgerSnapshot;
+  currentSchedule(): LLMRecoverySchedule;
   canProbe(providerId: string, nowMs: number): boolean;
   subscribeCommits(listener: (context: string) => void): () => void;
   noteProviderSuccess(providerId: string, nowMs: number, updateSelection: boolean): void;
@@ -216,8 +216,12 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     return this.store.snapshot().providers;
   }
 
-  async inspect(): Promise<LLMRecoverySchedule> {
+  currentSchedule(): LLMRecoverySchedule {
     return deriveLLMRecoverySchedule(this.getProviders(), this.getRevision(), this.providerIds);
+  }
+
+  async inspect(): Promise<LLMRecoverySchedule> {
+    return this.currentSchedule();
   }
 
   private migrateProviderIdentities(): void {
@@ -228,6 +232,10 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       const currentId = currentIds[i];
       const legacyId = legacyIds[i];
       if (currentId !== undefined && legacyId !== undefined && legacyId !== currentId) {
+        const existing = legacyToCurrent.get(legacyId);
+        if (existing !== undefined && existing !== currentId) {
+          throw new Error(`legacy provider identity migration is ambiguous at ${legacyId}`);
+        }
         legacyToCurrent.set(legacyId, currentId);
       }
     }
@@ -240,6 +248,13 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       migrated = true;
       return { ...fact, providerId: currentId, identityMigrationPending: true };
     });
+    const recoveryIds = new Set<string>();
+    for (const fact of next.providers) {
+      if (migrated && recoveryIds.has(fact.providerId)) {
+        throw new Error(`legacy recovery fact migration is ambiguous at ${fact.providerId}`);
+      }
+      recoveryIds.add(fact.providerId);
+    }
     const providers = this.getProviders().map(provider => ({ ...provider }));
     for (let i = 0; i < providers.length; i++) {
       const provider = providers[i]!;
@@ -300,15 +315,6 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     const configurationChanged = configRevision !== undefined
       && !hasAcceptedFact(next, 'configuration', configRevision);
     const freshIds = dedupedIds.filter(id => !hasAcceptedFact(next, 'intervention', id));
-    const legacyRelease = applyLegacyRecoveryRelease(next.providers, {
-      providerIds: this.providerIds,
-      configurationChanged,
-      hasFreshIntervention: freshIds.length > 0,
-      entryScheduleKind: entrySchedule.kind,
-    });
-    next.providers = legacyRelease.providers;
-    if (legacyRelease.changed) stateChanged = true;
-
     if (configurationChanged && configRevision !== undefined) {
       next.acceptedConfigRevisions = appendBounded(next.acceptedConfigRevisions, [configRevision], LLM_RECOVERY_ACCEPTED_IDS_MAX);
       acceptedFacts.configurationRevision = configRevision;

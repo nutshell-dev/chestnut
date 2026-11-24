@@ -128,6 +128,8 @@ export class LLMInstanceStateStore implements InstanceStateStore {
     }
     let migrated: LLMInstanceStateV3;
     try {
+      // 唯一的自动历史转换边界：原样保留 recovery.providers、零值/缺席及来源。
+      // 旧 begin 释放规则没有可重建的 configuration/intervention 输入，不得在此猜测重放。
       migrated = upgradeLLMInstanceState(
         legacyHealth,
         legacyRecovery.kind === 'ok' ? legacyRecovery.state : undefined,

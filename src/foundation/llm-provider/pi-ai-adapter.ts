@@ -25,6 +25,7 @@ import type {
   LLMResponse,
   ProviderAdapter,
   ProviderConfig,
+  ProviderCallDefaults,
   ProviderStreamChunk,
 } from './types.js';
 import {
@@ -136,10 +137,10 @@ export class PiAiAdapter implements ProviderAdapter {
     }
   }
 
-  async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature'> = {}): Promise<ModelInputMeter> {
+  async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature' | 'callDefaults'> = {}): Promise<ModelInputMeter> {
     const { model, resolution } = await this.endpoint();
     const effective = buildEffectiveCallOptions(this.config, options);
-    return createInputMeter(this.config, model, effective, resolution);
+    return createInputMeter(this.config, model, effective, resolution, options.callDefaults);
   }
 
   async call(options: LLMCallOptions): Promise<LLMResponse> {
@@ -187,9 +188,10 @@ export class PiAiAdapter implements ProviderAdapter {
     inputTokens?: number,
     requestedMaxTokens?: number,
     temperature?: number,
+    callDefaults?: ProviderCallDefaults,
   ): Promise<InputBudgetEvidence | undefined> {
     try {
-      const meter = await this.prepareInputMeter({ maxTokens: requestedMaxTokens, temperature });
+      const meter = await this.prepareInputMeter({ maxTokens: requestedMaxTokens, temperature, callDefaults });
       return {
         descriptor: meter.descriptor,
         ...(inputTokens !== undefined ? { inputTokens } : {}),
@@ -227,6 +229,7 @@ export class PiAiAdapter implements ProviderAdapter {
         signal.inputTokens,
         maxTokensOverride ?? options.maxTokens,
         options.temperature,
+        options.callDefaults,
       ),
     );
   }
@@ -299,11 +302,15 @@ export class PiAiAdapter implements ProviderAdapter {
     maxTokensOverride: number | undefined,
   ): AsyncGenerator<PiAi.AssistantMessageEvent> {
     const { models, model } = await this.endpoint();
-    const context = buildPiAiContext(this.config, options, model);
+    const context = buildPiAiContext(options.callDefaults === undefined ? this.config : {
+      ...this.config,
+      dropThinkingBlocks: options.callDefaults.dropThinkingBlocks,
+    }, options, model);
     const inputBudget = await this.inputBudgetEvidence(
       undefined,
       maxTokensOverride ?? options.maxTokens,
       options.temperature,
+      options.callDefaults,
     );
     const requestId = newUuid();
     let measuredInputTokens: number | undefined;
@@ -313,7 +320,11 @@ export class PiAiAdapter implements ProviderAdapter {
     let artifactRef: InputArtifactRef = unavailableInputArtifact(requestId, 'artifact_projection_unavailable');
     let inputSource: 'unlinked' | 'artifact' = 'unlinked';
     try {
-      const meter = await this.prepareInputMeter({ maxTokens: maxTokensOverride ?? options.maxTokens, temperature: options.temperature });
+      const meter = await this.prepareInputMeter({
+        maxTokens: maxTokensOverride ?? options.maxTokens,
+        temperature: options.temperature,
+        callDefaults: options.callDefaults,
+      });
       descriptorRevision = meter.descriptor.revision;
       inputHash = inputProjectionHash(context);
       measurement = meter.measure(options);
@@ -346,7 +357,7 @@ export class PiAiAdapter implements ProviderAdapter {
         reason: error instanceof Error ? error.message : 'input_meter_failed',
       };
     }
-    const timeout = options.timeoutMs ?? this.config.timeoutMs;
+    const timeout = options.timeoutMs ?? options.callDefaults?.timeoutMs ?? this.config.timeoutMs;
     const capture: HttpErrorCapture = {};
     let terminalObserved = false;
     let failureObserved = false;

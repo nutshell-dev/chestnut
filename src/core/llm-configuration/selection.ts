@@ -7,9 +7,25 @@ import type { z } from 'zod';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import type { CredentialFact, CredentialSource } from './legacy-credentials/index.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
-const { toProviderInput } = llmProviderConfigContract;
+const { providerCallDefaultsFromConfig, toProviderInput } = llmProviderConfigContract;
 type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 type ProviderInput = llmProviderConfigContract.ProviderInput;
+type ProviderCallDefaults = llmProviderConfigContract.ProviderCallDefaults;
+
+export interface LLMResolvedProviderCandidate {
+  readonly input: ProviderInput;
+  readonly callDefaults: ProviderCallDefaults;
+  /** Display-only; never participates in connection cache or recovery identity. */
+  readonly displayName?: string;
+}
+
+function resolveCandidate(config: LLMProviderConfig): LLMResolvedProviderCandidate {
+  return Object.freeze({
+    input: toProviderInput(config),
+    callDefaults: providerCallDefaultsFromConfig(config),
+    displayName: config.label ?? config.provider_id,
+  });
+}
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
 export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;
@@ -49,8 +65,8 @@ export interface LLMConfigInput {
 }
 
 export interface LLMResolvedConfiguration {
-  readonly primary: ProviderInput;
-  readonly fallbacks: readonly ProviderInput[];
+  readonly primary: LLMResolvedProviderCandidate;
+  readonly fallbacks: readonly LLMResolvedProviderCandidate[];
   readonly retry: Readonly<{
     maxAttempts: number;
     delayMs: number;
@@ -70,8 +86,8 @@ export function resolveLLMConfig(
   const llm = globalConfig.llm;
   const cb = llm.circuit_breaker;
   return {
-    primary: toProviderInput(clawConfig?.llm?.primary ?? llm.primary),
-    fallbacks: (llm.fallbacks ?? []).map(toProviderInput),
+    primary: resolveCandidate(clawConfig?.llm?.primary ?? llm.primary),
+    fallbacks: (llm.fallbacks ?? []).map(resolveCandidate),
     retry: {
       maxAttempts: llm.retry_attempts,
       delayMs: llm.retry_delay_ms,

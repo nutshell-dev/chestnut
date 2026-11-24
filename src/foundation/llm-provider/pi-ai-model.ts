@@ -16,6 +16,7 @@ import type { ProviderConfig } from './types.js';
 import type { PiAiRuntime } from './pi-ai-runtime.js';
 import {
   API_FORMAT_TO_PI_AI_API,
+  catalogModelReasoning,
   resolveCatalogIdentity,
   withCatalogWireIdentity,
   type CatalogResolution,
@@ -88,7 +89,7 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
       input: metadata?.input ?? ['text'],
       cost: metadata?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: identity.window.contextWindow,
-      maxTokens: config.maxTokens ?? metadata?.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+      maxTokens: metadata?.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
       ...(metadataCompat?.forceAdaptiveThinking === true && {
         compat: { forceAdaptiveThinking: true } as unknown as PiAi.Model<PiAi.Api>['compat'],
       }),
@@ -160,11 +161,11 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
     api: api as PiAi.Api,
     provider: config.piAiProvider ?? config.name,
     baseUrl,
-    reasoning: reasoningEnabled(config),
+    reasoning: catalogModelReasoning(config.model) ?? reasoningEnabled(config),
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: identity.window.contextWindow,
-    maxTokens: config.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+    maxTokens: CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
   };
   const resolution = withCatalogWireIdentity(identity, {
     model: model.id,

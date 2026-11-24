@@ -136,14 +136,26 @@ function canonicalJson(value: unknown): string {
  * 同一投影——本投影窄于 identity（不覆盖 temperature/timeoutMs/retry/breaker
  * 等），继续用于生产判定会让投影外字段变化静默不生效。
  */
+function runtimeProviderInput(candidate: LLMOrchestratorConfig['primary']): llmProviderCall.ProviderInput {
+  return 'input' in candidate ? candidate.input : candidate;
+}
+
+function runtimeProviderDisplayName(candidate: LLMOrchestratorConfig['primary']): string {
+  const input = runtimeProviderInput(candidate);
+  return 'input' in candidate && candidate.displayName !== undefined
+    ? candidate.displayName
+    : llmProviderCall.describeProviderInput(input).providerId;
+}
+
 function computeConfigRevision(config: LLMOrchestratorConfig): string {
-  const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => {
+  const identities = [config.primary, ...(config.fallbacks ?? [])].map(candidate => {
+    const c = runtimeProviderInput(candidate);
     const descriptor = llmProviderCall.describeProviderInput(c);
     return [
       descriptor.providerId,
       descriptor.protocol,
       descriptor.model,
-      c.baseUrl ?? '',
+      c.baseUrl,
       c.authentication.identity?.slice(0, 8) ?? '',
     ].join('|');
   });
@@ -1251,7 +1263,7 @@ export class Runtime {
 
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-      `provider=${llmProviderCall.describeProviderInput(newConfig.primary).providerId || 'unknown'}`,
+      `provider=${runtimeProviderDisplayName(newConfig.primary) || 'unknown'}`,
       `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
       `triggered_by=${triggeredBy}`,
       `revision=${revision}`,
@@ -1554,15 +1566,19 @@ export class Runtime {
     // Phase 1956 Step B：step-start 边界持久化（写失败传播，不静默继续）。
     await turnRecovery?.beginStep(1);
 
-    // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
+    // 首个 LLM 输出 delta 时上报本次 invocation 实际交付输出的 provider。
+    // 旧窄 mock 没有观察投影时才保留实例摘要回退；生产路径不读全局槽。
     let providerInfoEmitted = false;
+    let invocationProvider: { name: string; model: string; isFallback: boolean } | undefined;
+    const observedLLM = this.llm.withProviderObserver?.(fact => {
+      invocationProvider = { name: fact.name, model: fact.model, isFallback: fact.isFallback };
+    });
     const emitProviderInfoOnce = () => {
-      if (!providerInfoEmitted) {
-        const info = this.llm.getProviderInfo();
-        if (info) {
-          providerInfoEmitted = true;
-          callbacks?.onProviderInfo?.(info);
-        }
+      if (providerInfoEmitted) return;
+      const info = observedLLM === undefined ? this.llm.getProviderInfo() : invocationProvider;
+      if (info) {
+        providerInfoEmitted = true;
+        callbacks?.onProviderInfo?.(info);
       }
     };
 
@@ -1571,7 +1587,7 @@ export class Runtime {
       await runReact({
         messages,
         systemPrompt,
-        llm: this.llmOrchestrator,   // phase 1860 (RT-D1)：转发面（AgentExecutor 消费宽面）
+        llm: observedLLM ?? this.llmOrchestrator,   // 请求观察投影；底层仍是同一 orchestrator 实例
         executor: this.toolExecutor,
         ctx: this.execContext,
         tools,
@@ -1611,7 +1627,11 @@ export class Runtime {
         // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
         onToolUseInput: callbacks?.onToolUseInput,
         onToolUseInputDelta: callbacks?.onToolUseInputDelta,
-        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
+        onBeforeLLMCall: () => {
+          providerInfoEmitted = false;
+          invocationProvider = undefined;
+          callbacks?.onBeforeLLMCall?.();
+        },
         onReset: (provider, timeoutMs) => {
           providerInfoEmitted = false;
           callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
@@ -2112,7 +2132,7 @@ export class Runtime {
    */
   async computeTurnRequestFingerprint(): Promise<string> {
     const providerInfo = this.llm.getProviderInfo?.();
-    const primary = this.options.llmConfig.primary;
+    const primary = runtimeProviderInput(this.options.llmConfig.primary);
     const primaryDescriptor = llmProviderCall.describeProviderInput(primary);
     const pending = await this.peekPendingTurnFacts();
     const budget = await this.prepareTrimBudget({ kind: 'preview' });

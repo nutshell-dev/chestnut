@@ -10,16 +10,15 @@ import { API_FORMATS } from './api-format.js';
 /** Reserved display sentinel; persisted user labels must remain distinguishable from a missing label. */
 export const PROVIDER_NO_LABEL_SENTINEL = '(no label)';
 
-export const llmProviderConfigSchema = z.object({
+const providerConfigFields = {
   provider_id: z.string().min(1),
   api_format: z.enum(API_FORMATS),
   auth_profile: z.enum(['api_key', 'ambient', 'oauth']),
   label: z.string().refine(value => value !== PROVIDER_NO_LABEL_SENTINEL, {
     message: 'label must not use the reserved no-label sentinel',
   }).optional(),
+  // Raw legacy reads retain a missing reference so the CLI can repair the slot.
   api_key: z.string().min(1, 'api_key must not be empty').optional(),
-  // Catalog connections may use their static endpoint; custom and metadata-only
-  // connections must provide an explicit base URL (enforced by the adapter).
   base_url: z.string().min(1).optional(),
   model: z.string().min(1).refine(value => value !== 'auto', {
     message: 'model must be explicit (auto is only accepted by legacy migration)',
@@ -37,14 +36,9 @@ export const llmProviderConfigSchema = z.object({
   extra_headers: z.record(z.string()).optional(),
   drop_thinking_blocks: z.boolean().optional(),
   reasoning_effort: z.enum(THINKING_LEVELS).optional(),
-}).strict().superRefine((config, context) => {
-  if (config.auth_profile === 'api_key' && config.api_key === undefined) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['api_key'],
-      message: 'api_key is required when auth_profile is api_key',
-    });
-  }
+};
+
+function validateCatalogHints(config: { catalog_provider?: string; catalog_model?: string }, context: z.RefinementCtx): void {
   if ((config.catalog_provider === undefined) !== (config.catalog_model === undefined)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -52,6 +46,19 @@ export const llmProviderConfigSchema = z.object({
       message: 'catalog_provider and catalog_model must be provided together',
     });
   }
-});
+}
+
+/** Raw/legacy readable shape. Unsupported connection facts remain repairable by L4. */
+export const llmProviderConfigSchema = z.object(providerConfigFields).strict().superRefine(validateCatalogHints);
+
+/** Strict new writes and runtime projection: only reproducible API-key connections are supported. */
+export const strictLLMProviderConfigSchema = z.object({
+  ...providerConfigFields,
+  auth_profile: z.literal('api_key'),
+  api_key: z.string().min(1, 'api_key must not be empty'),
+  base_url: z.string().min(1),
+  extra_headers: z.undefined().optional(),
+}).strict().superRefine(validateCatalogHints);
 
 export type LLMProviderConfig = z.infer<typeof llmProviderConfigSchema>;
+export type StrictLLMProviderConfig = z.infer<typeof strictLLMProviderConfigSchema>;

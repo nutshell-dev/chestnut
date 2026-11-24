@@ -28,9 +28,9 @@ describe('resolved model input meter', () => {
     expect(meter.descriptor.provider).toBe('deepseek');
     expect(meter.descriptor.windowResolution).toMatchObject({
       contextWindow: 1_000_000,
-      source: 'catalog',
+      source: 'heuristic',
       providerId: 'deepseek',
-      modelId: 'deepseek-flash',
+      modelId: 'deepseek-flash[1m]',
     });
     expect(meter.descriptor.windowResolution?.revision).toBe(CATALOG_REVISION);
     expect(fetch).not.toHaveBeenCalled();

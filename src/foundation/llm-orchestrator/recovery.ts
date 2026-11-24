@@ -34,9 +34,23 @@ export interface LLMRecoverySignal {
 }
 
 export type SharedRecoveryDecision =
-  | { kind: 'ready' }
-  | { kind: 'at'; nextProbeAt: number }
-  | { kind: 'on_change' };
+  | { readonly kind: 'ready' }
+  | { readonly kind: 'at'; readonly nextProbeAt: number }
+  | { readonly kind: 'on_change' };
+
+export function projectSharedRecoveryDecision(schedule: LLMRecoverySchedule): SharedRecoveryDecision {
+  switch (schedule.kind) {
+    case 'ready': return { kind: 'ready' };
+    case 'on_change': return { kind: 'on_change' };
+    case 'at': return { kind: 'at', nextProbeAt: Date.parse(schedule.resumeAt) };
+  }
+}
+
+export function readSharedRecoveryDecision(
+  ledger: { currentSchedule(): LLMRecoverySchedule },
+): SharedRecoveryDecision {
+  return projectSharedRecoveryDecision(ledger.currentSchedule());
+}
 
 /** 唯一真实 owner；所有直接注入方均通过其公共 call/stream 进入恢复。 */
 export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRuntimeCapability, LLMRecoverySignal {

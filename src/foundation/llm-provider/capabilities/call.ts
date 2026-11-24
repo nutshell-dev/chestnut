@@ -22,6 +22,7 @@ export type {
   ProviderUsage,
   ProviderStreamChunk,
   ProviderAdapter,
+  ProviderCallDefaults,
   AuditSink,
 } from '../types.js';
 export type {

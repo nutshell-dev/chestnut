@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { llmProviderConfigSchema, strictLLMProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 
 const base = {
@@ -10,14 +10,14 @@ const base = {
 };
 
 describe('explicit authentication configuration', () => {
-  it('allows ambient/oauth without api_key and rejects a missing api_key profile credential', () => {
+  it('raw reads retain ambient/oauth and strict writes require api_key credentials', () => {
     for (const authProfile of ['ambient', 'oauth']) {
       const parsed = llmProviderConfigSchema.parse({ ...base, auth_profile: authProfile });
       expect(parsed.api_key).toBeUndefined();
       expect(toProviderConfig(parsed).authProfile).toBe(authProfile);
     }
-    expect(() => llmProviderConfigSchema.parse({ ...base, auth_profile: 'api_key' }))
-      .toThrow(/api_key is required/);
+    expect(() => strictLLMProviderConfigSchema.parse({ ...base, auth_profile: 'api_key' }))
+      .toThrow(/api_key/);
   });
 
   it('rejects an empty api_key and projects a non-empty key with its explicit profile', () => {

@@ -5,6 +5,7 @@
 import {
   llmProviderCatalog,
   llmProviderConfigContract,
+  llmProviderLegacyConfigMigration,
 } from '../../foundation/llm-provider/index.js';
 import { llmOrchestratorConfigSchema } from './config-schema.js';
 import type { SharedLLMInput } from './selection.js';
@@ -14,11 +15,13 @@ const {
   catalogModelKnown,
   catalogProviderEntry,
   isCatalogProvider,
+} = llmProviderCatalog;
+const {
   presetAuthProfile,
   resolvePreset,
   resolveThinkingDefaults,
-} = llmProviderCatalog;
-const { llmProviderConfigSchema, toProviderInput } = llmProviderConfigContract;
+} = llmProviderLegacyConfigMigration;
+const { strictLLMProviderConfigSchema, toProviderInput } = llmProviderConfigContract;
 
 type ProviderInputDocument = SharedLLMInput['primary'];
 type ApiFormat = llmProviderCatalog.ApiFormat;
@@ -27,7 +30,11 @@ export type LegacyPresetMigrationErrorCode =
   | 'invalid_source'
   | 'unknown_preset'
   | 'incomplete_mapping'
-  | 'invalid_mapping';
+  | 'invalid_mapping'
+  | 'unsupported_headers'
+  | 'unsupported_auth'
+  | 'credential_ref_required'
+  | 'endpoint_required';
 
 /** Typed migration failure; messages deliberately exclude credentials/header values. */
 export class LegacyPresetMigrationError extends Error {
@@ -85,11 +92,25 @@ function migrateLegacyCatalogProvider(
   if (typeof provider.model !== 'string' || !provider.model || provider.model === 'auto') {
     fail('incomplete_mapping', role, 'legacy catalog provider requires an explicit model');
   }
+  const apiFormat = provider.api_format ?? uniqueCatalogApiFormat(providerId, role);
+  let baseUrl = provider.base_url;
+  if (baseUrl === undefined) {
+    // This is historical migration only. Normal catalog reads never interpret presets.
+    try {
+      baseUrl = resolvePreset(providerId).defaultBaseUrl;
+    } catch {
+      // silent: The typed endpoint failure below retains the source without guessing a URL.
+    }
+  }
+  if (typeof baseUrl !== 'string' || !baseUrl) {
+    fail('endpoint_required', role, 'legacy catalog endpoint is not uniquely known; repair base_url explicitly', providerId);
+  }
   const config = {
     ...provider,
     provider_id: providerId,
-    api_format: provider.api_format ?? uniqueCatalogApiFormat(providerId, role),
+    api_format: apiFormat,
     auth_profile: provider.auth_profile ?? deriveCatalogAuthProfile(providerId),
+    base_url: baseUrl,
   } as ProviderInputDocument;
   return { config, migrated: true };
 }
@@ -182,10 +203,19 @@ function migratePresetProvider(
   } as ProviderInputDocument;
 }
 
-function validateExplicitProvider(provider: ProviderInputDocument): void {
-  // Migration ends by entering the same normal adapter path; invalid catalog
-  // protocol/auth/model mappings therefore fail before any target write.
-  toProviderInput(llmProviderConfigSchema.parse(provider));
+function validateExplicitProvider(provider: ProviderInputDocument, role: string): void {
+  if (Object.hasOwn(provider, 'extra_headers')) {
+    fail('unsupported_headers', role, 'extra_headers require explicit repair before migration');
+  }
+  if (provider.auth_profile !== 'api_key') {
+    fail('unsupported_auth', role, 'only auth_profile=api_key can be migrated automatically');
+  }
+  if (provider.api_key === undefined) {
+    fail('credential_ref_required', role, 'an API key reference is required; repair the source slot');
+  }
+  // Migration ends by entering the same strict runtime adapter path; invalid
+  // endpoint/protocol/auth/model mappings therefore fail before any target write.
+  toProviderInput(strictLLMProviderConfigSchema.parse(provider));
 }
 
 /** Migrate one legacy provider draft, or validate an already explicit provider. */
@@ -204,17 +234,20 @@ export function migrateLegacyProviderConfig(
         const { transport: _transport, ...withoutTransport } = value;
         return withoutTransport;
       })();
+    if (provider.auth_profile !== undefined && provider.auth_profile !== 'api_key') {
+      fail('unsupported_auth', role, 'only auth_profile=api_key can be migrated automatically');
+    }
     if (typeof provider.preset === 'string' && provider.preset) {
       const migrated = migratePresetProvider(provider, provider.preset, role);
-      validateExplicitProvider(migrated);
+      validateExplicitProvider(migrated, role);
       return migrated;
     }
-    if (provider.provider_id !== undefined && (provider.api_format === undefined || provider.auth_profile === undefined)) {
+    if (provider.provider_id !== undefined && (provider.api_format === undefined || provider.auth_profile === undefined || provider.base_url === undefined)) {
       const migrated = migrateLegacyCatalogProvider(provider, role).config;
-      validateExplicitProvider(migrated);
+      validateExplicitProvider(migrated, role);
       return migrated;
     }
-    validateExplicitProvider(provider as ProviderInputDocument);
+    validateExplicitProvider(provider as ProviderInputDocument, role);
     return provider as ProviderInputDocument;
   } catch (error) {
     if (error instanceof LegacyPresetMigrationError) throw error;

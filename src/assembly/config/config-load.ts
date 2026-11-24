@@ -148,7 +148,7 @@ function rootMigrationId(source: SharedLLMInput): string {
   return `root-${llmConfigurationSourceDigest(source).slice(0, 24)}`;
 }
 
-function readRawRootLLM(deps: { fsFactory: (baseDir: string) => FileSystem }): SharedLLMInput | undefined {
+export function readRawRootLLM(deps: { fsFactory: (baseDir: string) => FileSystem }): SharedLLMInput | undefined {
   const raw = readYamlDocument(deps, getGlobalConfigPath());
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
   return (raw as Record<string, unknown>).llm as SharedLLMInput | undefined;

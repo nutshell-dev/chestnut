@@ -545,3 +545,50 @@ describe.each(['A', 'B'] as const)('hedge candidate timeout estimate fallback (%
     }
   });
 });
+
+
+describe('hedge legacy compatibility estimate', () => {
+  it.each([
+    { legacyCandidate: 'primary', primaryTokens: undefined, fallbackTokens: 10_000 },
+    { legacyCandidate: 'fallback', primaryTokens: 50_000, fallbackTokens: undefined },
+  ] as const)('keeps the $legacyCandidate compatibility criterion candidate-local', async row => {
+    let scans = 0;
+    const messages = [{ role: 'user' as const, content: 'hello' }];
+    const originalIterator = messages[Symbol.iterator].bind(messages);
+    messages[Symbol.iterator] = () => {
+      scans++;
+      return originalIterator();
+    };
+    let primaryTimeoutMs: number | undefined;
+    let fallbackTimeoutMs: number | undefined;
+    const primary = createMockProvider('primary', {
+      streamError: new LLMNetworkError('primary', new Error('offline')),
+      inputTokens: row.primaryTokens,
+      onStreamOptions: options => { primaryTimeoutMs = options.timeoutMs; },
+    });
+    const fallback = createMockProvider('fb1', {
+      callResponse: { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' },
+      inputTokens: row.fallbackTokens,
+      onCallOptions: options => { fallbackTimeoutMs = options.timeoutMs; },
+    });
+    const service = createOrchestrator(primary, [fallback]);
+    const legacy = estimatePromptTokens({ messages: [{ role: 'user', content: 'hello' }] });
+
+    try {
+      forceProviderWaiting(service, 0, 'transient');
+      for await (const _chunk of service.stream({ messages })) { /* consume the stream */ }
+
+      expect(primaryTimeoutMs).toBe(computeDynamicCallTimeoutMs(
+        DEFAULT_LLM_TIMEOUT_MS,
+        row.primaryTokens ?? legacy,
+      ));
+      expect(fallbackTimeoutMs).toBe(computeDynamicCallTimeoutMs(
+        DEFAULT_LLM_TIMEOUT_MS,
+        row.fallbackTokens ?? legacy,
+      ));
+      expect(scans).toBe(1);
+    } finally {
+      await service.close();
+    }
+  });
+});

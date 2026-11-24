@@ -358,16 +358,16 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
 
     // 首胜即停：4 候选只 probe 2 个
     expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(3);
-    expect(connMock.probeLLMConnection.mock.calls.map(c => c[0].config.primary.baseUrl)).toEqual([
+    expect(connMock.probeLLMConnection.mock.calls.map(c => c[0].config.primary.input.baseUrl)).toEqual([
       'https://api.kimi.com/coding',
       'https://api.kimi.ai/coding',
       'https://api.kimi.ai/coding',
     ]);
     for (const call of connMock.probeLLMConnection.mock.calls) {
-      expect(call[0].config.primary.authentication.kind).toBe('api_key');
-      expect(typeof call[0].config.primary.authentication.value).toBe('string');
-      expect(call[0].config.primary.authentication.value.length).toBeGreaterThan(0);
-      expect(call[0].config.primary.model).toBe('k3-256k');
+      expect(call[0].config.primary.input.authentication.kind).toBe('api_key');
+      expect(typeof call[0].config.primary.input.authentication.value).toBe('string');
+      expect(call[0].config.primary.input.authentication.value.length).toBeGreaterThan(0);
+      expect(call[0].config.primary.input.model).toBe('k3-256k');
     }
 
     const config = loadGlobalConfig({ fsFactory });

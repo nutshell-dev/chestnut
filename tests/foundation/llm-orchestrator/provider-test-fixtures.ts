@@ -2,7 +2,6 @@ import type { llmProviderCall } from '../../../src/foundation/llm-provider/index
 import {
   describeProviderConnection,
   describeProviderInput,
-  providerInputFromResolvedConfig,
   type ProviderConnection as InternalProviderConnection,
 } from '../../../src/foundation/llm-provider/provider-connection.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
@@ -45,7 +44,12 @@ export function connection(
     ...(defaults?.reasoningEffort !== undefined ? { reasoningEffort: defaults.reasoningEffort } : {}),
     ...(defaults?.dropThinkingBlocks !== undefined ? { dropThinkingBlocks: defaults.dropThinkingBlocks } : {}),
   };
-  const input = providerInputFromResolvedConfig(config);
+  const input = {
+    baseUrl: config.baseUrl ?? 'https://mock-provider.test',
+    model: config.model,
+    protocol: config.apiFormat ?? 'openai',
+    authentication,
+  };
   return Object.assign(input, {
     providerId: config.name,
     apiFormat: config.apiFormat,

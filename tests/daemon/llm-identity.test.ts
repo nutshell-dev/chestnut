@@ -73,7 +73,7 @@ describe('llmConfigIdentity / snapshotLLMConfig (Phase 1926 Step C)', () => {
     const autoSnap = snapshotLLMConfig(autoGlobal);
     const resolved = resolveLLMConfig(autoGlobal);
     expect(autoSnap.operationalIdentity).toBe(llmConfigIdentity(resolved));
-    expect(autoSnap.config.primary.model).not.toBe('auto');
+    expect(autoSnap.config.primary.input.model).not.toBe('auto');
   });
 });
 

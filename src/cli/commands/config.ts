@@ -13,13 +13,15 @@ import type {
 import {
   createAuthenticationCapability,
   LLMConfigurationCredentialUnavailableError,
+  LLMConfigurationNotFoundError,
+  LegacyPresetMigrationError,
   createLLMNotificationStore,
   classifyApiKeyConfigValue,
   runLLMSetupWorkflow,
   type LLMSetupWorkflowEvent,
 } from '../../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../../core/llm-configuration/setup.js';
-import { llmProviderCatalog, llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+import { llmProviderCatalog, llmProviderConfigContract, llmProviderLegacyConfigMigration } from '../../foundation/llm-provider/index.js';
 const { catalogProviderLoginMetadata } = llmProviderCatalog;
 const { PROVIDER_NO_LABEL_SENTINEL } = llmProviderConfigContract;
 
@@ -96,6 +98,37 @@ function reportDegradedConfigWrite(target: string, write: AtomicWriteResult): vo
   if (write.kind === 'durable') return;
   const errorSummary = formatErr(write.error).replace(/\s+/g, ' ').trim().slice(0, 240);
   console.error(`⚠ ${target} committed with degraded durability (kind=${write.kind}): ${errorSummary}`);
+}
+
+async function migrateForRawManagement(deps: ConfigCommandDeps): Promise<void> {
+  try {
+    await deps.rootConfig.migrateLLMConfiguration();
+  } catch (error) {
+    if (!(error instanceof LegacyPresetMigrationError) || ![
+      'unsupported_headers', 'unsupported_auth', 'credential_ref_required', 'endpoint_required',
+    ].includes(error.code)) throw error;
+    // Raw management remains available; runtime stays fail-closed until explicit repair.
+    console.error(`⚠ Legacy LLM connection requires repair (${error.code} at ${error.role}); source preserved.`);
+  }
+}
+
+async function loadRawForCredentialManagement(deps: ConfigCommandDeps): Promise<LLMRawConfigView> {
+  await migrateForRawManagement(deps);
+  try {
+    await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
+    return deps.llmConfiguration.loadRaw();
+  } catch (error) {
+    if (!(error instanceof LLMConfigurationNotFoundError)) throw error;
+    // A failed root migration deliberately leaves no target. Read the retained root
+    // source for login/logout without writing or interpreting it as runtime config.
+    const legacy = deps.rootConfig.loadRawLLM();
+    if (!legacy) throw error;
+    return {
+      llm: legacy,
+      revision: { id: 'root-unmigrated', revision: 0 },
+      workspaceRoot: getChestnutRoot(),
+    };
+  }
 }
 
 function reportRuntimeReadiness(deps: ConfigCommandDeps): void {
@@ -299,7 +332,7 @@ function providerAddSetupDraft(draft: ExplicitSetupDraft, label: string) {
 
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
+  await migrateForRawManagement(deps);
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadRaw();
   const rl = createRL();
@@ -465,7 +498,7 @@ function formatApiKeyStatus(apiKey: unknown, deps: ConfigCommandDeps): string {
 // provider list command
 async function providerList(deps: ConfigCommandDeps): Promise<void> {
   // List is read-only: show legacy-unmigrated without resolving or exposing secrets.
-  await deps.rootConfig.migrateLLMConfiguration();
+  await migrateForRawManagement(deps);
   const config = deps.llmConfiguration.store.read();
 
   const primary = config.primary;
@@ -500,7 +533,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
 // provider remove command
 async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
+  await migrateForRawManagement(deps);
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadRaw();
   
@@ -536,7 +569,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
 // provider set-primary command
 async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
+  await migrateForRawManagement(deps);
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadRaw();
   
@@ -617,7 +650,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
 // provider move command
 async function providerMove(deps: ConfigCommandDeps, label: string, position: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
+  await migrateForRawManagement(deps);
   await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadRaw();
   
@@ -674,8 +707,9 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
  * --type 缺省取 provider 首选（oauth 优先，其次 api_key 交互登录）。
  * Raw target selection does not require the current login credential to exist.
  */
-function loginMetadataForEntry(entry: ReturnType<typeof providerEntryFor>) {
-  const providerId = entry.provider_id;
+function loginMetadataForEntry(entry: ReturnType<typeof providerEntryFor>, legacyPreset?: string) {
+  const providerId = entry.provider_id
+    ?? (legacyPreset ? llmProviderLegacyConfigMigration.resolvePreset(legacyPreset).piAiProvider : undefined);
   return providerId
     && !providerId.startsWith('custom:')
     && entry.catalog_provider === undefined
@@ -684,10 +718,8 @@ function loginMetadataForEntry(entry: ReturnType<typeof providerEntryFor>) {
 }
 
 async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { type?: string }): Promise<void> {
-  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
-  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadRaw();
+  // Root migration failure retains a raw source; credential management may still repair it.
+  const config = await loadRawForCredentialManagement(deps);
   const hit = requireProviderReference(
     config,
     label,
@@ -695,7 +727,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
     configAudit(deps),
   );
   const entry = providerEntryFor(config, hit.candidate);
-  const login = loginMetadataForEntry(entry);
+  const login = loginMetadataForEntry(entry, hit.candidate.preset);
   if (!login) {
     throw new CliError(
       `Provider "${label}" has no pi-ai catalog provider; ` +
@@ -735,14 +767,11 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
     `match=${hit.matchedBy}`,
     `type=${type}`,
   );
-  await notifyRunningDaemons(deps, 'login');
+  if (config.revision.revision > 0) await notifyRunningDaemons(deps, 'login');
 }
 
 async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<void> {
-  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
-  await deps.rootConfig.migrateLLMConfiguration();
-  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
-  const config = deps.llmConfiguration.loadRaw();
+  const config = await loadRawForCredentialManagement(deps);
   const hit = requireProviderReference(
     config,
     label,
@@ -750,7 +779,7 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
     configAudit(deps),
   );
   const entry = providerEntryFor(config, hit.candidate);
-  const login = loginMetadataForEntry(entry);
+  const login = loginMetadataForEntry(entry, hit.candidate.preset);
   if (!login) {
     throw new CliError(`Provider "${label}" has no pi-ai catalog provider; no stored credential to remove`);
   }
@@ -767,7 +796,7 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
     `role=${hit.candidate.role}`,
     `match=${hit.matchedBy}`,
   );
-  await notifyRunningDaemons(deps, 'logout');
+  if (config.revision.revision > 0) await notifyRunningDaemons(deps, 'logout');
 }
 
 async function providerRepairCommand(deps: ConfigCommandDeps, reference: string): Promise<void> {
@@ -783,7 +812,7 @@ async function providerRepairCommand(deps: ConfigCommandDeps, reference: string)
 // Build the config command
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'migrateLLMConfiguration'>;
+  rootConfig: Pick<RootConfigAdmin, 'migrateLLMConfiguration' | 'loadRawLLM'>;
   llmConfiguration: Pick<
     LLMConfigurationAdmin,
     'loadGlobal' | 'loadRaw' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision' |

@@ -43,7 +43,7 @@ describe('ProviderInput contract', () => {
     expect(withDefaults).toBeDefined();
   });
 
-  it('returns a secret-safe descriptor while retaining private L1 resolution', () => {
+  it('returns a secret-safe descriptor from value-only input', () => {
     const config = toProviderConfig(llmProviderConfigSchema.parse({
       provider_id: 'custom:anthropic',
       api_format: 'anthropic',
@@ -51,18 +51,30 @@ describe('ProviderInput contract', () => {
       api_key: 'secret',
       base_url: 'https://api.test.invalid/anthropic',
       model: 'model',
-      extra_headers: { 'x-secret-header': 'header-secret' },
     }));
     const resolvedInput = providerInputFromResolvedConfig(config);
     const handle = createProviderFromInput(resolvedInput);
 
-    expect(handle.provider).toMatchObject({ name: config.name, model: config.model });
-    expect(handle.descriptor.providerId).toBe(config.name);
+    expect(handle.provider).toMatchObject({ name: 'api.test.invalid', model: config.model });
+    expect(handle.descriptor.providerId).toBe('api.test.invalid');
     expect(handle.descriptor.model).toBe(config.model);
-    expect(JSON.stringify(handle.descriptor)).not.toContain('header-secret');
     expect(JSON.stringify(handle.descriptor)).not.toContain('"secret"');
     expect(resolvedInput).not.toHaveProperty('catalogProvider');
     expect(resolvedInput).not.toHaveProperty('catalogResolution');
     expect(resolvedInput).not.toHaveProperty('defaults');
+  });
+
+  it('rebuilds equivalent descriptors from copies and separates recovery from key rotation', () => {
+    const first = createProviderFromInput(input).descriptor;
+    const copied = createProviderFromInput({ ...input, authentication: { ...input.authentication } }).descriptor;
+    const rotated = createProviderFromInput({
+      ...input,
+      authentication: { ...input.authentication, value: 'next-secret', identity: 'revision-b' },
+    }).descriptor;
+    expect(copied).toEqual(first);
+    expect(rotated.identity).toBe(first.identity);
+    expect(rotated.stableIdentity).toBe(first.stableIdentity);
+    expect(rotated.cacheKey).not.toBe(first.cacheKey);
+    expect(JSON.stringify(rotated)).not.toContain('next-secret');
   });
 });

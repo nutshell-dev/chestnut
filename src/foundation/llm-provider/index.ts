@@ -10,6 +10,7 @@ export * as llmProviderProtocol from './capabilities/protocol.js';
 export * as llmProviderModelMeasurement from './capabilities/model-measurement.js';
 export * as llmProviderConfigContract from './capabilities/config-contract.js';
 export * as llmProviderCatalog from './capabilities/catalog.js';
+export * as llmProviderLegacyConfigMigration from './capabilities/legacy-config-migration.js';
 export * as llmProviderCredentialRuntime from './capabilities/credential-runtime.js';
 export * as llmProviderAbort from './capabilities/abort.js';
 

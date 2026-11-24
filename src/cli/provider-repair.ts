@@ -3,6 +3,7 @@ import type * as readline from 'node:readline';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   LLMConfigurationCredentialUnavailableError,
+  LegacyPresetMigrationError,
   LLMSetupCommittedObserverError,
   executeLLMSetupAttempt,
   providerAtLLMSlot,
@@ -269,7 +270,14 @@ export async function providerRepair(
   reference: string,
   rl: readline.Interface,
 ): Promise<ProviderRepairOutcome> {
-  await deps.rootConfig.migrateLLMConfiguration();
+  try {
+    await deps.rootConfig.migrateLLMConfiguration();
+  } catch (error) {
+    if (!(error instanceof LegacyPresetMigrationError) || ![
+      'unsupported_headers', 'unsupported_auth', 'credential_ref_required', 'endpoint_required',
+    ].includes(error.code)) throw error;
+    console.error(`⚠ Legacy provider requires explicit repair (${error.code} at ${error.role}); source preserved.`);
+  }
   await deps.llmConfiguration.migrateLegacyApiKeys(actionAuditFor(getChestnutRoot(), deps));
   const config = deps.llmConfiguration.loadRaw();
   const resolution = resolveProviderReference(config, reference);

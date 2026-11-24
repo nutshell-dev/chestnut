@@ -461,17 +461,20 @@ fallbacks:
   });
 
   it('set-primary reports the actual no-label target and provider_id match', async () => {
+    vi.stubEnv('PROBE_KEY', 'synthetic-probe-key');
     writeConfig(`primary:
   label: main
   provider_id: custom:anthropic
   api_format: anthropic
-  auth_profile: ambient
+  auth_profile: api_key
+  api_key: \${PROBE_KEY}
   model: claude-test
   base_url: https://anthropic.test
 fallbacks:
   - provider_id: custom:openai
     api_format: openai
-    auth_profile: ambient
+    auth_profile: api_key
+    api_key: \${PROBE_KEY}
     model: gpt-test
     base_url: https://openai.test
 `);
@@ -651,8 +654,7 @@ fallbacks: []
 
     const errors = await runFailure(['provider', 'list']);
 
-    expect(errors).toContain('Legacy LLM migration invalid_mapping at primary');
-    expect(errors).toContain('mapped provider does not satisfy the explicit schema');
+    expect(errors).toContain('label must not use the reserved no-label sentinel');
     expect(fs.readFileSync(configPath(), 'utf8')).toBe(before);
   });
 });

@@ -75,13 +75,13 @@ describe('SETUP_PROVIDER_CATALOG', () => {
     expect(draft.provider.base_url).toBe('https://private.example/anthropic');
   });
 
-  it('builder 支持显式 ambient/OAuth，不伪造 API key', () => {
+  it('builder 对 ambient/OAuth fail closed，不伪造 API key', () => {
     const choice = findSetupProvider('other')!;
     for (const authProfile of ['ambient', 'oauth'] as const) {
       const input = createExplicitSetupDraft(choice, {
         apiFormat: 'openai', model: 'my-model', baseUrl: 'https://example.test/v1', authProfile,
       });
-      expect(makeExplicitSetupDraft(input).provider).toMatchObject({ auth_profile: authProfile });
+      expect(() => makeExplicitSetupDraft(input)).toThrow(/api_key/);
     }
   });
 });

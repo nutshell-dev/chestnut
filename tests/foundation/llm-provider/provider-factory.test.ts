@@ -69,8 +69,8 @@ describe('createLLMProvider config boundary', () => {
       const legacy = createProviderFromConnection(providerConnectionFromResolvedConfig(config));
       const handle = createProviderFromInput(input);
 
-      expect(handle.provider).toMatchObject({ name: legacy.name, model: legacy.model });
-      expect(handle.descriptor).toMatchObject({ providerId: config.name, model: config.model });
+      expect(handle.provider).toMatchObject({ name: 'api.test.invalid', model: legacy.model });
+      expect(handle.descriptor).toMatchObject({ providerId: 'api.test.invalid', model: config.model });
       expect(handle.descriptor.identity).toMatch(/^[0-9a-f]{12}$/);
     });
   });

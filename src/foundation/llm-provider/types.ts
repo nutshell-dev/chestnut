@@ -214,6 +214,12 @@ export interface ProviderConfig {
   auditLog?: AuditSink;
 }
 
+/** Candidate-owned call defaults; composed with explicit values at each L1 execution boundary. */
+export type ProviderCallDefaults = Readonly<Partial<Pick<ProviderConfig,
+  'temperature' | 'maxTokens' | 'timeoutMs' | 'thinking' | 'thinkingMode'
+  | 'thinkingEffort' | 'thinkingBudgetTokens' | 'reasoningEffort' | 'dropThinkingBlocks'
+>>>;
+
 /**
  * Streaming response chunk — 单 provider 调用协议（Phase 1722 Step E）。
  * 只含单 provider 可能产生的 content/done/usage 成员；
@@ -278,6 +284,9 @@ export interface LLMCallOptions {
   /** Timeout in milliseconds */
   timeoutMs?: number;
 
+  /** L2/L4 candidate projection; ordinary callers use explicit generation fields above. */
+  callDefaults?: ProviderCallDefaults;
+
   /** Signal for cancellation (user abort + step_yield only; idle timeout is service-internal) */
   signal?: AbortSignal;
 
@@ -308,7 +317,7 @@ export interface ProviderAdapter {
   readonly model: string;
 
   /** Prepare an immutable, model-bound input counter without making an LLM request. */
-  prepareInputMeter(options?: Pick<LLMCallOptions, 'maxTokens' | 'temperature'>): Promise<ModelInputMeter>;
+  prepareInputMeter(options?: Pick<LLMCallOptions, 'maxTokens' | 'temperature' | 'callDefaults'>): Promise<ModelInputMeter>;
 
   /**
    * Make a single LLM call

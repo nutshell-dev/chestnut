@@ -57,7 +57,7 @@ beforeEach(() => {
   delete process.env.OPENAI_API_KEY;
   deps = makeDeps();
   probe.fn.mockReset();
-  probe.fn.mockImplementation(async (snapshot: { config: { primary: { model: string } } }) => ({ ok: true, model: snapshot.config.primary.model }));
+  probe.fn.mockImplementation(async (snapshot: { config: { primary: { model: string } } }) => ({ ok: true, model: snapshot.config.primary.input.model }));
 });
 
 afterEach(() => {
@@ -148,7 +148,7 @@ describe('launcher setup.v1', () => {
           model: 'winner-model', apiKey: '${OPENAI_API_KEY}',
         })),
       );
-      return { ok: true, model: snapshot.config.primary.model };
+      return { ok: true, model: snapshot.config.primary.input.model };
     });
     const response = await executeLauncherSetup(deps, request('submit', { model: 'loser-model', apiKey: 'sk-race' }));
     expect(response).toMatchObject({ kind: 'committed', payload: { concurrent: true } });

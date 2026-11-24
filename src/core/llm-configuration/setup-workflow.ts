@@ -15,18 +15,19 @@ import {
   type LLMConfigurationDocumentStore,
 } from './document-store.js';
 
-const { llmProviderConfigSchema } = llmProviderConfigContract;
+const { llmProviderConfigSchema, strictLLMProviderConfigSchema } = llmProviderConfigContract;
+type LLMSetupProviderDraft = import('zod').input<typeof llmProviderConfigSchema>;
 
 export type { LLMSetupCommitTarget } from './document-store.js';
 
 export interface LLMSetupCandidateDraft {
   /** Stable non-secret setup identity (not a credential or preset alias). */
   readonly identity: string;
-  readonly config: ExplicitLLMProviderConfig;
+  readonly config: LLMSetupProviderDraft;
 }
 
 export interface LLMSetupDraft {
-  readonly provider: ExplicitLLMProviderConfig;
+  readonly provider: LLMSetupProviderDraft;
   /** Ordered endpoint candidates; first success wins and later entries are not probed. */
   readonly candidates?: readonly LLMSetupCandidateDraft[];
 }
@@ -234,7 +235,11 @@ export async function executeLLMSetupAttempt(
     const commitConfig = target.kind === 'replace' && !hasCandidates
       ? inputDraft.provider
       : selected.config;
-    const commit = await deps.store.commitExplicitProvider(target, commitConfig, expectedRevision);
+    const validatedCommit = strictLLMProviderConfigSchema.parse(commitConfig);
+    const persistable = target.kind === 'replace'
+      ? commitConfig as ExplicitLLMProviderConfig
+      : validatedCommit;
+    const commit = await deps.store.commitExplicitProvider(target, persistable, expectedRevision);
     try {
       deps.emit?.({
         type: 'committed', target: target.kind, revision: commit.revision.revision,

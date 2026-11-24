@@ -1,7 +1,7 @@
 /** @module L1.LLMProvider.InputMeter */
 import type * as PiAi from '@earendil-works/pi-ai';
 import { sha256Hex } from '../node-utils/index.js';
-import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
+import type { ProviderCallDefaults, ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
 import type {
   InputMeterDescriptor,
   InputMeasurement,
@@ -112,6 +112,7 @@ export function createInputMeter(
   model: PiAi.Model<PiAi.Api>,
   effective: Pick<PiAi.SimpleStreamOptions, 'maxTokens' | 'temperature' | 'reasoning' | 'thinkingBudgets'>,
   resolution: CatalogResolution,
+  callDefaults?: ProviderCallDefaults,
 ): ModelInputMeter {
   const effectiveOptions = Object.freeze({
     ...effective,
@@ -130,7 +131,9 @@ export function createInputMeter(
     api: String(model.api),
     contextWindow: resolution.window.contextWindow,
     windowResolution: resolution.window,
-    ...(config.maxTokens !== undefined && { explicitMaxTokens: config.maxTokens }),
+    ...((callDefaults?.maxTokens ?? config.maxTokens) !== undefined && {
+      explicitMaxTokens: callDefaults?.maxTokens ?? config.maxTokens,
+    }),
     effectiveMaxTokens,
     profile,
     method,
@@ -146,7 +149,8 @@ export function createInputMeter(
       catalog: { kind: resolution.kind, source: resolution.source, revision: resolution.revision,
         providerId: resolution.providerId, modelId: resolution.modelId },
       reasoning: model.reasoning, compat: model.compat, thinkingLevelMap: model.thinkingLevelMap,
-      dropThinkingBlocks: config.dropThinkingBlocks === true, effective: effectiveOptions,
+      dropThinkingBlocks: (callDefaults?.dropThinkingBlocks ?? config.dropThinkingBlocks) === true,
+      effective: effectiveOptions,
     })),
   });
   if (meterProfile) return meterProfile.create(descriptor);

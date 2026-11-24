@@ -32,6 +32,7 @@ import type {
   LLMStreamChunk,
   InputBudgetRequest,
   InputBudgetResult,
+  InvocationProviderObservation,
 } from './types.js';
 import { formatErr } from '../node-utils/index.js';
 import type { LLMProviderRecoveryState } from './instance-state.js';
@@ -46,7 +47,7 @@ import {
   classifyStreamDone,
   computeDynamicCallTimeoutMs,
   delay,
-  estimatePromptTokens,
+  deferLegacyEstimate,
   isContentChunk,
   mergeSignals,
   wrapResponseAsStream,
@@ -79,7 +80,7 @@ export interface InvocationExecutor {
     isFallback: boolean,
     options: LLMCallOptions,
     maxAttempts: number,
-    estimatedInputTokens: number,
+    legacyEstimate: () => number,
     generation: number,
     updateSelection?: boolean,
     correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
@@ -142,6 +143,19 @@ interface CallPathAudit {
   requestIdsByProvider: Map<string, string[]>;
 }
 
+function observeInvocationProvider(
+  invocationId: string,
+  provider: Pick<InvocationProviderObservation, 'name' | 'model' | 'isFallback'>,
+  observer: LLMCallOptions['onProviderObservation'],
+  onObserverError: (error: unknown) => void,
+): void {
+  try {
+    observer?.({ invocationId, ...provider });
+  } catch (error) {
+    onObserverError(error);
+  }
+}
+
 type HedgeTrackBResult =
   | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
   | { winner: 'B-error'; failures: LLMProviderFailure[]; skippedCount: number };
@@ -153,7 +167,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private readonly recoveryController: InvocationRecoveryLedger;
   private readonly events: LLMEventSink;
   private readonly failureObservedAtMs = new WeakMap<Error, number>();
-  private currentStreamingProvider: { name: string; model: string; isFallback: boolean } | null = null;
 
   constructor(deps: InvocationExecutorDeps) {
     this.runtime = deps.runtime;
@@ -200,10 +213,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     this.failureObservedAtMs.set(error, Date.now());
   }
 
+  private withCandidateDefaults(adapter: LLMProvider, options: LLMCallOptions): LLMCallOptions {
+    const callDefaults = this.runtime.callDefaults?.(adapter) ?? {};
+    return Object.keys(callDefaults).length === 0 ? options : { ...options, callDefaults };
+  }
+
   private async inputTokensFor(
     adapter: LLMProvider,
     options: LLMCallOptions,
-    legacyEstimate: number,
+    legacyEstimate: () => number,
   ): Promise<number> {
     const observation = await observeInputBudget(adapter, options, legacyEstimate);
     return timeoutInputTokens(observation);
@@ -261,7 +279,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
   async prepareInputBudget(_request: InputBudgetRequest): Promise<InputBudgetResult> {
     try {
-      return { kind: 'available', meter: await this.primary.prepareInputMeter() };
+      const callDefaults = this.runtime.callDefaults?.(this.primary) ?? {};
+      return {
+        kind: 'available',
+        meter: await this.primary.prepareInputMeter(
+          Object.keys(callDefaults).length === 0 ? {} : { callDefaults },
+        ),
+      };
     } catch {
       // silent: missing primary capability is returned as an explicit unavailable result.
       return { kind: 'unavailable', reason: 'missing_evidence' };
@@ -351,11 +375,23 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     };
   }
 
+  /** 实例最近成功摘要；请求级事实只经 invocation observer 交付。 */
   getProviderInfo(): { name: string; model: string; isFallback: boolean } {
-    if (this.currentStreamingProvider) return this.currentStreamingProvider;
     const latest = this.lastSuccessProvider;
-    if (latest) return { name: latest.name, model: latest.model, isFallback: latest.isFallback };
-    return { name: this.primary.name, model: this.primary.model, isFallback: false };
+    if (latest) {
+      const index = this.providerIds.indexOf(latest.providerId);
+      const adapter = index >= 0 ? [this.primary, ...this.fallbacks][index] : undefined;
+      return {
+        name: adapter ? this.runtime.displayName?.(adapter) ?? latest.name : latest.name,
+        model: latest.model,
+        isFallback: latest.isFallback,
+      };
+    }
+    return {
+      name: this.runtime.displayName?.(this.primary) ?? this.primary.name,
+      model: this.primary.model,
+      isFallback: false,
+    };
   }
 
   private get lastSuccessProvider(): {
@@ -400,6 +436,22 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     return false;
   }
 
+  private observeProvider(
+    inv: Pick<CallPathAudit, 'invocationId'>,
+    options: LLMCallOptions,
+    adapter: LLMProvider,
+    isFallback: boolean,
+  ): void {
+    observeInvocationProvider(
+      inv.invocationId,
+      { name: this.runtime.displayName?.(adapter) ?? adapter.name, model: adapter.model, isFallback },
+      options.onProviderObservation,
+      error => console.error( // console: request observer failure must not change provider delivery
+        `[LLM PROVIDER OBSERVATION CRITICAL] observer failed: invocation=${inv.invocationId} provider=${adapter.name} reason=${formatErr(error)}`,
+      ),
+    );
+  }
+
   /**
    * Try a single provider with retries.
    * Returns LLMResponse on success, throws lastError when all retries exhausted.
@@ -411,13 +463,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     isFallback: boolean,
     options: LLMCallOptions,
     maxAttempts: number,
-    estimatedInputTokens: number,
+    legacyEstimate: () => number,
     generation: number,
     updateSelection = true,
     correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
-    const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
+    const candidateOptions = this.withCandidateDefaults(adapter, options);
+    const candidateInputTokens = await this.inputTokensFor(adapter, candidateOptions, legacyEstimate);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
@@ -441,7 +494,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         providerSignal = options.signal;
       }
       const providerOptions: LLMCallOptions = {
-        ...options,
+        ...candidateOptions,
         signal: providerSignal,
         hardTimeoutMs: undefined,
         streamIdleTimeoutMs: undefined,
@@ -450,9 +503,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       };
 
       try {
-        if (updateSelection) this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback };
         const response = await adapter.call(providerOptions);
         cleanupSignal();
+        // 普通 call 只观察成功返回的最终候选，不把 transport 开始误作成功。
+        if (updateSelection && correlation) this.observeProvider(correlation, options, adapter, isFallback);
         if (updateSelection) this.recordProviderSuccess(breakerIndex, adapter, isFallback, generation);
         return response;
       } catch (error) {
@@ -705,8 +759,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         }
       }
       throw error;
-    } finally {
-      this.currentStreamingProvider = null;
     }
   }
 
@@ -722,13 +774,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   /** provider 配置的基础 timeout（动态 timeout 的起点）。 */
   private baseTimeoutFor(adapter: LLMProvider, _isFallback: boolean): number {
     const index = [this.primary, ...this.fallbacks].findIndex(candidate => candidate === adapter);
-    return this.runtime.descriptors()[index]?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+    return (this.runtime.callDefaults?.(adapter) ?? {}).timeoutMs
+      ?? this.runtime.descriptors()[index]?.timeoutMs
+      ?? DEFAULT_LLM_TIMEOUT_MS;
   }
 
   private async _callCore(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): Promise<LLMResponse> {
     const allowBreakerProbe = limits.allowBreakerProbe;
     // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
-    const estimatedInputTokens = estimatePromptTokens(options);
+    const legacyEstimate = deferLegacyEstimate(options);
     const decision = this.providerAdmission.choose({
       providerIds: this.providerIds,
       providers: this.providerStates,
@@ -752,7 +806,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           } else {
             attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name));
             try {
-              const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
+              const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, legacyEstimate, inv.generation, true, inv);
               this.noteCandidateSuccess(inv, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name));
               return response;
             } catch (err) {
@@ -773,7 +827,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       } else {
         attemptedProviderIds.add(this.identityAt(0, this.primary.name));
         try {
-          const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
+          const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, legacyEstimate, inv.generation, true, inv);
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
           return response;
         } catch (err) {
@@ -809,7 +863,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             to: this.fallbacks[i].name,
             reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
           });
-          const response = await this.tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
+          const response = await this.tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, legacyEstimate, inv.generation, true, inv);
           this.noteCandidateSuccess(inv, this.fallbacks[i].name, providerId);
           return response;
         } catch (err) {
@@ -853,7 +907,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     inv: CallPathAudit,
   ): AsyncIterableIterator<LLMStreamChunk> {
     // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
-    const estimatedInputTokens = estimatePromptTokens(options);
+    const legacyEstimate = deferLegacyEstimate(options);
     // primary 的 transient 故障保留双轨 hedge；有效 fallback cache 期间不越过 cache。
     const decision = this.providerAdmission.choose({
       providerIds: this.providerIds,
@@ -865,7 +919,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     const hasValidFallbackCache = decision.stickyProviderId !== undefined;
     if (primaryWaiting && !hasValidFallbackCache && !limits.allowBreakerProbe
       && primaryState?.lastError?.class === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
-      yield* this._streamHedge(options, inv, estimatedInputTokens);
+      yield* this._streamHedge(options, inv, legacyEstimate);
       return;
     }
 
@@ -892,7 +946,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     // call() 与 stream() 对称（call 在 line 262 已 emit、stream 路径之前缺、本 phase 补）
     let lastFailedProviderName: string | null = null;
 
-    try {
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
       const { adapter, breakerIndex, isFallback } = providers[pi];
@@ -912,9 +965,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         continue;
       }
 
-      let firstChunkAnnounced = false;  // phase 686: 本 provider 内 fallback_switched + currentStreamingProvider 只首 chunk 一次
+      let firstChunkAnnounced = false;  // phase 686: 本 provider 内 fallback_switched 只首 chunk 一次
+      let providerObservationSent = false;
 
-      const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
+      const candidateOptions = this.withCandidateDefaults(adapter, options);
+      const candidateInputTokens = await this.inputTokensFor(adapter, candidateOptions, legacyEstimate);
 
 
       // Retry loop (aligns with call())
@@ -948,7 +1003,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // Phase 1955 Step E：stream timeout 按输入规模动态计算；持续有 chunk 的
           // 长请求由 idle timeout 判定，不按固定 wall-clock 截断。
           const providerOptions: LLMCallOptions = {
-            ...options,
+            ...candidateOptions,
             signal: merged.signal,
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
@@ -963,7 +1018,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           resetIdleTimer();
           for await (const chunk of adapter.stream(providerOptions)) {
             resetIdleTimer();
-            // phase 686: 首 chunk yield 前 emit fallback_switched + set currentStreamingProvider
+            // phase 686: 首 chunk yield 前 emit fallback_switched
             if (!firstChunkAnnounced) {
               firstChunkAnnounced = true;
               if (lastFailedProviderName !== null && lastFailedProviderName !== adapter.name) {
@@ -975,10 +1030,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
                 });
                 lastFailedProviderName = null;
               }
-              this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: providers[pi].isFallback };
             }
             hasYielded = true;
-            if (isContentChunk(chunk)) hasContent = true;
+            if (isContentChunk(chunk)) {
+              hasContent = true;
+              if (!providerObservationSent) {
+                providerObservationSent = true;
+                this.observeProvider(inv, options, adapter, providers[pi].isFallback);
+              }
+            }
             if (chunk.type === 'done') {
               receivedDone = true;
               if (classifyStreamDone(chunk) === 'context_exceeded') {
@@ -1242,11 +1302,6 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         // Continue to next provider
       }
     }
-    } finally {
-      // phase 686: generator 出口（success return / throw / consumer abort）一定清 currentStreamingProvider
-      // getProviderInfo 回落到 lastSuccessProvider（既有语义）
-      this.currentStreamingProvider = null;
-    }
 
     this.throwAllProvidersFailed(inv, failures, skippedCount);
   }
@@ -1268,6 +1323,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       await provider.call({
         messages: [{ role: 'user', content: 'Hi' }],
         maxTokens: LLM_PROBE_MAX_TOKENS,
+        ...(Object.keys(this.runtime.callDefaults?.(provider) ?? {}).length > 0
+          ? { callDefaults: this.runtime.callDefaults?.(provider) ?? {} }
+          : {}),
         signal,
       });
       return { ok: true };
@@ -1315,6 +1373,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     const bResult = await trackBPromise;
     if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
     if (bResult.winner === 'B') {
+      this.observeProvider(inv, options, bResult.provider, true);
       this.events.emit({
         type: 'hedge_fallback_committed',
         winnerProvider: bResult.provider.name,
@@ -1339,7 +1398,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private async* _streamHedge(
     options: LLMCallOptions,
     inv: CallPathAudit,
-    estimatedInputTokens: number,
+    legacyEstimate: () => number,
   ): AsyncIterableIterator<LLMStreamChunk> {
     const fallbackNames = this.fallbacks.map(f => f.name);
     this.events.emit({
@@ -1358,11 +1417,12 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
     // Track A: primary.stream() iter, wait for first content chunk. The estimate
     // stays local to this candidate's timeout; request observations remain L1-owned.
+    const primaryOptions = this.withCandidateDefaults(this.primary, options);
     const primaryInputTokens = typeof this.primary.prepareInputMeter === 'function'
-      ? await this.inputTokensFor(this.primary, options, estimatedInputTokens)
-      : estimatedInputTokens;
+      ? await this.inputTokensFor(this.primary, primaryOptions, legacyEstimate)
+      : legacyEstimate();
     const primaryProviderOpts: LLMCallOptions = {
-      ...options,
+      ...primaryOptions,
       signal: primaryMerged.signal,
       hardTimeoutMs: undefined,
       streamIdleTimeoutMs: undefined,
@@ -1417,12 +1477,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'provider_recovery_floor');
             continue;
           }
+          const fallbackOptions = this.withCandidateDefaults(fb, options);
           const fallbackInputTokens = typeof fb.prepareInputMeter === 'function'
-            ? await this.inputTokensFor(fb, options, estimatedInputTokens)
-            : estimatedInputTokens;
+            ? await this.inputTokensFor(fb, fallbackOptions, legacyEstimate)
+            : legacyEstimate();
           const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
           const fbOpts: LLMCallOptions = {
-            ...options,
+            ...fallbackOptions,
             signal: fbMerged.signal,
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
@@ -1471,6 +1532,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // A 胜（first content chunk）
       if (winner.winner === 'A') {
         // A 只有完整成功才获胜；context-done 时仍需要同一个 B 链接管。
+        this.observeProvider(inv, options, this.primary, false);
         yield winner.chunk;
         let receivedDone = false;
         let primaryUsage: ProviderStreamChunk['usage'];
@@ -1596,6 +1658,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         }
 
         // Phase 1968 Step B：B 轨成功被 commit——selection 先于 yield* 响应。
+        this.observeProvider(inv, options, winner.provider, true);
         this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
         // NEW: drain primary generator (mirror L821 double-fail template)
         await closePrimary();
@@ -1617,6 +1680,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         }
         if (bResult.winner === 'B') {
           primaryCtrl.abort();
+          this.observeProvider(inv, options, bResult.provider, true);
           // Phase 1968 Step B：A 早失败终态 + B 成功 selection 均先于响应返回。
           this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), winner.error);
           this.events.emit({
@@ -1649,6 +1713,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       const aResult = await trackAPromise;
       if (aResult.winner === 'A') {
         trackBCtrl.abort();
+        this.observeProvider(inv, options, this.primary, false);
         yield aResult.chunk;
         let receivedDone = false;
         let primaryUsage: ProviderStreamChunk['usage'];

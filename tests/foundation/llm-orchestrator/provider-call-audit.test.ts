@@ -27,6 +27,7 @@ import type {
   LLMEvent,
   LLMEventSink,
   LLMResponse,
+  InvocationProviderObservation,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
@@ -818,5 +819,128 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(new Set(correlated.map(e => e.invocationId)).size).toBe(1);
     expect(correlated.find(e => e.type === 'call_attempt_result')).toMatchObject({ attemptIndex: 0 });
     await orchestrator.close();
+  });
+
+  it('call observes only the selected attempt and isolates observer failure', async () => {
+    const dir = await makeDir();
+    const h = makeHarness(dir, {
+      providers: {
+        primary: failProvider('primary', new LLMAuthError('primary', 401)),
+        fallback: okProvider('fallback'),
+      },
+      primaryName: 'primary',
+      fallbackNames: ['fallback'],
+    });
+    const observations: InvocationProviderObservation[] = [];
+    const critical = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const observed = h.service.withProviderObserver(fact => {
+        observations.push(fact);
+        throw new Error('provider observer unavailable');
+      });
+      await expect(observed.call(CALL)).resolves.toBe(OK_RESPONSE);
+      expect(critical).toHaveBeenCalledWith(expect.stringContaining('[LLM PROVIDER OBSERVATION CRITICAL]'));
+    } finally {
+      critical.mockRestore();
+    }
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({ name: 'fallback', model: 'model-x', isFallback: true });
+    const rows = await h.readRows();
+    const inv = lastInvocationId(rows);
+    expect(observations[0].invocationId).toBe(inv);
+    expect(attemptRows(rows, inv).map(row => [row.provider, row.outcome])).toEqual([
+      ['primary', 'failure'], ['fallback', 'success'],
+    ]);
+    expect(selectionRows(rows, inv)).toEqual([
+      expect.objectContaining({ provider: 'fallback', outcome: 'selected' }),
+    ]);
+    expect(h.service.getProviderInfo()).toMatchObject({ name: 'fallback', isFallback: true });
+  });
+
+  it('stream reset and failover update observations within the same invocation', async () => {
+    const dir = await makeDir();
+    const primary: ProviderAdapter = {
+      name: 'primary', model: 'model-x',
+      call: async () => OK_RESPONSE,
+      stream: async function* () {
+        yield { type: 'text_delta' as const, delta: 'partial' };
+        throw new LLMNetworkError('primary', new Error('connection lost'));
+      },
+    };
+    const h = makeHarness(dir, {
+      providers: { primary, fallback: streamOkProvider('fallback') },
+      primaryName: 'primary',
+      fallbackNames: ['fallback'],
+    });
+    const observations: InvocationProviderObservation[] = [];
+    const chunks = [];
+    const observed = h.service.withProviderObserver(fact => observations.push(fact));
+    for await (const chunk of observed.stream(CALL)) chunks.push(chunk);
+
+    expect(chunks.map(chunk => chunk.type)).toEqual([
+      'text_delta', 'reset', 'provider_failed', 'text_delta', 'done',
+    ]);
+    expect(observations.map(fact => [fact.name, fact.isFallback])).toEqual([
+      ['primary', false], ['fallback', true],
+    ]);
+    expect(new Set(observations.map(fact => fact.invocationId)).size).toBe(1);
+    const rows = await h.readRows();
+    const inv = lastInvocationId(rows);
+    expect(observations[0].invocationId).toBe(inv);
+    expect(selectionRows(rows, inv)).toEqual([
+      expect.objectContaining({ provider: 'fallback', outcome: 'selected' }),
+    ]);
+  });
+
+  it('keeps overlapping stream observations independent when the other invocation is cancelled', async () => {
+    const dir = await makeDir();
+    const primary: ProviderAdapter = {
+      name: 'primary', model: 'model-x',
+      call: async () => OK_RESPONSE,
+      stream: async function* (options) {
+        if (options.messages[0]?.content === 'B') {
+          throw new LLMNetworkError('primary', new Error('B primary unavailable'));
+        }
+        yield { type: 'text_delta' as const, delta: 'A output' };
+        yield { type: 'done' as const, stopReason: 'end_turn' };
+      },
+    };
+    const h = makeHarness(dir, {
+      providers: { primary, fallback: streamOkProvider('fallback') },
+      primaryName: 'primary',
+      fallbackNames: ['fallback'],
+    });
+    const aFacts: InvocationProviderObservation[] = [];
+    const bFacts: InvocationProviderObservation[] = [];
+    const a = h.service.withProviderObserver(fact => aFacts.push(fact))
+      .stream({ messages: [{ role: 'user', content: 'A' }] });
+    expect((await a.next()).value).toMatchObject({ type: 'text_delta', delta: 'A output' });
+
+    const b = h.service.withProviderObserver(fact => bFacts.push(fact))
+      .stream({ messages: [{ role: 'user', content: 'B' }] });
+    expect((await b.next()).value).toMatchObject({ type: 'provider_failed', provider: 'primary' });
+    expect((await b.next()).value).toMatchObject({ type: 'text_delta', delta: 'ok' });
+    expect(aFacts).toHaveLength(1);
+    expect(bFacts).toHaveLength(1);
+    expect(aFacts[0]).toMatchObject({ name: 'primary', isFallback: false });
+    expect(bFacts[0]).toMatchObject({ name: 'fallback', isFallback: true });
+    expect(aFacts[0].invocationId).not.toBe(bFacts[0].invocationId);
+    // 全局查询仅保留实例摘要，不再跟随 B 的进行中 fallback。
+    expect(h.service.getProviderInfo()).toEqual({ name: 'primary', model: 'model-x', isFallback: false });
+
+    await a.return!();
+    expect(bFacts).toHaveLength(1);
+    expect(bFacts[0]).toMatchObject({ name: 'fallback', isFallback: true });
+    const bRest = [];
+    for await (const chunk of b) bRest.push(chunk);
+    expect(bRest.map(chunk => chunk.type)).toEqual(['done']);
+
+    const rows = await h.readRows();
+    expect(selectionRows(rows, aFacts[0].invocationId)).toEqual([]);
+    expect(selectionRows(rows, bFacts[0].invocationId)).toEqual([
+      expect.objectContaining({ provider: 'fallback', outcome: 'selected' }),
+    ]);
+    expect(h.service.getProviderInfo()).toEqual({ name: 'fallback', model: 'model-x', isFallback: true });
   });
 });

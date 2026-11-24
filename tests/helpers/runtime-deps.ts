@@ -30,7 +30,7 @@ import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../src/watchdog/inbox-formatter
 import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 import { testProviderConnection, testProviderFactory, testProviderHandle } from './llm-provider.js';
-import { resolvedProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
+import { toInternalProviderConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 
 const TEST_CLAW_ID = 'test-claw';
 /** Shared default for runtime mock LLM configs; callers may still supply llmConfig. */
@@ -61,7 +61,9 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const supplied = input.llmConfig as (LLMOrchestratorConfig & {
     createProviderAdapter?: (config: Parameters<typeof testProviderConnection>[0]) => llmProviderCall.LLMProvider;
   }) | undefined;
-  const isConnection = supplied?.primary.authentication !== undefined;
+  const suppliedPrimary = supplied?.primary;
+  const primaryInput = suppliedPrimary && 'input' in suppliedPrimary ? suppliedPrimary.input : suppliedPrimary;
+  const isConnection = primaryInput?.authentication !== undefined;
   const legacyFactory = supplied?.createProviderAdapter;
   const llm = new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
@@ -78,8 +80,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
         testProviderConnection(provider as unknown as Parameters<typeof testProviderConnection>[0])),
       providerFactory: legacyFactory ? {
         create: connection => {
-          const legacy = resolvedProviderConfig(connection);
-          if (!legacy) throw new Error('legacy test connection projection unavailable');
+          const legacy = toInternalProviderConfig(connection as never);
           return testProviderHandle(connection, legacyFactory(legacy));
         },
       } : testProviderFactory,

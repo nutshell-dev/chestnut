@@ -19,6 +19,7 @@ import {
   type LLMGlobalConfigView,
   type SharedLLMInput,
   type LLMResolvedConfiguration,
+  type LLMResolvedProviderCandidate,
 } from './selection.js';
 
 export interface LLMConfigScope {
@@ -90,7 +91,8 @@ function stableIdentityStringify(value: unknown): string {
 }
 
 /** Operational 投影只携中性输入与 L1 给出的 opaque 非 secret 运行身份。 */
-function providerOperationalProjection(p: ProviderInput): Record<string, unknown> {
+function providerOperationalProjection(candidate: LLMResolvedProviderCandidate): Record<string, unknown> {
+  const p = candidate.input;
   return {
     model: p.model,
     baseUrl: p.baseUrl,
@@ -100,6 +102,7 @@ function providerOperationalProjection(p: ProviderInput): Record<string, unknown
       identity: p.authentication.identity,
       profile: p.authentication.profile ?? 'api_key',
     },
+    callDefaults: candidate.callDefaults,
     operationalIdentity: providerInputIdentity.operationalIdentity(p),
   };
 }
@@ -130,7 +133,8 @@ export function llmConfigIdentity(
 
 type RawProvider = SharedLLMInput['primary'];
 
-function providerStableProjection(p: ProviderInput): Record<string, unknown> {
+function providerStableProjection(candidate: LLMResolvedProviderCandidate): Record<string, unknown> {
+  const p = candidate.input;
   return {
     model: p.model,
     baseUrl: p.baseUrl,
@@ -138,7 +142,6 @@ function providerStableProjection(p: ProviderInput): Record<string, unknown> {
     authentication: {
       kind: p.authentication.kind,
       profile: p.authentication.profile ?? 'api_key',
-      ...(p.authentication.kind === 'capability' ? { identity: p.authentication.identity } : {}),
     },
     stableIdentity: providerInputIdentity.stableIdentity(p),
   };
@@ -294,7 +297,7 @@ export function snapshotLLMConfig(
       role: 'primary',
       raw: hasOverride ? clawConfig!.raw?.primary ?? clawConfig!.llm!.primary! : rawGlobal.primary,
       effective: hasOverride ? clawConfig!.llm!.primary! : globalConfig.llm.primary,
-      resolved: config.primary,
+      resolved: config.primary.input,
     },
     ...config.fallbacks.map((resolved, index) => {
       const raw = rawGlobal.fallbacks?.[index];
@@ -303,7 +306,7 @@ export function snapshotLLMConfig(
         role: `fallbacks[${index}]`,
         raw,
         effective: globalConfig.llm.fallbacks![index]!,
-        resolved,
+        resolved: resolved.input,
       };
     }),
   ];

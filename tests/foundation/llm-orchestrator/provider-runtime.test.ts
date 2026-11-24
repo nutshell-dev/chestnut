@@ -77,6 +77,26 @@ describe('ProviderRuntime cache and reload lifecycle', () => {
     expect(eventSink.events.filter(event => event.type === 'sdk_client_cache_hit')).toHaveLength(1);
   });
 
+  it('retires an unadopted cache-hit handle and emits protocol rather than preset', async () => {
+    const eventSink = sink();
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    const runtime = new LLMProviderRuntime(config(primaryConfig, eventSink.sink, providerConfig => {
+      const close = vi.fn();
+      closes.push(close);
+      return adapter(providerConfig, close);
+    }, [{ ...primaryConfig }]));
+
+    expect(closes).toHaveLength(2);
+    expect(closes[0]).not.toHaveBeenCalled();
+    expect(closes[1]).toHaveBeenCalledTimes(1);
+    expect(eventSink.events).toContainEqual({
+      type: 'sdk_client_cache_hit', protocol: 'anthropic', model: 'm1',
+    });
+    await runtime.close();
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+    expect(closes[1]).toHaveBeenCalledTimes(1);
+  });
+
   it('closes active and delayed old providers once and clears the real cache', async () => {
     const eventSink = sink();
     const closes = new Map<string, ReturnType<typeof vi.fn>>();

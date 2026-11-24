@@ -266,11 +266,11 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       break;
     case 'sdk_client_cache_hit':
       w(LLM_AUDIT_EVENTS.SDK_CLIENT_CACHE_HIT,
-        `preset=${event.preset}`, `model=${event.model}`);
+        `protocol=${event.protocol ?? event.preset ?? 'unknown'}`, `model=${event.model}`);
       break;
     case 'sdk_client_cache_miss':
       w(LLM_AUDIT_EVENTS.SDK_CLIENT_CACHE_MISS,
-        `preset=${event.preset}`, `model=${event.model}`);
+        `protocol=${event.protocol ?? event.preset ?? 'unknown'}`, `model=${event.model}`);
       break;
     case 'provider_close_failed':
       w(LLM_AUDIT_EVENTS.PROVIDER_CLOSE_FAILED, `error=${event.error}`);

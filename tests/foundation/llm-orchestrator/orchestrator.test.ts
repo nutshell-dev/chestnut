@@ -176,8 +176,8 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
     const fb1 = createMockProvider('custom:openai');
     const fb2 = createMockProvider('custom:moonshot');
     const findAdapter = (cfg: ProviderConnection) => {
-      if (cfg.providerId === primary.name) return primary;
-      if (cfg.providerId === fb1.name) return fb1;
+      if (cfg.providerId === 'api.anthropic.com') return primary;
+      if (cfg.providerId === 'api.openai.com') return fb1;
       return fb2;
     };
 

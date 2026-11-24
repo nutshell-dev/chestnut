@@ -1,6 +1,6 @@
 /** Explicit schema → adapter → real pi-ai catalog resolution. */
 import { describe, it, expect } from 'vitest';
-import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { llmProviderConfigSchema, strictLLMProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
 const {
@@ -100,10 +100,10 @@ describe('explicit catalog provider configuration', () => {
       api_key: 'synthetic-key',
     })).toThrow(/preset/);
     expect(() => llmProviderConfigSchema.parse({ provider_id: 'mistral' })).toThrow();
-    expect(() => llmProviderConfigSchema.parse({
+    expect(() => strictLLMProviderConfigSchema.parse({
       ...catalogProvider('mistral', 'codestral-latest', 'mistral-conversations'),
       api_key: undefined,
-    })).toThrow(/api_key is required/);
+    })).toThrow(/api_key/);
   });
 
   it('rejects unknown providers and unknown catalog models with typed errors', () => {

@@ -10,7 +10,7 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js'
 import type { LLMSetupDraft } from '../core/llm-configuration/index.js';
 
 const { catalogModelKnown, isCatalogProvider, resolveCatalogIdentity } = llmProviderCatalog;
-const { llmProviderConfigSchema } = llmProviderConfigContract;
+const { strictLLMProviderConfigSchema } = llmProviderConfigContract;
 type ApiFormat = llmProviderCatalog.ApiFormat;
 type AuthProfile = llmProviderCatalog.AuthProfile;
 
@@ -273,7 +273,7 @@ export function makeExplicitSetupProvider(input: ExplicitSetupDraft & { label?: 
     ? input.providerId
     : `custom:${choice.id}`;
   const baseUrl = input.baseUrl ?? choice.defaultBaseUrl;
-  return llmProviderConfigSchema.parse({
+  return strictLLMProviderConfigSchema.parse({
     provider_id: providerId,
     api_format: catalogDirect ? choice.catalogApiFormat ?? input.apiFormat : input.apiFormat,
     auth_profile: input.authProfile,

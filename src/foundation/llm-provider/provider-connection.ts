@@ -32,9 +32,9 @@ export type ProviderAuthentication =
 
 /** The only ordinary cross-module provider construction input. */
 export interface ProviderInput {
-  readonly baseUrl?: string;
+  readonly baseUrl: string;
   readonly model: string;
-  readonly authentication: ProviderAuthenticationInput;
+  readonly authentication: Extract<ProviderAuthenticationInput, { kind: 'api_key' }>;
   readonly protocol: ApiFormat;
 }
 
@@ -87,9 +87,6 @@ export interface ProviderFactory {
   create(input: ProviderInput): ProviderHandle;
 }
 
-const resolvedConnectionProjections = new WeakMap<ProviderConnection, ProviderConfig>();
-const resolvedInputProjections = new WeakMap<ProviderInput, ProviderConfig>();
-
 function authenticationFromResolvedConfig(config: ProviderConfig): ProviderAuthentication {
   return config.apiKey !== undefined
     ? {
@@ -106,33 +103,30 @@ function authenticationFromResolvedConfig(config: ProviderConfig): ProviderAuthe
       };
 }
 
-/** Convert the persisted document to the narrow public input, retaining L1 resolution privately. */
+/** Convert a supported persisted document to the four-field value input. */
 export function providerInputFromResolvedConfig(config: ProviderConfig): ProviderInput {
   const authentication = authenticationFromResolvedConfig(config);
   const protocol = config.apiFormat ?? config.catalogResolution?.wire.api;
   if (!protocol || !API_FORMATS.includes(protocol as ApiFormat)) {
     throw new Error(`Provider "${config.name}": explicit protocol is required`);
   }
-  const input: ProviderInput = {
-    ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+  if (!config.baseUrl || config.authProfile !== undefined && config.authProfile !== 'api_key' || authentication.kind !== 'api_key') {
+    throw new Error(`Provider "${config.name}": an explicit base_url and api_key connection are required`);
+  }
+  if (config.extraHeaders !== undefined) {
+    throw new Error(`Provider "${config.name}": extra_headers are not supported; repair the configuration`);
+  }
+  return {
+    baseUrl: config.baseUrl,
     model: config.model,
     protocol: protocol as ApiFormat,
-    authentication: authentication.kind === 'api_key'
-      ? {
-          kind: 'api_key',
-          value: authentication.value,
-          identity: authentication.identity,
-          profile: authentication.profile,
-        }
-      : {
-          kind: 'capability',
-          identity: authentication.identity,
-          profile: authentication.profile,
-          resolve: authentication.resolve,
-        },
+    authentication: {
+      kind: 'api_key',
+      value: authentication.value,
+      identity: authentication.identity,
+      profile: 'api_key',
+    },
   };
-  resolvedInputProjections.set(input, config);
-  return input;
 }
 
 /** @deprecated @internal Legacy L1 bridge; ordinary callers use ProviderInput. */
@@ -156,13 +150,7 @@ export function providerConnectionFromResolvedConfig(config: ProviderConfig): Pr
       ...(config.dropThinkingBlocks !== undefined ? { dropThinkingBlocks: config.dropThinkingBlocks } : {}),
     },
   };
-  resolvedConnectionProjections.set(connection, config);
   return connection;
-}
-
-/** @internal Only the L1 factory may retrieve a setup-time projection. */
-export function resolvedProviderConfig(input: ProviderInput | ProviderConnection): ProviderConfig | undefined {
-  return resolvedInputProjections.get(input as ProviderInput) ?? resolvedConnectionProjections.get(input as ProviderConnection);
 }
 
 function plainInputProviderId(input: ProviderInput): string {
@@ -178,16 +166,12 @@ function plainInputProviderId(input: ProviderInput): string {
 
 /** @internal The single public-input to internal-connection resolution point. */
 export function resolveInternalConnection(input: ProviderInput): ProviderConnection {
-  const resolved = resolvedProviderConfig(input);
-  if (resolved) return providerConnectionFromResolvedConfig(resolved);
-  if ('providerId' in input && 'apiFormat' in input) {
-    return input as unknown as ProviderConnection;
-  }
+  if (!input.baseUrl.trim()) throw new Error('ProviderInput.baseUrl is required');
   return {
     providerId: plainInputProviderId(input),
     model: input.model,
-    ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
-    apiFormat: input.protocol ?? '',
+    baseUrl: input.baseUrl,
+    apiFormat: input.protocol,
     authentication: input.authentication,
   };
 }
@@ -287,19 +271,52 @@ function descriptorFromResolvedConfig(
   };
 }
 
+function descriptorFromInput(input: ProviderInput): ProviderDescriptor {
+  const providerId = plainInputProviderId(input);
+  const authentication = input.authentication;
+  const authProfile = authentication.profile ?? 'api_key';
+  const legacyIdentity = sha256ShortHex([
+    providerId,
+    input.protocol,
+    input.model,
+    input.baseUrl,
+    authenticationIdentity(authentication, 8),
+  ].join(':'), 12);
+  // Recovery belongs to the configured connection, not its display label or key rotation.
+  const recovery = {
+    providerId,
+    model: input.model,
+    baseUrl: input.baseUrl,
+    protocol: input.protocol,
+    authentication: { kind: authentication.kind, profile: authProfile },
+  };
+  const stableIdentity = sha256Hex(JSON.stringify(recovery));
+  const identity = sha256ShortHex(JSON.stringify(recovery), 12);
+  // Adapter reuse additionally includes credential revision and only wire behavior.
+  // Candidate call defaults are delivered per invocation and never pollute this key.
+  const cacheKey = `${identity}:${sha256ShortHex(JSON.stringify({
+    ...recovery,
+    credential: authenticationIdentity(authentication),
+  }), 16)}`;
+  return {
+    providerId,
+    model: input.model,
+    identity,
+    cacheKey,
+    legacyIdentity,
+    stableIdentity,
+    protocol: input.protocol,
+    authProfile,
+    extraHeaderNames: [],
+  };
+}
+
 /** Produce secret-safe identity/runtime facts without exposing the internal connection. */
 export function describeProviderInput(input: ProviderInput): ProviderDescriptor {
-  const resolved = resolvedProviderConfig(input);
-  if (resolved) return descriptorFromResolvedConfig(resolved);
-  return descriptorFromResolvedConfig(
-    toInternalProviderConfig(resolveInternalConnection(input)),
-    input.authentication,
-  );
+  return descriptorFromInput(input);
 }
 
 /** @deprecated @internal Descriptor projection for the legacy L1 connection bridge. */
 export function describeProviderConnection(connection: ProviderConnection): ProviderDescriptor {
-  const resolved = resolvedConnectionProjections.get(connection);
-  if (resolved) return descriptorFromResolvedConfig(resolved);
   return descriptorFromResolvedConfig(toInternalProviderConfig(connection), connection.authentication);
 }

@@ -80,6 +80,39 @@ describe('ProbeController request and success semantics', () => {
     expect(primary.call).not.toHaveBeenCalled();
   });
 
+  it('consumes the ledger decision and only converts its timer representation', () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const f = fixture(primary);
+    const resumeAtMs = Date.now() + 30_000;
+    const currentSchedule = vi.spyOn(f.ledger, 'currentSchedule')
+      .mockReturnValueOnce({ kind: 'ready', revision: 1 })
+      .mockReturnValueOnce({ kind: 'at', revision: 2, resumeAt: new Date(resumeAtMs).toISOString() })
+      .mockReturnValueOnce({ kind: 'on_change', revision: 3 });
+
+    expect(f.controller.getSharedRecoveryDecision()).toEqual({ kind: 'ready' });
+    expect(f.controller.getSharedRecoveryDecision()).toEqual({ kind: 'at', nextProbeAt: resumeAtMs });
+    expect(f.controller.getSharedRecoveryDecision()).toEqual({ kind: 'on_change' });
+    expect(currentSchedule).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps probing an unavailable candidate while the instance decision is ready', async () => {
+    const primary: LLMProvider = { name: 'primary', model: 'model-primary', call: vi.fn(async () => OK) };
+    const fallback: LLMProvider = { name: 'fallback', model: 'model-fallback', call: vi.fn(async () => OK) };
+    const f = fixture(primary, [fallback]);
+    f.ledger.noteFailure([{
+      providerId: f.runtime.providerIds()[0]!, errorClass: 'transient', message: 'primary offline',
+      occurredAtMs: Date.now() - 1_000_000,
+    }]);
+
+    expect(f.controller.getSharedRecoveryDecision()).toEqual({ kind: 'ready' });
+    await expect(f.controller.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
+
+    expect(primary.call).toHaveBeenCalledTimes(1);
+    expect(fallback.call).not.toHaveBeenCalled();
+    expect(f.ledger.snapshot().providers[0]).toMatchObject({ status: 'available', consecutiveFailures: 0 });
+    expect(f.controller.getSharedRecoveryDecision()).toEqual({ kind: 'ready' });
+  });
+
   it('pings one candidate with target limits and clears health without refreshing selection', async () => {
     let observed: LLMCallOptions | undefined;
     const primary: LLMProvider = {

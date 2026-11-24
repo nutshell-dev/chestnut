@@ -42,13 +42,15 @@ function config(name: string): ProviderConnection {
 describe('L2 timeout estimate ownership', () => {
   it('keeps legacy allowance separate from real meter unavailability', async () => {
     const options = { messages: [] };
+    const legacyEstimate = vi.fn(() => 123);
     const legacy = await observeInputBudget({
       name: 'legacy', model: 'legacy', call: async () => response,
-    }, options, 123);
+    }, options, legacyEstimate);
     expect(legacy.measurement).toEqual({
       kind: 'estimated', method: 'legacy-cl100k', reason: 'adapter_capability_missing', tokens: 123,
     });
     expect(timeoutInputTokens(legacy)).toBe(123);
+    expect(legacyEstimate).toHaveBeenCalledTimes(1);
 
     const unavailable = await observeInputBudget({
       name: 'metered', model: 'metered', call: async () => response,
@@ -56,7 +58,8 @@ describe('L2 timeout estimate ownership', () => {
         ...meter('metered', 999),
         measure: () => ({ kind: 'unavailable' as const, reason: 'test_unavailable' }),
       }),
-    }, options, 123);
+    }, options, legacyEstimate);
+    expect(legacyEstimate).toHaveBeenCalledTimes(1);
     expect(unavailable.measurement).toEqual({ kind: 'unavailable', reason: 'test_unavailable' });
     expect(timeoutInputTokens(unavailable)).toBe(0);
     expect(computeDynamicCallTimeoutMs(TEST_PROVIDER_TIMEOUT_MS, timeoutInputTokens(unavailable)))
@@ -64,11 +67,13 @@ describe('L2 timeout estimate ownership', () => {
   });
 
   it('keeps a meter failure explicitly unavailable instead of fabricating usage', async () => {
+    const legacyEstimate = vi.fn(() => 123);
     const observation = await observeInputBudget({
       name: 'broken', model: 'broken', call: async () => response,
       prepareInputMeter: async () => { throw new Error('meter setup failed'); },
-    }, { messages: [] }, 123);
+    }, { messages: [] }, legacyEstimate);
 
+    expect(legacyEstimate).not.toHaveBeenCalled();
     expect(observation).toEqual({ measurement: { kind: 'unavailable', reason: 'meter setup failed' } });
     expect(timeoutInputTokens(observation)).toBe(0);
     expect(observation.measurement).not.toHaveProperty('tokens');
@@ -186,6 +191,105 @@ describe('sequential candidate timeout estimate fallback', () => {
         await owner.close();
       }
     });
+  });
+});
+
+describe('configured candidate call defaults', () => {
+  it('delivers only the actual fallback candidate defaults to its meter and call', async () => {
+    const received: Array<{ provider: string; options: LLMCallOptions }> = [];
+    const fallbackPrepare = vi.fn(async () => meter('fallback', 0));
+    const make = (host: string): LLMProvider => {
+      const name = host.split('.')[0]!;
+      return {
+        name, model: name,
+        prepareInputMeter: name === 'fallback' ? fallbackPrepare : async () => meter('primary', 0),
+        call: async options => {
+          received.push({ provider: name, options });
+          if (name === 'primary') throw new LLMNetworkError(name, new Error('offline'));
+          return response;
+        },
+      };
+    };
+    const candidate = (name: string, timeoutMs: number, temperature: number, maxTokens: number) => ({
+      input: {
+        baseUrl: `https://${name}.example.test`, model: name, protocol: 'anthropic' as const,
+        authentication: { kind: 'api_key' as const, value: `${name}-key` },
+      },
+      callDefaults: { timeoutMs, temperature, maxTokens },
+    });
+    const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
+      primary: candidate('primary', 1_000, 0.1, 111),
+      fallbacks: [candidate('fallback', 2_000, 0, 222)],
+      maxAttempts: 1, retryDelayMs: 0, events: { emit: () => {} },
+      providerFactory: legacyProviderFactory(connection => make(connection.providerId)),
+    });
+    await expect(owner.call({ messages: [{ role: 'user', content: 'hello' }] })).resolves.toBe(response);
+    expect(fallbackPrepare).toHaveBeenCalledWith({
+      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 },
+    });
+    expect(received[1]?.options.temperature).toBeUndefined();
+    expect(received[1]?.options.maxTokens).toBeUndefined();
+    expect(received[1]?.options).toMatchObject({
+      callDefaults: { timeoutMs: 2_000, temperature: 0, maxTokens: 222 },
+      timeoutMs: 2_000,
+    });
+    expect(received[0]?.options.callDefaults).toMatchObject({ timeoutMs: 1_000, temperature: 0.1, maxTokens: 111 });
+    await owner.close();
+  });
+});
+
+describe.each(['call', 'stream'] as const)('%s legacy estimate scan deferral', mode => {
+  it.each([
+    { capability: 'metered', expectedScans: 0 },
+    { capability: 'missing', expectedScans: 1 },
+  ] as const)('scans $capability candidates $expectedScans time(s)', async ({ capability, expectedScans }) => {
+    let scans = 0;
+    const messages = [{ role: 'user' as const, content: 'hello' }];
+    const originalIterator = messages[Symbol.iterator].bind(messages);
+    messages[Symbol.iterator] = () => {
+      scans++;
+      return originalIterator();
+    };
+    const options: LLMCallOptions = { messages };
+    const make = (name: string): LLMProvider => {
+      const adapter: LLMProvider = {
+        name,
+        model: name,
+        call: async () => {
+          if (name === 'primary') throw new LLMNetworkError(name, new Error('offline'));
+          return response;
+        },
+        stream: async function* (): AsyncIterableIterator<ProviderStreamChunk> {
+          if (name === 'primary') throw new LLMNetworkError(name, new Error('offline'));
+          yield { type: 'text_delta', text: 'ok' };
+          yield { type: 'done', stopReason: 'end_turn' };
+        },
+      };
+      if (capability === 'metered') adapter.prepareInputMeter = async () => meter(name, 10);
+      return adapter;
+    };
+    const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
+      primary: config('primary'),
+      fallbacks: [config('fallback')],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: (() => {}) as LLMEventSink['emit'] },
+      providerFactory: legacyProviderFactory(connection => make(connection.providerId)),
+    });
+
+    try {
+      if (mode === 'call') {
+        await expect(owner.call(options)).resolves.toBe(response);
+      } else {
+        for await (const _chunk of owner.stream(options)) { /* consume the stream */ }
+      }
+      // Both missing-meter candidates share one invocation-local cached estimate.
+      expect(scans).toBe(expectedScans);
+    } finally {
+      await owner.close();
+    }
   });
 });
 

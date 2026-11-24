@@ -58,8 +58,6 @@ primary:
   model: original-model
   label: ${primaryLabel}
   base_url: https://primary.example.test
-  extra_headers:
-    X-Test: \${PHASE2221_REPAIR_HEADER}
 fallbacks:
   - provider_id: custom:openai
     api_format: openai
@@ -97,7 +95,7 @@ afterEach(() => {
 });
 
 describe('config provider repair', () => {
-  it('缺 key 时原位修复 primary，保留 slot/header/旧 fallback 并报告全局未就绪', async () => {
+  it('缺 key 时原位修复 primary，保留 slot/旧 fallback 并报告全局未就绪', async () => {
     probe.mockResolvedValue({ ok: true, model: 'original-model', identity: 'probe' });
     answers.queue = ['2', 'new-primary-secret'];
 
@@ -106,7 +104,6 @@ describe('config provider repair', () => {
     const document = configDeps.llmConfiguration.store.read();
     expect(document.revision).toBe(2);
     expect(document.primary.model).toBe('original-model');
-    expect(document.primary.extra_headers).toEqual({ 'X-Test': '${PHASE2221_REPAIR_HEADER}' });
     expect(document.primary).not.toHaveProperty('temperature');
     expect(document.primary).not.toHaveProperty('timeout_ms');
     expect(document.primary.api_key).not.toBe('${PHASE2221_REPAIR_MISSING}');

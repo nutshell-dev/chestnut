@@ -72,8 +72,8 @@ describe('sdk-client-cache', () => {
       const hits = emitted.filter(e => e.type === 'sdk_client_cache_hit');
       expect(misses.length).toBe(1);
       expect(hits.length).toBe(1);
-      expect(misses[0]).toMatchObject({ preset: 'anthropic', model: 'm1' });
-      expect(hits[0]).toMatchObject({ preset: 'anthropic', model: 'm1' });
+      expect(misses[0]).toMatchObject({ protocol: 'anthropic', model: 'm1' });
+      expect(hits[0]).toMatchObject({ protocol: 'anthropic', model: 'm1' });
 
       // Verify same provider instance is reused
       const primary = internalsOf(orchestrator).providerRuntime.primary();
@@ -98,8 +98,8 @@ describe('sdk-client-cache', () => {
 
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
       expect(misses.length).toBe(2);
-      expect(misses[0]).toMatchObject({ preset: 'anthropic', model: 'm1' });
-      expect(misses[1]).toMatchObject({ preset: 'openai', model: 'm2' });
+      expect(misses[0]).toMatchObject({ protocol: 'anthropic', model: 'm1' });
+      expect(misses[1]).toMatchObject({ protocol: 'openai', model: 'm2' });
 
       const hits = emitted.filter(e => e.type === 'sdk_client_cache_hit');
       expect(hits.length).toBe(0);

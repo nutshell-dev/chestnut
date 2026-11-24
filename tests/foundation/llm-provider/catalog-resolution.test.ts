@@ -42,7 +42,7 @@ describe('catalog identity facade', () => {
     });
   });
 
-  it('keeps metadata-only catalog identity separate from wire identity', () => {
+  it('keeps metadata-only catalog identity separate from wire identity and actual-model window', () => {
     const resolution = parseProvider({
       provider_id: 'deepseek', api_format: 'anthropic', auth_profile: 'api_key', api_key: 'synthetic-key',
       model: 'deepseek-flash[1m]', base_url: 'https://api.deepseek.com/anthropic',
@@ -51,7 +51,31 @@ describe('catalog identity facade', () => {
     expect(resolution).toMatchObject({
       kind: 'metadata_only', source: 'metadata_only', providerId: 'deepseek', modelId: 'deepseek-flash',
       wire: { model: 'deepseek-flash[1m]', api: 'anthropic-messages' },
-      window: { contextWindow: 1_000_000, source: 'catalog' },
+      window: { contextWindow: 1_000_000, source: 'heuristic', modelId: 'deepseek-flash[1m]' },
+    });
+  });
+
+  it.each([
+    { catalogModel: 'k3', catalogWindow: 1_048_576, wireModel: 'k3.1-pro', contextWindow: 1_000_000, source: 'heuristic' },
+    { catalogModel: 'k3', catalogWindow: 1_048_576, wireModel: 'k3-256k', contextWindow: 262_144, source: 'catalog' },
+    { catalogModel: 'k3-256k', catalogWindow: 262_144, wireModel: 'k3.1-pro', contextWindow: 1_000_000, source: 'heuristic' },
+    { catalogModel: 'k3-256k', catalogWindow: 262_144, wireModel: 'k3-256k', contextWindow: 262_144, source: 'catalog' },
+  ] as const)('resolves $catalogModel metadata with the actual $wireModel window', ({
+    catalogModel, catalogWindow, wireModel, contextWindow, source,
+  }) => {
+    const resolution = parseProvider({
+      provider_id: 'kimi-coding', api_format: 'anthropic', auth_profile: 'api_key', api_key: 'synthetic-key',
+      model: wireModel, base_url: 'https://api.kimi.com/coding',
+      catalog_provider: 'kimi-coding', catalog_model: catalogModel,
+    }).catalogResolution;
+    expect(resolution).toMatchObject({
+      kind: 'metadata_only', modelId: catalogModel,
+      metadata: { contextWindow: catalogWindow },
+      wire: { model: wireModel, api: 'anthropic-messages' },
+      window: {
+        contextWindow, source, providerId: 'kimi-coding', modelId: wireModel,
+        revision: CATALOG_REVISION,
+      },
     });
   });
 

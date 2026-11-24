@@ -59,6 +59,10 @@ export const FACADES = {
       'cli',
     ],
   },
+  llmProviderLegacyConfigMigration: {
+    module: './capabilities/legacy-config-migration.js',
+    roots: ['core/llm-configuration', 'cli'],
+  },
   llmProviderCatalog: {
     module: './capabilities/catalog.js',
     roots: ['cli', 'assembly'],

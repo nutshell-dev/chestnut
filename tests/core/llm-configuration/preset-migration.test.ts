@@ -31,14 +31,10 @@ describe('legacy preset migration capability', () => {
       model: 'gpt-4o',
       api_key: '${OPENAI_API_KEY}',
     })).toMatchObject({ provider_id: 'openai', api_format: 'openai-responses' });
-    expect(migrateLegacyProviderConfig({
+    expect(() => migrateLegacyProviderConfig({
       preset: 'amazon-bedrock',
       model: 'anthropic.claude-sonnet-4-6',
-    })).toMatchObject({
-      provider_id: 'amazon-bedrock',
-      api_format: 'bedrock-converse-stream',
-      auth_profile: 'ambient',
-    });
+    })).toThrowError(expect.objectContaining({ code: 'unsupported_auth' }));
   });
 
   it('preserves metadata-only behavior with explicit paired hints', () => {

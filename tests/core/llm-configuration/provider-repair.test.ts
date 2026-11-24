@@ -28,7 +28,6 @@ function provider(label: string, key = '${PHASE2221_TARGET_KEY}'): SharedLLMInpu
     model: `${label}-model`,
     label,
     base_url: 'https://target.example.test',
-    extra_headers: { 'X-Target': '${PHASE2221_HEADER_KEY}' },
   };
 }
 
@@ -46,7 +45,7 @@ afterEach(() => {
 });
 
 describe('single-provider credential resolution', () => {
-  it('只解析选中目标及 header，其他 provider 缺 ref 不阻断', async () => {
+  it('只解析选中目标，其他 provider 缺 ref 不阻断', async () => {
     const store = createLLMConfigurationDocumentStore(deps);
     await store.commitExplicitProvider({ kind: 'initialize' }, provider('primary'));
     await store.commitExplicitProvider(
@@ -55,9 +54,9 @@ describe('single-provider credential resolution', () => {
     );
 
     const resolved = snapshotLLMProviderTarget(deps, store.read(), { role: 'primary' });
-    expect(resolved.snapshot.config.primary.model).toBe('primary-model');
-    expect(resolved.snapshot.config.primary.authentication).toMatchObject({ value: 'target-secret' });
-    expect(resolved.snapshot.credentialFacts).toHaveProperty('PHASE2221_HEADER_KEY');
+    expect(resolved.snapshot.config.primary.input.model).toBe('primary-model');
+    expect(resolved.snapshot.config.primary.input.authentication).toMatchObject({ value: 'target-secret' });
+    expect(resolved.snapshot.credentialFacts).toHaveProperty('PHASE2221_TARGET_KEY');
     expect(() => store.readSnapshot()).toThrow(LLMConfigurationCredentialUnavailableError);
   });
 

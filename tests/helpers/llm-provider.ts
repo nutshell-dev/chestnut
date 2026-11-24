@@ -1,5 +1,4 @@
 import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
-import { providerInputFromResolvedConfig } from '../../src/foundation/llm-provider/provider-connection.js';
 import type { ProviderConfig } from '../../src/foundation/llm-provider/types.js';
 import {
   handleForProvider,
@@ -14,7 +13,14 @@ type LLMProvider = llmProviderCall.LLMProvider;
 
 /** Convert the legacy test config shape at the shared test boundary only. */
 export function testProviderConnection(config: ProviderConfig): ProviderConnection {
-  const input = providerInputFromResolvedConfig(config);
+  const input = {
+    baseUrl: config.baseUrl ?? 'https://mock-provider.test',
+    model: config.model,
+    protocol: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'openai',
+    authentication: config.apiKey !== undefined
+      ? { kind: 'api_key' as const, value: config.apiKey, identity: config.apiKey }
+      : { kind: 'capability' as const, identity: `${config.authProfile ?? 'api_key'}:${config.name}`, resolve: async () => ({ accessToken: 'mock' }) },
+  };
   return Object.assign(input, {
     providerId: config.name,
     apiFormat: config.apiFormat ?? config.catalogResolution?.wire.api ?? 'unknown',

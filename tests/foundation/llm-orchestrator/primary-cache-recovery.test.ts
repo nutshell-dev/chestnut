@@ -14,7 +14,7 @@ type ProviderAdapter = llmProviderCall.ProviderAdapter;
 import type { ProviderConnection } from './provider-test-fixtures.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
-import { lastSuccessProviderOf, currentStreamingProviderOf } from './test-internals.js';
+import { lastSuccessProviderOf } from './test-internals.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
@@ -101,7 +101,7 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
     vi.setSystemTime(Date.now() + 30_000);
     await expect(owner.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
     expect(lastSuccessProviderOf(owner)).toMatchObject(before);
-    expect(currentStreamingProviderOf(owner)).toBeNull();
+    expect(owner.getProviderInfo()).toMatchObject({ name: 'fallback', isFallback: true });
 
     await owner.call(CALL);
     expect(primary.call).toHaveBeenCalledTimes(2); // initial failure + probe; valid cache keeps the fallback

@@ -13,7 +13,7 @@ import {
 import { LLMOrchestratorClosedError } from './errors.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import type { RecoveryLedger, RecoveryLedgerSnapshot } from './recovery-ledger.js';
-import type { SharedRecoveryDecision } from './recovery.js';
+import { readSharedRecoveryDecision, type SharedRecoveryDecision } from './recovery.js';
 import type {
   LLMCallOptions,
   LLMEventSink,
@@ -25,7 +25,7 @@ import { computeDynamicCallTimeoutMs } from './utils.js';
 
 export interface ProbeRecoveryLedger extends Pick<
   RecoveryLedger,
-  'snapshot' | 'canProbe' | 'noteProviderSuccess' | 'noteFailure' | 'subscribeCommits'
+  'snapshot' | 'currentSchedule' | 'canProbe' | 'noteProviderSuccess' | 'noteFailure' | 'subscribeCommits'
 > {}
 
 export interface ProbeControllerDeps {
@@ -129,19 +129,7 @@ export class LLMProbeController {
   }
 
   getSharedRecoveryDecision(): SharedRecoveryDecision {
-    let minAtMs: number | undefined;
-    const providerIds = this.runtime.providerIds();
-    const snapshot = this.ledger.snapshot();
-    for (const providerId of providerIds) {
-      const state = snapshot.providers.find(provider => provider.providerId === providerId);
-      if (state?.status !== 'waiting') return { kind: 'ready' };
-      const floorMs = state.retryAt ?? Number.POSITIVE_INFINITY;
-      if (!Number.isFinite(floorMs)) continue;
-      minAtMs = minAtMs === undefined ? floorMs : Math.min(minAtMs, floorMs);
-    }
-    return minAtMs === undefined
-      ? { kind: 'on_change' }
-      : { kind: 'at', nextProbeAt: minAtMs };
+    return readSharedRecoveryDecision(this.ledger);
   }
 
   reload(): void {
@@ -258,16 +246,21 @@ export class LLMProbeController {
     const probeInvocationId = `probe:${snapshot.instanceId}:${probedAtMs}:${target.breakerIndex}`;
     const failureObservedAt = this.providerState(snapshot, target.identity)?.lastError?.at;
     const descriptor = this.runtime.descriptors()[target.breakerIndex];
+    const callDefaults = this.runtime.callDefaults?.(target.adapter) ?? {};
+    const configuredTimeoutMs = callDefaults.timeoutMs ?? descriptor?.timeoutMs;
     const abort = new AbortController();
     this.probeAbort = abort;
-    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(descriptor?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
-    const hardTimeoutMs = descriptor?.timeoutMs ?? dynamicTimeoutMs;
+    const dynamicTimeoutMs = computeDynamicCallTimeoutMs(configuredTimeoutMs ?? DEFAULT_LLM_TIMEOUT_MS, 0);
+    const hardTimeoutMs = configuredTimeoutMs ?? dynamicTimeoutMs;
     const [hardSignal, cleanupSignal] = withCombinedAbortSignal(abort.signal, hardTimeoutMs);
     const probeOptions: LLMCallOptions = {
       messages: [{ role: 'user', content: 'ping' }],
       signal: hardSignal.signal,
       timeoutMs: dynamicTimeoutMs,
-      ...(descriptor?.maxTokens !== undefined ? { maxTokens: descriptor.maxTokens } : {}),
+      ...(Object.keys(callDefaults).length > 0 ? { callDefaults } : {}),
+      ...((callDefaults.maxTokens ?? descriptor?.maxTokens) !== undefined
+        ? { maxTokens: callDefaults.maxTokens ?? descriptor?.maxTokens }
+        : {}),
     };
     try {
       await target.adapter.call(probeOptions);

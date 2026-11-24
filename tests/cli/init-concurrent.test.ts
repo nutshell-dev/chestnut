@@ -116,7 +116,7 @@ describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => 
         if (probeCalls === 1) {
           return new Promise((resolve) => { releaseFirst = resolve; });
         }
-        return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
+        return { ok: true, model: snapshot.config.primary.input.model, identity: snapshot.identity };
       },
     );
 

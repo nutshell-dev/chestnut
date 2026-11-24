@@ -611,6 +611,41 @@ describe('current recovery schedule input', () => {
       { providerId: 'current', status: 'waiting' },
     ], 4, ['current'])).toEqual({ kind: 'on_change', revision: 4 });
   });
+
+  it('keeps the authoritative schedule and shared projection aligned across durable restarts', async () => {
+    const f = await makeFixture({ fallbacks: [{ name: 'fallback' }] });
+    const [primaryId, fallbackId] = f.owner.getProviderIdentities();
+    const verify = async (
+      providers: LLMInstanceStateV3['providers'],
+      schedule: Record<string, unknown>,
+      decision: Record<string, unknown>,
+    ) => {
+      const state = f.readState();
+      state.providers = providers;
+      saveLLMInstanceState(f.fs, state);
+      await restart(f);
+
+      const before = f.readState();
+      const current = f.controller.currentSchedule();
+      expect(current).toMatchObject(schedule);
+      expect(current.revision).toBe(before.revision);
+      expect(await f.controller.inspect()).toEqual(current);
+      expect(f.owner.getSharedRecoveryDecision()).toEqual(decision);
+      expect(f.readState()).toEqual(before);
+    };
+
+    await verify([], { kind: 'ready' }, { kind: 'ready' });
+    await verify([
+      { providerId: primaryId!, status: 'waiting', retryAt: T0 + 60_000 },
+      { providerId: fallbackId!, status: 'available' },
+    ], { kind: 'ready' }, { kind: 'ready' });
+    await verify([
+      { providerId: primaryId!, status: 'waiting', retryAt: T0 + 60_000 },
+      { providerId: fallbackId!, status: 'waiting', retryAt: T0 + 30_000 },
+    ],
+    { kind: 'at', resumeAt: new Date(T0 + 30_000).toISOString() },
+    { kind: 'at', nextProbeAt: T0 + 30_000 });
+  });
 });
 
 describe('legacy read-only migration into instance state V3', () => {
@@ -732,7 +767,7 @@ describe('legacy read-only migration into instance state V3', () => {
     expect(migrated.recovery.providers[1].identityMigrationPending).toBeUndefined();
   });
 
-  it('configuration re-evaluates changed providers without clearing unchanged permanent facts', async () => {
+  it('configuration preserves all legacy history without changing current admission', async () => {
     const f = await makeFixture();
     const currentId = f.owner.getProviderIdentities()[0]!;
     const state = f.readState();
@@ -751,14 +786,17 @@ describe('legacy read-only migration into instance state V3', () => {
       requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }),
     })).kind).toBe('waiting');
     const saved = f.readState();
-    expect(saved.recovery.providers).toEqual([expect.objectContaining({ providerId: currentId, consecutiveFailures: 3 })]);
+    expect(saved.recovery.providers).toEqual([
+      expect.objectContaining({ providerId: 'old-a', consecutiveFailures: 3, blocking: true }),
+      expect.objectContaining({ providerId: currentId, consecutiveFailures: 3, blocking: true }),
+    ]);
     expect(saved.providers).toEqual([
       expect.objectContaining({ providerId: currentId, status: 'waiting', consecutiveFailures: 3 }),
     ]);
     expect((await f.controller.inspect()).kind).toBe('at');
   });
 
-  it('releasing all changed permanent facts derives ready without a persisted schedule field', async () => {
+  it('ready admission no longer deletes retired permanent history or persists a schedule', async () => {
     const f = await makeFixture();
     const state = f.readState();
     state.recovery.providers = ['old-a', 'old-b'].map(providerId => ({
@@ -774,7 +812,10 @@ describe('legacy read-only migration into instance state V3', () => {
     expect((await f.controller.begin({
       requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }),
     })).kind).toBe('admitted');
-    expect(f.readState().recovery.providers).toEqual([]);
+    expect(f.readState().recovery.providers).toEqual([
+      expect.objectContaining({ providerId: 'old-a', errorClass: 'permanent', blocking: true }),
+      expect.objectContaining({ providerId: 'old-b', errorClass: 'permanent', blocking: true }),
+    ]);
     expect(f.readState().providers).toEqual([]);
     expect(f.readState().recovery).not.toHaveProperty('schedule');
     expect((await f.controller.inspect()).kind).toBe('ready');

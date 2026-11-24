@@ -142,9 +142,10 @@ describe('RecoveryLedger construction and admission', () => {
     if (admission.kind !== 'admitted') return;
     expect(f.read().revision).toBe(1);
     expect(f.read().providers).toEqual(before.providers);
-    expect(f.read().recovery.providers).toEqual([expect.objectContaining({
-      providerId: 'current', errorClass: 'transient', blocking: true,
-    })]);
+    expect(f.read().recovery.providers).toEqual([
+      expect.objectContaining({ providerId: 'retired', errorClass: 'permanent', blocking: true }),
+      expect.objectContaining({ providerId: 'current', errorClass: 'transient', blocking: true }),
+    ]);
     expect(f.read().recovery.acceptedConfigRevisions).toEqual(['config-current-entry']);
     expect(f.read().recovery.acceptedFactBatches).toEqual([{
       revision: 1, interventionIds: [], configurationRevision: 'config-current-entry',

@@ -208,8 +208,8 @@ const PROBE_FAIL = { ok: false as const, errorType: 'auth' as const, message: 'i
 
 /** probe mock：成功并回带被测快照 identity（真实实现的回声行为）。 */
 function mockProbeOk() {
-  conn.probeLLMConnection.mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
-    ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }));
+  conn.probeLLMConnection.mockImplementation(async (snapshot: { config: { primary: { input: { model: string } } }; identity: string }) =>
+    ({ ok: true, model: snapshot.config.primary.input.model, identity: snapshot.identity }));
 }
 
 /** probe mock：失败并回带 identity。 */
@@ -386,7 +386,7 @@ describe('start LLM gate (unit)', () => {
     conn.probeLLMConnection
       .mockImplementationOnce(async (snapshot: { identity: string }) => ({ ...PROBE_FAIL, identity: snapshot.identity }))
       .mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
-        ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }));
+        ({ ok: true, model: snapshot.config.primary.input.model, identity: snapshot.identity }));
     h.rlAnswers.queue = ['1'];
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
