@@ -383,6 +383,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/cli/config-repair-missing-credentials.integration.test.ts',
   // Phase 2226 Step C: real repair CLI/session identity and terminal-state evidence.
   'tests/cli/config-repair-session.integration.test.ts',
+  // Phase 2226 Step E: real precommit refusal/timeout chains through Commander.
+  'tests/cli/config-repair-precommit.integration.test.ts',
   // Phase 2226 Step D: real provider replace interruption and stale-lock recovery.
   'tests/core/llm-configuration/provider-replace-interruption.integration.test.ts',
   // Phase 2223 Step C: real Vitest resolution of every project's final worker cap.
