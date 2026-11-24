@@ -81,7 +81,7 @@ describe('real CLI missing-credential repair chain', () => {
       expect(status.status).toBe(0);
       expect(status.stderr).not.toContain('credential unavailable');
       expect(status.stderr).not.toContain('integration-secret');
-    });
+    }, { requests: () => server.requests });
   }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it('缺 key → repair key 写独立 ref，且单字段提交不物化 defaults', async context => {
@@ -109,7 +109,7 @@ describe('real CLI missing-credential repair chain', () => {
       const status = await runConfigRepairCli(workspace, ['status'], context.signal);
       if (status.status !== 0) throw new Error(`status after key repair failed: ${status.stderr}`);
       expect(status.status).toBe(0);
-    });
+    }, { requests: () => server.requests });
   }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it('add 新 primary → 旧坏条目成为 fallback → remove 后完整配置恢复', async context => {
@@ -151,6 +151,6 @@ describe('real CLI missing-credential repair chain', () => {
       const status = await runConfigRepairCli(workspace, ['status'], context.signal);
       if (status.status !== 0) throw new Error(`status after add/remove failed: ${status.stderr}`);
       expect(status.status).toBe(0);
-    });
+    }, { requests: () => server.requests });
   }, INTEGRATION_TEST_TIMEOUT_MS);
 });

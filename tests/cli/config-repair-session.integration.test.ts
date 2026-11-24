@@ -59,6 +59,7 @@ afterEach(async () => {
 describe('config repair session process lifecycle', () => {
   it('successful finite session cleans its scoped cwd', async context => {
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    expect(workspace.home.startsWith(`${workspace.root}${path.sep}`)).toBe(true);
     await finishConfigRepairCase(workspace, async () => {
       const result = await runConfigRepairSession(workspace, [], [], context.signal, false, {
         mode: 'finite', lifetimeMs: 50,
@@ -238,12 +239,75 @@ describe('config repair session process lifecycle', () => {
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
     const primary = new Error('controlled repair assertion failure');
     try {
+      const homeSentinel = path.join(workspace.home, 'home-sentinel');
+      const request = { model: 'retained-model', headers: { authorization: 'Bearer fixture-only' } };
       const failure = await finishConfigRepairCase(workspace, async () => {
+        fs.writeFileSync(homeSentinel, 'still-owned-by-this-case');
         await Promise.resolve();
         throw primary;
-      }).catch(error => error);
+      }, { requests: () => [request] }).catch(error => error);
       expect(failure).toBe(primary);
       expect(fs.existsSync(path.join(workspace.root, '.chestnut/llm/config.yaml'))).toBe(true);
+      expect(fs.readFileSync(homeSentinel, 'utf8')).toBe('still-owned-by-this-case');
+      expect(JSON.parse(fs.readFileSync(path.join(workspace.root, 'http-requests.json'), 'utf8')))
+        .toEqual([request]);
+      expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
+        kind: 'preserve', reasons: ['test_failed'],
+      });
+    } finally {
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('workspace initialization failure retains both root and nested home', () => {
+    const runRoot = useIsolatedRunRoot();
+    const primary = new Error('controlled workspace initialization failure');
+    let root: string | undefined;
+    let home: string | undefined;
+    try {
+      const failure = (() => {
+        try {
+          createConfigRepairWorkspace('http://127.0.0.1:1/v1', undefined, {
+            afterInitialize: (initializedRoot, initializedHome) => {
+              root = initializedRoot;
+              home = initializedHome;
+              fs.writeFileSync(path.join(initializedHome, 'setup-sentinel'), 'retain-me');
+              throw primary;
+            },
+          });
+        } catch (error) {
+          return error;
+        }
+      })();
+      expect(failure).toBe(primary);
+      expect(root).toBeDefined();
+      expect(home?.startsWith(`${root}${path.sep}`)).toBe(true);
+      expect(fs.readFileSync(path.join(home!, 'setup-sentinel'), 'utf8')).toBe('retain-me');
+      expect(inspectRetention(runRoot, root)).toMatchObject({
+        kind: 'preserve', reasons: ['fixture_setup_failed'],
+      });
+    } finally {
+      if (root) {
+        fs.rmSync(root, { recursive: true, force: true });
+        untrackTempDir(root);
+      }
+    }
+  });
+
+  it('request snapshot failure is ordered after the business failure and prevents completion', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const primary = new Error('controlled primary before snapshot failure');
+    try {
+      fs.mkdirSync(path.join(workspace.root, 'http-requests.json'));
+      const failure = await finishConfigRepairCase(workspace, async () => {
+        throw primary;
+      }, { requests: () => [] }).catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.errors[0]).toBe(primary);
+      expect(failure.errors[1]).toMatchObject({ code: 'EISDIR' });
       expect(inspectRetention(runRoot, workspace.root)).toMatchObject({
         kind: 'preserve', reasons: ['test_failed'],
       });

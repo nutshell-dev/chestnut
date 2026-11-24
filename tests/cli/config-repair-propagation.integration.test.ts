@@ -189,7 +189,7 @@ describe('real CLI repair save notify and Motion application', () => {
       }, async () => {
         await stopMotionAndConfirm(workspace, pid);
       });
-    });
+    }, { requests: () => server.requests });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 
   it('offline repair does not start a daemon; explicit start applies the saved revision', async context => {
@@ -222,7 +222,7 @@ describe('real CLI repair save notify and Motion application', () => {
       }, async () => {
         await stopMotionAndConfirm(workspace, pid);
       });
-    });
+    }, { requests: () => server.requests });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 
   it('cleanup after work cancellation stops the known daemon PID', async () => {
@@ -247,7 +247,7 @@ describe('real CLI repair save notify and Motion application', () => {
       expect(pid).toBeGreaterThan(1);
       if (pid === undefined) throw new Error('daemon was not started');
       await waitForPidGone(pid);
-    });
+    }, { requests: () => server.requests });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 
   it('cleanup after start result delivery failure stops the daemon without a returned PID', async () => {
@@ -277,7 +277,7 @@ describe('real CLI repair save notify and Motion application', () => {
       expect(recordedPid).toBeGreaterThan(1);
       if (recordedPid === undefined) throw new Error('daemon record was not published');
       await waitForPidGone(recordedPid);
-    });
+    }, { requests: () => server.requests });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 
   it('cleanup after a pre-start failure does not invent or skip workspace stop', async () => {
@@ -297,6 +297,6 @@ describe('real CLI repair save notify and Motion application', () => {
 
       expect(failure).toBe(primary);
       expect(readActiveDaemonPid(workspace)).toBeUndefined();
-    });
+    }, { requests: () => server.requests });
   }, PROPAGATION_TEST_TIMEOUT_MS);
 });

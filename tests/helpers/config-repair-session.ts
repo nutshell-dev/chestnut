@@ -16,7 +16,6 @@ import { runChildProcess, withCleanupPreservingError } from '../utils/child-proc
 import {
   cleanupTempDir,
   createScopedTempDirSync,
-  createTrackedTempDirSync,
 } from '../utils/temp.js';
 import type { RetentionScope } from '../utils/resource-retention.js';
 
@@ -40,13 +39,19 @@ export interface ConfigRepairWorkspace {
   readonly retention: RetentionScope;
 }
 
-export function createConfigRepairWorkspace(baseUrl: string, timeoutMs?: number): ConfigRepairWorkspace {
+export function createConfigRepairWorkspace(
+  baseUrl: string,
+  timeoutMs?: number,
+  options: { readonly afterInitialize?: (root: string, home: string) => void } = {},
+): ConfigRepairWorkspace {
   const { dir: root, retention } = createScopedTempDirSync('chestnut-config-repair-integration-');
-  const home = createTrackedTempDirSync('chestnut-config-repair-home-');
-  fs.mkdirSync(path.join(root, '.chestnut', 'llm'), { recursive: true });
-  fs.mkdirSync(path.join(root, '.chestnut', 'claws'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.chestnut', 'config.yaml'), "version: '1'\n");
-  fs.writeFileSync(path.join(root, '.chestnut', 'llm', 'config.yaml'), `schema_version: 1
+  const home = path.join(root, '.test-home');
+  try {
+    fs.mkdirSync(home);
+    fs.mkdirSync(path.join(root, '.chestnut', 'llm'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.chestnut', 'claws'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.chestnut', 'config.yaml'), "version: '1'\n");
+    fs.writeFileSync(path.join(root, '.chestnut', 'llm', 'config.yaml'), `schema_version: 1
 revision: 1
 primary:
   provider_id: custom:openai
@@ -57,12 +62,26 @@ primary:
   label: main
   base_url: ${baseUrl}
 ${timeoutMs === undefined ? '' : `  timeout_ms: ${timeoutMs}\n`}`);
+    options.afterInitialize?.(root, home);
+  } catch (primary) {
+    try {
+      retention.retain({ code: 'fixture_setup_failed', error: primary });
+    } catch (recording) {
+      throw new AggregateError(
+        [primary, recording],
+        'Workspace setup and recording failed',
+        { cause: primary },
+      );
+    }
+    throw primary;
+  }
   return { root, home, retention };
 }
 
 export async function finishConfigRepairCase<T>(
   workspace: ConfigRepairWorkspace,
   runAndConfirm: () => Promise<T>,
+  evidence: { readonly requests?: () => readonly ConfigRepairRequest[] } = {},
 ): Promise<T> {
   const retainAndThrow = (primary: unknown): never => {
     try {
@@ -74,7 +93,14 @@ export async function finishConfigRepairCase<T>(
   };
   return withCleanupPreservingError(async () => {
     try {
-      const value = await runAndConfirm();
+      const value = await withCleanupPreservingError(runAndConfirm, async () => {
+        if (evidence.requests) {
+          fs.writeFileSync(
+            path.join(workspace.root, 'http-requests.json'),
+            JSON.stringify(evidence.requests()),
+          );
+        }
+      });
       workspace.retention.complete();
       return value;
     } catch (primary) {
@@ -83,7 +109,6 @@ export async function finishConfigRepairCase<T>(
   }, async () => {
     try {
       await cleanupTempDir(workspace.root);
-      await cleanupTempDir(workspace.home);
     } catch (cleanup) {
       return retainAndThrow(cleanup);
     }
@@ -91,7 +116,7 @@ export async function finishConfigRepairCase<T>(
 }
 
 export function configRepairEnv(root: string, home: string, withKey: boolean): NodeJS.ProcessEnv {
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     CHESTNUT_ROOT: root,
     CHESTNUT_HOME: home,

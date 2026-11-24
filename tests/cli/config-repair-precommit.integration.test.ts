@@ -76,7 +76,7 @@ describe('real CLI repair precommit failures', () => {
       expect(readConfigRepairRaw(workspace.root)).toEqual(before);
       expect(credentialRefs(workspace)).toEqual(beforeCredentials);
       expect(server.requests).toHaveLength(0);
-    });
+    }, { requests: () => server.requests });
   }, PRECOMMIT_TEST_TIMEOUT_MS);
 
   it('fallback HTTP rejection does not commit and discards only the new credential', async context => {
@@ -109,7 +109,7 @@ describe('real CLI repair precommit failures', () => {
       expect(server.requests[0]?.headers.authorization).toBe('Bearer fallback-temporary-secret');
       expect(`${outcome.stdout}\n${outcome.stderr}\n${credentialText(workspace)}`)
         .not.toContain('fallback-temporary-secret');
-    });
+    }, { requests: () => server.requests });
   }, PRECOMMIT_TEST_TIMEOUT_MS);
 
   it('missing header ref cannot be misreported as another slot repair', async context => {
@@ -133,7 +133,7 @@ describe('real CLI repair precommit failures', () => {
       expect(readConfigRepairRaw(workspace.root)).toEqual(before);
       expect(server.requests).toHaveLength(0);
       expect(outcome.stdout).toContain('PHASE2226_MISSING_HEADER');
-    });
+    }, { requests: () => server.requests });
   }, PRECOMMIT_TEST_TIMEOUT_MS);
 
   it('provider timeout does not advance revision and cleans the unreferenced new key', async context => {
@@ -155,6 +155,6 @@ describe('real CLI repair precommit failures', () => {
       expect(server.requests[0]?.model).toBe('original-model');
       expect(`${outcome.stdout}\n${outcome.stderr}\n${credentialText(workspace)}`)
         .not.toContain('timeout-temporary-secret');
-    });
+    }, { requests: () => server.requests });
   }, PRECOMMIT_TEST_TIMEOUT_MS);
 });
