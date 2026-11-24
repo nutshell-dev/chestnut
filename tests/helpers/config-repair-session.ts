@@ -297,6 +297,34 @@ export async function runConfigRepairSession(
     await closed;
     await terminationPromise;
   } catch (error) {
+    if (capture?.kind === 'captured') {
+      if (!terminationPromise) {
+        terminationPromise = terminateExecutionTarget(capture.target, 'caller_requested')
+          .then(outcome => { termination = outcome; });
+      }
+      try {
+        await closed;
+        await terminationPromise;
+      } catch (cleanup) {
+        throw new AggregateError([error, cleanup], 'PTY driver and execution cleanup failed', { cause: error });
+      }
+      const observation = observeExecutionTarget(capture.target);
+      if (observation.kind === 'gone') throw error;
+      const result = makeResult('unconfirmed', ready, observation);
+      const primary = new ConfigRepairSessionError(
+        'PTY driver failed and the execution group is not confirmed gone', result, { cause: error },
+      );
+      try {
+        workspace.retention.retain({
+          code: 'unconfirmed_process_group',
+          error: primary,
+          evidence: { capture, observation, termination, ready, wrapper: { status, signal: exitSignal } },
+        });
+      } catch (recording) {
+        throw new AggregateError([primary, recording], 'Session and retention recording failed', { cause: primary });
+      }
+      throw primary;
+    }
     if (child.exitCode === null && child.signalCode === null) {
       try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* best effort after driver failure */ }
     }
@@ -328,7 +356,13 @@ export async function runConfigRepairSession(
   }
 
   const result = makeResult('gone', ready, observation);
-  if (requested) throw new ConfigRepairSessionError(requested.message, result, { cause: requested.cause });
+  if (requested) {
+    throw new ConfigRepairSessionError(
+      `${requested.message} at answer ${answerIndex}/${answers.length}: ${stdout}\n${stderr}`,
+      result,
+      { cause: requested.cause },
+    );
+  }
   if (answerIndex < answers.length) {
     throw new ConfigRepairSessionError(
       `interactive CLI exited after ${answerIndex}/${answers.length} answers`, result,

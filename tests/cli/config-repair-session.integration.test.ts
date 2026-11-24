@@ -8,7 +8,10 @@ import {
   runConfigRepairSession,
   type ConfigRepairWorkspace,
 } from '../helpers/config-repair-session.js';
-import { terminateExecutionTarget } from '../../src/foundation/process-exec/index.js';
+import {
+  captureExecutionTarget,
+  terminateExecutionTarget,
+} from '../../src/foundation/process-exec/index.js';
 import { inspectRetention } from '../utils/resource-retention.js';
 import { cleanupTempDir, createTrackedTempDirSync, untrackTempDir } from '../utils/temp.js';
 
@@ -138,6 +141,26 @@ describe('config repair session process lifecycle', () => {
       });
       expect(result.execution.kind).toBe('gone');
       expect(fs.existsSync(result.exitedPath)).toBe(false);
+    });
+  });
+
+  it('onReady failure terminates the real worker before returning the original error', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled onReady failure');
+      let identity: { leaderPid: number; processGroupId: number } | undefined;
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'finite', lifetimeMs: 5_000,
+        onReady: ready => {
+          identity = { leaderPid: ready.pid, processGroupId: ready.processGroupId };
+          throw primary;
+        },
+      }).catch(error => error);
+
+      expect(failure).toBe(primary);
+      expect(identity).toBeDefined();
+      if (!identity) throw new Error('ready identity was not captured');
+      expect(captureExecutionTarget(identity).kind).toBe('gone');
     });
   });
 
