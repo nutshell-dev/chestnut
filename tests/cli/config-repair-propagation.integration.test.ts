@@ -24,6 +24,7 @@ import {
 const PROPAGATION_TEST_TIMEOUT_MS = 90_000;
 const APPLICATION_WAIT_TIMEOUT_MS = 20_000;
 const PROCESS_WAIT_TIMEOUT_MS = 5_000;
+const CLEANUP_STOP_TIMEOUT_MS = 30_000;
 const POLL_MS = 25;
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 const deps = { fsFactory };
@@ -116,8 +117,11 @@ async function repair(workspace: ConfigRepairWorkspace, signal: AbortSignal): Pr
   expect(readConfigRepairRaw(workspace.root).document.revision).toBe(2);
 }
 
-async function stopOwnedMotion(workspace: ConfigRepairWorkspace, signal: AbortSignal): Promise<void> {
-  const stopped = await runConfigRepairCli(workspace, ['motion', 'stop'], signal);
+async function stopOwnedMotion(workspace: ConfigRepairWorkspace): Promise<void> {
+  // Work cancellation and cleanup cancellation are independent: a cancelled
+  // caller must not prevent the owned daemon from being stopped.
+  const cleanupSignal = AbortSignal.timeout(CLEANUP_STOP_TIMEOUT_MS);
+  const stopped = await runConfigRepairCli(workspace, ['motion', 'stop'], cleanupSignal);
   expect(stopped.status, `${stopped.stdout}\n${stopped.stderr}`).toBe(0);
 }
 
@@ -153,7 +157,7 @@ describe('real CLI repair save notify and Motion application', () => {
         expect(server.requests.some(request => request.model === 'after-repair')).toBe(true);
       }, async () => {
         if (pid !== undefined) {
-          await stopOwnedMotion(workspace, context.signal);
+          await stopOwnedMotion(workspace);
           await waitForPidGone(pid);
         }
       });
@@ -189,10 +193,42 @@ describe('real CLI repair save notify and Motion application', () => {
         });
       }, async () => {
         if (pid !== undefined) {
-          await stopOwnedMotion(workspace, context.signal);
+          await stopOwnedMotion(workspace);
           await waitForPidGone(pid);
         }
       });
     });
   }, PROPAGATION_TEST_TIMEOUT_MS);
+
+  it.each(['work cancellation', 'uncertain start result'])(
+    'cleanup uses an independent signal after %s and stops the real daemon',
+    async scenario => {
+      const workspace = createConfigRepairWorkspace(server.baseUrl);
+      writeWorkspaceCredential(workspace);
+      await finishConfigRepairCase(workspace, async () => {
+        const controller = new AbortController();
+        const primary = new Error(`controlled ${scenario}`);
+        let pid: number | undefined;
+        const failure = await withCleanupPreservingError(async () => {
+          await runCommand(workspace, ['init'], controller.signal);
+          await runCommand(workspace, ['motion', 'init'], controller.signal);
+          const started = await runCommand(workspace, ['motion', 'daemon'], controller.signal);
+          pid = daemonPid(started.stdout);
+          controller.abort(primary);
+          throw primary;
+        }, async () => {
+          if (pid !== undefined) {
+            await stopOwnedMotion(workspace);
+            await waitForPidGone(pid);
+          }
+        }).catch(error => error);
+
+        expect(failure).toBe(primary);
+        expect(pid).toBeGreaterThan(1);
+        if (pid === undefined) throw new Error('daemon was not started');
+        await waitForPidGone(pid);
+      });
+    },
+    PROPAGATION_TEST_TIMEOUT_MS,
+  );
 });
