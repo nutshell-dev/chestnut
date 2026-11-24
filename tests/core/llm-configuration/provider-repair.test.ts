@@ -72,11 +72,11 @@ describe('single-provider credential resolution', () => {
     const store = createLLMConfigurationDocumentStore(deps);
     await store.commitExplicitProvider({ kind: 'initialize' }, {
       ...provider('primary'),
-      extra_headers: { 'X-Target': '${PHASE2221_SHARED_MISSING}' },
+      base_url: 'https://${PHASE2221_SHARED_MISSING}.example.test',
     });
     await store.commitExplicitProvider({ kind: 'fallback' }, {
       ...provider('fallback', '${PHASE2221_SHARED_MISSING}'),
-      extra_headers: { 'X-Target': '${PHASE2221_SHARED_MISSING}' },
+      base_url: 'https://${PHASE2221_SHARED_MISSING}.example.test',
     });
 
     let missing: unknown;
