@@ -283,6 +283,17 @@ describe('resource retention integration', () => {
     const sample = path.join(fixture, 'sample.bin');
     const bytes = Buffer.from([0, 1, 254, 255]);
     fs.writeFileSync(sample, bytes);
+    const pending = beginRetentionScope({
+      runRoot,
+      protectedPaths: [],
+      label: 'pending unlocated direct child',
+    });
+    expect(pending.id).not.toBe('');
+    const pendingControl = path.join(runRoot, 'pending-local-control');
+    fs.mkdirSync(pendingControl);
+    await cleanupTempDir(pendingControl);
+    expect(fs.existsSync(pendingControl)).toBe(false);
+
     const retention = beginRetentionScope({
       runRoot,
       protectedPaths: [],

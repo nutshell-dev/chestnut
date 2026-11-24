@@ -392,7 +392,7 @@ export function inspectRetention(runRoot: string, targetPath?: string): Retentio
     if (state.completed && !state.retained) continue;
     const rootInspection = canonicalTarget === undefined || relativeInside(canonicalTarget, canonicalRoot) !== null;
     const pathMatch = canonicalTarget !== undefined
-      && (state.protectedPaths.length === 0
+      && ((state.protectedPaths.length === 0 && state.retained)
         || state.protectedPaths.some(protectedPath => pathsIntersect(protectedPath, canonicalTarget)));
     if (!rootInspection && !pathMatch) continue;
     scopeIds.push(id);
