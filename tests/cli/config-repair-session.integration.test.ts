@@ -722,6 +722,51 @@ describe('config repair session process lifecycle', () => {
     }
   });
 
+  it('keeps stdout and stderr emitted during termination through final evidence', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const primary = new Error('controlled stop for final output');
+      const failure = await runConfigRepairSession(workspace, [], [], new AbortController().signal, false, {
+        mode: 'final-output', lifetimeMs: 30_000,
+        onReady: () => { throw primary; },
+        spawnPty: (command, env, cwd) => spawn(command[0], command.slice(1), {
+          cwd, env, detached: true, stdio: 'pipe',
+        }),
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.result.execution.kind).toBe('gone');
+      expect(failure.result.wrapper.close.kind).toBe('closed');
+      expect(failure.result.stdout).toContain('FINAL_STDOUT_SENTINEL');
+      expect(failure.result.stderr).toContain('FINAL_STDERR_SENTINEL');
+      const evidence = fs.readFileSync(failure.result.evidencePath, 'utf8');
+      expect(evidence).toContain('FINAL_STDOUT_SENTINEL');
+      expect(evidence).toContain('FINAL_STDERR_SENTINEL');
+    });
+  });
+
+  it('consumes one prompt occurrence only once even when later noise changes the tail', async () => {
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    await finishConfigRepairCase(workspace, async () => {
+      const failure = await runConfigRepairSession(workspace, [], [
+        { prompt: /PROMPT>/, value: 'first' },
+        { prompt: /PROMPT>/, value: 'second' },
+      ], new AbortController().signal, false, {
+        mode: 'single-prompt', lifetimeMs: 5_000,
+      }).catch(error => error);
+      expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+      expect(failure.result.execution.kind).toBe('gone');
+      expect(failure.result.status).toBe(0);
+      expect(failure.result.stdout).toContain('noise while processing first answer');
+      const input = JSON.parse(
+        fs.readFileSync(path.join(workspace.root, 'input-observed.json'), 'utf8'),
+      ) as string[];
+      expect(input).toHaveLength(1);
+      expect(input[0]).toContain('first');
+      expect(input[0]).not.toContain('second');
+    });
+  });
+
   it('synchronous spawn failure returns not_started evidence without inventing a PID', async () => {
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
     await finishConfigRepairCase(workspace, async () => {
@@ -881,6 +926,86 @@ describe('config repair session process lifecycle', () => {
         fs.rmSync(root, { recursive: true, force: true });
         untrackTempDir(root);
       }
+    }
+  });
+
+  it('initialization and retention failures preserve the first cause and workspace', () => {
+    const runRoot = useIsolatedRunRoot();
+    const primary = new Error('controlled setup and retention failure');
+    let root: string | undefined;
+    try {
+      const failure = (() => {
+        try {
+          createConfigRepairWorkspace('http://127.0.0.1:1/v1', undefined, {
+            afterInitialize: initializedRoot => {
+              root = initializedRoot;
+              const record = path.join(runRoot, 'test-resource-failures.jsonl');
+              fs.rmSync(record);
+              fs.mkdirSync(record);
+              throw primary;
+            },
+          });
+        } catch (error) {
+          return error;
+        }
+      })();
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.cause).toBe(primary);
+      expect(failure.errors[0]).toBe(primary);
+      expect(failure.errors[1]).toMatchObject({
+        name: 'RetentionWriteError', publication: 'not_published',
+      });
+      expect(fs.existsSync(path.join(root!, '.test-home'))).toBe(true);
+    } finally {
+      if (root) {
+        fs.rmSync(root, { recursive: true, force: true });
+        untrackTempDir(root);
+      }
+    }
+  });
+
+  it('published completion with fsync and retained-open failures stops local deletion', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    const record = path.join(runRoot, 'test-resource-failures.jsonl');
+    const completeFault = Object.assign(new Error('controlled complete fsync EIO'), { code: 'EIO' });
+    const retainFault = Object.assign(new Error('controlled retain open ENOSPC'), { code: 'ENOSPC' });
+    const actualOpen = fs.openSync;
+    const actualFsync = fs.fsyncSync;
+    let appendCount = 0;
+    let ownedFd: number | undefined;
+    const openSpy = vi.spyOn(fs, 'openSync').mockImplementation((file: any, ...args: any[]) => {
+      if (file === record && args[0] === 'a') {
+        appendCount += 1;
+        if (appendCount > 1) throw retainFault;
+        ownedFd = actualOpen(file, ...args);
+        return ownedFd;
+      }
+      return actualOpen(file, ...args);
+    });
+    const fsyncSpy = vi.spyOn(fs, 'fsyncSync').mockImplementation((fd: number) => {
+      if (fd === ownedFd) throw completeFault;
+      return actualFsync(fd);
+    });
+    try {
+      fs.writeFileSync(path.join(workspace.home, 'sentinel'), 'original evidence');
+      const failure = await finishConfigRepairCase(workspace, async () => 42).catch(error => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.errors[0]).toMatchObject({
+        name: 'RetentionWriteError', publication: 'published', cause: completeFault,
+      });
+      expect(failure.errors[1]).toMatchObject({
+        name: 'RetentionWriteError', publication: 'not_published', cause: retainFault,
+      });
+      expect(appendCount).toBe(2);
+      expect(inspectRetention(runRoot, workspace.root)).toEqual({ kind: 'allow' });
+      expect(fs.existsSync(workspace.root)).toBe(true);
+      expect(fs.readFileSync(path.join(workspace.home, 'sentinel'), 'utf8')).toBe('original evidence');
+    } finally {
+      openSpy.mockRestore();
+      fsyncSpy.mockRestore();
+      discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
     }
   });
 

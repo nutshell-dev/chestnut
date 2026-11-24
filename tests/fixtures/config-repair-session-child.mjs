@@ -20,14 +20,30 @@ function publish(readyPath, exitedPath, mode, extra = {}) {
   process.send?.({ type: 'ready', pid: process.pid, exitedPath });
 }
 
+const INPUT_EXIT_DELAY_MS = 20;
+
 function finite(readyPath, exitedPath, mode, lifetimeArg) {
   publish(readyPath, exitedPath, mode, mode === 'orphan' ? { groupChildPid: process.pid } : {});
   const finish = signal => {
+    if (mode === 'final-output') {
+      fs.writeSync(1, 'FINAL_STDOUT_SENTINEL\n');
+      fs.writeSync(2, 'FINAL_STDERR_SENTINEL\n');
+    }
     fs.writeFileSync(exitedPath, JSON.stringify({ pid: process.pid, signal }));
     process.exit(0);
   };
   process.on('SIGTERM', () => finish('SIGTERM'));
   process.on('SIGINT', () => finish('SIGINT'));
+  if (mode === 'single-prompt') {
+    const inputs = [];
+    process.stdout.write('PROMPT>');
+    process.stdin.on('data', chunk => {
+      inputs.push(chunk.toString());
+      fs.writeFileSync(path.join(process.cwd(), 'input-observed.json'), JSON.stringify(inputs));
+      process.stdout.write('\nnoise while processing first answer\n');
+      setTimeout(() => finish('input'), INPUT_EXIT_DELAY_MS);
+    });
+  }
   setTimeout(() => finish('lifetime'), Number(lifetimeArg ?? '5000'));
 }
 
@@ -46,6 +62,7 @@ if (first === '--worker') {
   if (!readyPath || !exitedPath || !mode) {
     throw new Error('usage: config-repair-session-child.mjs READY EXITED MODE [ARGS]');
   }
+  if (mode === 'final-output') process.on('SIGTERM', () => {});
   const child = spawn(process.execPath, [
     selfPath, '--worker', readyPath, exitedPath, mode, ...args,
   ], {

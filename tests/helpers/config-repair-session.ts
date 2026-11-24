@@ -92,6 +92,7 @@ export async function finishConfigRepairCase<T>(
     }
     throw primary;
   };
+  let completionFailed = false;
   return withCleanupPreservingError(async () => {
     try {
       const value = await withCleanupPreservingError(runAndConfirm, async () => {
@@ -102,12 +103,23 @@ export async function finishConfigRepairCase<T>(
           );
         }
       });
-      workspace.retention.complete();
+      try {
+        workspace.retention.complete();
+      } catch (error) {
+        // A completed record may already be published even when fsync/close
+        // reports an error. Its current retention view can therefore say
+        // "allow" after a later retained append also fails. The caller must
+        // stop deleting locally instead of laundering that uncertainty through
+        // inspectRetention's otherwise correct completed-state decision.
+        completionFailed = true;
+        throw error;
+      }
       return value;
     } catch (primary) {
       return retainAndThrow(primary);
     }
   }, async () => {
+    if (completionFailed) return;
     try {
       await cleanupTempDir(workspace.root);
     } catch (cleanup) {
@@ -209,7 +221,7 @@ export class ConfigRepairSessionError extends Error {
 }
 
 export interface SessionOptions {
-  readonly mode?: 'cli' | 'finite' | 'orphan';
+  readonly mode?: 'cli' | 'finite' | 'orphan' | 'final-output' | 'single-prompt';
   readonly lifetimeMs?: number;
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;
@@ -434,9 +446,9 @@ export async function runConfigRepairSession(
   let status: number | null = null;
   let exitSignal: NodeJS.Signals | null = null;
   let answerIndex = 0;
-  let lastPrompt = '';
+  let promptTail = '';
   let responseTimer: NodeJS.Timeout | undefined;
-  let pendingAnswer: { index: number; tail: string } | undefined;
+  let pendingAnswer: { index: number } | undefined;
   let writing = false;
   let acceptInput = true;
   let ready: ReadyFact | undefined;
@@ -633,12 +645,16 @@ export async function runConfigRepairSession(
   const onStdout = (chunk: string): void => {
     stdout += chunk;
     if (!acceptInput || pendingAnswer !== undefined || writing || answerIndex >= answers.length) return;
-    const plainTail = stdout.slice(-1_000).replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
-    if (plainTail === lastPrompt) return;
+    promptTail += chunk.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
     const answer = answers[answerIndex];
     answer.prompt.lastIndex = 0;
-    if (!answer.prompt.test(plainTail)) return;
-    pendingAnswer = { index: answerIndex, tail: plainTail };
+    const match = answer.prompt.exec(promptTail);
+    if (!match) return;
+    // Consume this prompt occurrence, not merely the current tail string.
+    // Later noise may change the tail, but it must not make an already
+    // consumed prompt eligible for the next answer.
+    promptTail = promptTail.slice(match.index + match[0].length);
+    pendingAnswer = { index: answerIndex };
     responseTimer = setTimeout(() => {
       responseTimer = undefined;
       const pending = pendingAnswer;
@@ -654,7 +670,6 @@ export async function runConfigRepairSession(
           }
           if (pendingAnswer === pending) {
             answerIndex = pending.index + 1;
-            lastPrompt = pending.tail;
             pendingAnswer = undefined;
           }
         });
@@ -737,8 +752,6 @@ export async function runConfigRepairSession(
   if (responseTimer) clearTimeout(responseTimer);
   responseTimer = undefined;
   pendingAnswer = undefined;
-  child.stdout.off('data', onStdout);
-  child.stderr.off('data', onStderr);
 
   const observeWorker = (): void => {
     if (capture === undefined || !('target' in capture)) return;
@@ -904,6 +917,11 @@ export async function runConfigRepairSession(
     }
   }
 
+  // Keep collecting output throughout worker/wrapper termination and stream
+  // close. Detach only at the confirmed end or the explicit observation
+  // deadline; output already received before this point is part of the result.
+  child.stdout.off('data', onStdout);
+  child.stderr.off('data', onStderr);
   const result = makeResult();
   finalized = true;
   let evidenceError: unknown;
