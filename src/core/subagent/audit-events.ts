@@ -43,6 +43,9 @@ export const SUBAGENT_AUDIT_EVENTS = {
   PARTIAL_ASSISTANT_DISCARDED: 'partial_assistant_discarded',
   // Phase 1933 Step D: 续跑 checkpoint 损坏/缺字段/事实不自洽 → 回退无 cursor 路径的原因留证
   RECOVERY_FALLBACK: 'subagent_recovery_fallback',
+  // Phase 2248 Step C: persistent execution admission and record commit evidence.
+  EXECUTION_IDENTITY_CONFLICT: 'subagent_execution_identity_conflict',
+  EXECUTION_RECORD_COMMITTED: 'subagent_execution_record_committed',
 } as const;
 
 /**
@@ -91,4 +94,6 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_artifact_cross_source_skipped: 'audit',
   partial_assistant_discarded: 'audit',  // phase 688 NEW
   subagent_recovery_fallback: 'audit',   // Phase 1933 Step D
+  subagent_execution_identity_conflict: 'audit',
+  subagent_execution_record_committed: 'audit',
 } as const;

@@ -11,11 +11,50 @@ export type { DegradedArtifact } from './agent.js';
 export type { RunSubagentOptions, RunSubagentResult } from './run.js';
 export { createDoneTool, DONE_TOOL_NAME } from './tools/done.js';
 export { createPerTaskRegistry } from './registry-helper.js';
-export { SUBAGENT_TIMEOUT_MS, TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_SNAPSHOT_IGNORE } from './constants.js';
+export { SUBAGENT_TIMEOUT_MS, TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_SNAPSHOT_IGNORE, SUBAGENT_EXECUTION_DIR } from './constants.js';
 // phase 1879 Step C: subagent run 结果目录存在性查询（布局归 owner；0-instance-dep 只读）
 export { resolveSubagentRunDir } from './result-dir-query.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
+
+// Phase 2248 Step C: persistent identity/admission and observation capability.
+// The existing run/agent loops remain unchanged until Step D.
+export { createSubagentRunner, SubagentExecutionReference, SubagentRunnerImpl } from './execution-reference.js';
+export {
+  createSubagentExecutionStore,
+  normalizeSubagentLocation,
+  SubagentAttemptWriter,
+  SubagentExecutionStore,
+  SubagentExecutionStoreError,
+  SubagentOwnerUnavailableError,
+} from './execution-store.js';
+export type { SubagentAttemptClaim, SubagentClaimResult, SubagentExecutionRead, SubagentTransitionResult } from './execution-store.js';
+export type {
+  SubagentArtifactReference,
+  SubagentExecutionDegraded,
+  SubagentExecutionIdentity,
+  SubagentExecutionLocation,
+  SubagentExecutionObserver,
+  SubagentExecutionOptions,
+  SubagentExecutionPersistence,
+  SubagentExecutionQuery,
+  SubagentExecutionRef,
+  SubagentExecutionState,
+  SubagentExecutionView,
+  SubagentExecutionWriteEvidence,
+  SubagentFinalOutcome,
+  SubagentJsonValue,
+  SubagentObservation,
+  SubagentOutcomeKind,
+  SubagentProcessCapability,
+  SubagentRecoveryFact,
+  SubagentResumeRequest,
+  SubagentRunner,
+  SubagentSettlementInput,
+  SubagentStartRequest,
+  SubagentStopReceipt,
+  SubagentTransition,
+} from './execution-types.js';
 
 // Phase 1933 Step D: 通用安全续跑（恢复 checkpoint store + 游标类型）
 // Phase 1933 Step G: 游标安全边界（commitConversation + 不确定副作用 typed 错误）

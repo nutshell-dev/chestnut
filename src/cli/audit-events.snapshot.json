@@ -586,6 +586,8 @@
       "subagent_artifact_cross_source_skipped",
       "subagent_capture_protocol_malformed",
       "subagent_done_tool_duplicate_call",
+      "subagent_execution_identity_conflict",
+      "subagent_execution_record_committed",
       "subagent_idle_timeout_callback_failed",
       "subagent_log_append_failed",
       "subagent_persist_failed",
@@ -930,6 +932,10 @@
       "tool_gate_denied",
       "tools_invariant_violation",
       "tool_exec_race_loser",
+      "tool_execution_cleanup_pending",
+      "tool_execution_persist_failed",
+      "tool_execution_settled",
+      "tool_execution_stop_requested",
       "stop_requested"
     ],
     "core_claw-topology_audit-events": [
