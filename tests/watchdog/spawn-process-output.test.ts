@@ -62,7 +62,18 @@ describe('spawnWatchdogCandidate process output', () => {
     const options = h.spawnDetached.mock.calls[0][2];
     const expected = path.join(tmpDir, '.chestnut', WATCHDOG_PATHS.process_output);
     expect(options.logFile).toBe(expected);
-    expect(options.env.CHESTNUT_WATCHDOG_ATTEMPT_ID).toBe('recovery-initial-candidate-0');
+    const committed = JSON.parse(fs.readFileSync(path.join(
+      tmpDir,
+      '.chestnut',
+      'watchdog',
+      'recovery',
+      'windows',
+      'recovery-initial',
+      'attempts',
+      '0',
+      'admission.json',
+    ), 'utf8'));
+    expect(options.env.CHESTNUT_WATCHDOG_ATTEMPT_ID).toBe(committed.attemptId);
     expect(fs.statSync(path.dirname(expected)).isDirectory()).toBe(true);
   });
 

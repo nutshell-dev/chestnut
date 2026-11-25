@@ -5,7 +5,7 @@
  * 用 node:fs 原语实现 candidate→active / active→retired rename 协议
  * （仲裁单位 = rename syscall；本 fixture 证 OS 级单 winner）。
  *
- * usage: node ownership-race-child.mjs <chestnutDir> <barrierDir> <commit|recover> [expectedOwnerJson]
+ * usage: node ownership-race-child.mjs <chestnutDir> <barrierDir> <commit|recover|admit-stale|admit-latest> [payloadJson]
  *   recover 模式下 expectedOwnerJson 是父级提供的旧 generation owner record（attempt_id/owner_token/pid），
  *   用于防迟到 reclaimer 误动 fresh active；与生产 retireOwnership 的 expected 检查等价。
  * stdout 协议（每行一条）：
@@ -13,11 +13,13 @@
  *   loser <pid> <winnerPid>         commit collision（已写 candidate outcome.json）
  *   retired <pid> <oldToken>        stale retire rename 成功
  *   retire_lost <pid> <oldToken>    retire 竞争失败（含 active 已被移走）
- *   rejected <pid>                  bounded-commit 未获得固定预算 slot
+ *   rejected <pid> [windowId]       bounded admission 未获得固定预算 slot
+ *   admitted <pid> <windowId> <attemptId>  有界后继 admission 成功
  *   timeout <pid>                   barrier 超时（exit 2）
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const [chestnutDir, barrierDir, mode, expectedOwnerJson] = process.argv.slice(2);
 const expectedOwner = mode === 'recover' && expectedOwnerJson ? JSON.parse(expectedOwnerJson) : null;
@@ -47,6 +49,123 @@ function ownerRecord(token) {
     workspace_root: chestnutDir,
     created_at: new Date().toISOString(),
   }, null, 2);
+}
+
+function admissionId(windowId, slot) {
+  const legacy = `${windowId}-candidate-${slot}`;
+  if (Buffer.byteLength(legacy, 'utf8') <= 96) return legacy;
+  return `ca2-${createHash('sha256').update(JSON.stringify([windowId, slot])).digest('hex')}`;
+}
+
+function admitSuccessor() {
+  const windows = path.join(chestnutDir, 'watchdog', 'recovery', 'windows');
+  const staleOwner = mode === 'admit-stale' && expectedOwnerJson
+    ? JSON.parse(expectedOwnerJson)
+    : null;
+  let predecessor;
+  let generation;
+  let selectedId;
+  if (staleOwner) {
+    predecessor = { kind: 'attempt', id: staleOwner.attempt_id };
+    const parent = JSON.parse(fs.readFileSync(
+      path.join(windows, staleOwner.recovery_window_id, 'window.json'), 'utf8'));
+    generation = parent.generation + 1;
+  } else {
+    const latestId = fs.readdirSync(windows)
+      .filter((entry) => !entry.startsWith('.'))
+      .map((windowId) => ({
+        windowId,
+        seed: JSON.parse(fs.readFileSync(path.join(windows, windowId, 'window.json'), 'utf8')),
+      }))
+      .sort((a, b) => a.seed.generation - b.seed.generation || a.windowId.localeCompare(b.windowId))
+      .at(-1).windowId;
+    const winnerPath = path.join(windows, latestId, 'winner.json');
+    const closedPath = path.join(windows, latestId, 'closed.json');
+    if (!fs.existsSync(winnerPath) && !fs.existsSync(closedPath)) {
+      selectedId = latestId;
+    } else {
+      const latestSeed = JSON.parse(fs.readFileSync(path.join(windows, latestId, 'window.json'), 'utf8'));
+      generation = latestSeed.generation + 1;
+      predecessor = fs.existsSync(winnerPath)
+        ? { kind: 'attempt', id: JSON.parse(fs.readFileSync(winnerPath, 'utf8')).attemptId }
+        : { kind: 'window', id: latestId };
+    }
+  }
+
+  if (predecessor) {
+    const boundedId = `rw2-${createHash('sha256')
+      .update(JSON.stringify([predecessor.kind, predecessor.id])).digest('hex')}`;
+    const legacyId = `recovery-after-${predecessor.id}`;
+    const legacyExists = Buffer.byteLength(legacyId, 'utf8') <= 255 &&
+      fs.existsSync(path.join(windows, legacyId));
+    const boundedExists = fs.existsSync(path.join(windows, boundedId));
+    if (legacyExists && boundedExists) throw new Error('Recovery successor divergence');
+    selectedId = legacyExists ? legacyId : boundedId;
+    if (!legacyExists && !boundedExists) {
+      const staging = path.join(windows, `.opening-${process.pid}`);
+      const seed = {
+        schemaVersion: 2,
+        windowId: boundedId,
+        openedAtMs: Date.now(),
+        generation,
+        budget: 4,
+        state: 'open',
+        predecessor,
+      };
+      fs.mkdirSync(staging, { recursive: true });
+      fs.writeFileSync(path.join(staging, 'window.json'), JSON.stringify(seed, null, 2));
+      try {
+        fs.renameSync(staging, path.join(windows, boundedId));
+      } catch (error) {
+        fs.rmSync(staging, { recursive: true, force: true });
+        if (!fs.existsSync(path.join(windows, boundedId))) throw error;
+        const winner = JSON.parse(fs.readFileSync(path.join(windows, boundedId, 'window.json'), 'utf8'));
+        if (winner.schemaVersion !== 2 || winner.windowId !== boundedId ||
+            winner.generation !== generation ||
+            JSON.stringify(winner.predecessor) !== JSON.stringify(predecessor)) {
+          throw new Error('Recovery successor identity mismatch');
+        }
+      }
+    }
+  }
+
+  const selectedDir = path.join(windows, selectedId);
+  const seed = JSON.parse(fs.readFileSync(path.join(selectedDir, 'window.json'), 'utf8'));
+  const attempts = path.join(selectedDir, 'attempts');
+  fs.mkdirSync(attempts, { recursive: true });
+  for (let slot = 0; slot < seed.budget; slot++) {
+    const slotDir = path.join(attempts, String(slot));
+    const attemptId = admissionId(selectedId, slot);
+    const admission = {
+      schemaVersion: 1,
+      attemptId,
+      windowId: selectedId,
+      slot,
+      admittedAtMs: Date.now(),
+      callerPid: process.pid,
+    };
+    const staging = path.join(attempts, `.admitting-${process.pid}`);
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, 'admission.json'), JSON.stringify(admission, null, 2));
+    try {
+      fs.renameSync(staging, slotDir);
+    } catch (error) {
+      fs.rmSync(staging, { recursive: true, force: true });
+      if (fs.existsSync(slotDir)) continue;
+      throw error;
+    }
+    const candidate = path.join(chestnutDir, 'watchdog', 'candidates', attemptId);
+    fs.mkdirSync(candidate, { recursive: true });
+    fs.writeFileSync(path.join(candidate, 'admission.json'), JSON.stringify(admission, null, 2));
+    console.log(`admitted ${process.pid} ${selectedId} ${attemptId}`);
+    return;
+  }
+  const rejection = path.join(chestnutDir, 'watchdog', 'recovery', 'rejections', selectedId);
+  fs.mkdirSync(rejection, { recursive: true });
+  fs.writeFileSync(path.join(rejection, `${process.pid}.json`), JSON.stringify({
+    kind: 'rejected', reason: 'budget_exhausted', windowId: selectedId,
+  }));
+  console.log(`rejected ${process.pid} ${selectedId}`);
 }
 
 function boundedCommit() {
@@ -173,4 +292,5 @@ function recover() {
 await waitForGo();
 if (mode === 'commit') commit();
 else if (mode === 'bounded-commit') boundedCommit();
+else if (mode === 'admit-stale' || mode === 'admit-latest') admitSuccessor();
 else recover();

@@ -60,9 +60,14 @@ interface ChildResult {
  *  每个 child 的 stdout/stderr 被完整收集；非零退出时 reject 包含输出供审计。
  *  recover 模式可传入父级已确认的旧 generation owner record，防止迟到 reclaimer 误动 fresh active。 */
 async function runWave(
-  mode: 'commit' | 'bounded-commit' | 'recover',
+  mode: 'commit' | 'bounded-commit' | 'recover' | 'admit-stale' | 'admit-latest',
   n: number,
-  expectedOwner?: { attempt_id: string; owner_token: string; pid: number } | null,
+  expectedOwner?: {
+    attempt_id: string;
+    owner_token: string;
+    pid: number;
+    recovery_window_id?: string;
+  } | null,
 ): Promise<string[]> {
   const barrierDir = path.join(tmpDir, `barrier-${mode}-${randomUUID()}`);
   fs.mkdirSync(barrierDir, { recursive: true });
@@ -70,7 +75,7 @@ async function runWave(
   const children: ReturnType<typeof spawn>[] = [];
   const results = new Map<ReturnType<typeof spawn>, ChildResult>();
   const args = [CHILD_FIXTURE, chestnutDir, barrierDir, mode];
-  if (mode === 'recover' && expectedOwner) {
+  if ((mode === 'recover' || mode === 'admit-stale') && expectedOwner) {
     args.push(JSON.stringify(expectedOwner));
   }
   for (let i = 0; i < n; i++) {
@@ -183,6 +188,55 @@ describe('真实多进程 ownership race', () => {
     const rejections = fs.readdirSync(path.join(
       chestnutDir, 'watchdog', 'recovery', 'rejections', 'recovery-initial'));
     expect(rejections).toHaveLength(size - budget);
+  }, COMMIT_RACE_RUNNER_TIMEOUT_MS);
+
+  it.each([
+    { mode: 'admit-stale' as const, source: 'stale owner attempt' },
+    { mode: 'admit-latest' as const, source: 'latest winner attempt' },
+  ])('同一前代并发准入（$source）：只发布一份有界窗口预算', async ({ mode }) => {
+    const parentId = `recovery-after-${'p'.repeat(220)}`;
+    const parentAttempt = `${parentId}-candidate-0`;
+    const parentDir = path.join(chestnutDir, 'watchdog', 'recovery', 'windows', parentId);
+    fs.mkdirSync(parentDir, { recursive: true });
+    const parentSeed = JSON.stringify({
+      schemaVersion: 1,
+      windowId: parentId,
+      openedAtMs: 1_008,
+      generation: 8,
+      budget: 4,
+      state: 'open',
+    }, null, 2);
+    fs.writeFileSync(path.join(parentDir, 'window.json'), parentSeed);
+    fs.writeFileSync(path.join(parentDir, 'winner.json'), JSON.stringify({ attemptId: parentAttempt }));
+
+    const lines = await runWave(mode, 8, {
+      attempt_id: parentAttempt,
+      owner_token: 'stale-token',
+      pid: 999999999,
+      recovery_window_id: parentId,
+    });
+    const admitted = lines.filter((line) => line.startsWith('admitted '));
+    const rejected = lines.filter((line) => line.startsWith('rejected '));
+    expect(admitted).toHaveLength(4);
+    expect(rejected).toHaveLength(4);
+    const successorIds = new Set(admitted.map((line) => line.split(' ')[2]));
+    expect(successorIds.size).toBe(1);
+    const successorId = [...successorIds][0];
+    expect(successorId).toMatch(/^rw2-[a-f0-9]{64}$/);
+    expect(Buffer.byteLength(successorId, 'utf8')).toBe(68);
+    for (const line of admitted) {
+      expect(Buffer.byteLength(line.split(' ')[3], 'utf8')).toBeLessThanOrEqual(96);
+    }
+    const successorDir = path.join(chestnutDir, 'watchdog', 'recovery', 'windows', successorId);
+    expect(JSON.parse(fs.readFileSync(path.join(successorDir, 'window.json'), 'utf8')))
+      .toMatchObject({
+        schemaVersion: 2,
+        generation: 9,
+        predecessor: { kind: 'attempt', id: parentAttempt },
+      });
+    expect(fs.readdirSync(path.join(successorDir, 'attempts'))
+      .filter((entry) => !entry.startsWith('.'))).toHaveLength(4);
+    expect(fs.readFileSync(path.join(parentDir, 'window.json'), 'utf8')).toBe(parentSeed);
   }, COMMIT_RACE_RUNNER_TIMEOUT_MS);
 
   it('winner 退出后 recovery：恰好一个 reclaimer retire 旧 generation、恰好一个 gen2 winner', async () => {

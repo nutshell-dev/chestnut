@@ -9,7 +9,7 @@
  */
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
-import { formatErr, newUuid } from '../foundation/node-utils/index.js';
+import { formatErr, newUuid, sha256Hex } from '../foundation/node-utils/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
@@ -19,6 +19,7 @@ const ADMISSION_FILE = 'admission.json';
 const WINNER_FILE = 'winner.json';
 const CLOSED_FILE = 'closed.json';
 const SCHEMA_VERSION = 1;
+const WINDOW_SEED_SCHEMA_VERSION = 2;
 
 /** Initial bound for one recovery epoch; later production evidence may recalibrate it. */
 export const WATCHDOG_CANDIDATE_BUDGET = 4;
@@ -55,14 +56,26 @@ export type WatchdogCandidateAdmissionResult =
       window: WatchdogRecoveryWindow;
     };
 
-interface WindowSeed {
-  readonly schemaVersion: 1;
+type Predecessor = { readonly kind: 'attempt' | 'window'; readonly id: string };
+
+interface WindowSeedBase {
   readonly windowId: string;
   readonly openedAtMs: number;
   readonly generation: number;
   readonly budget: number;
   readonly state: 'open';
 }
+
+interface WindowSeedV1 extends WindowSeedBase {
+  readonly schemaVersion: 1;
+}
+
+interface WindowSeedV2 extends WindowSeedBase {
+  readonly schemaVersion: 2;
+  readonly predecessor: Predecessor;
+}
+
+type WindowSeed = WindowSeedV1 | WindowSeedV2;
 
 interface WindowOwnerFact {
   readonly attempt_id: string;
@@ -104,15 +117,31 @@ function isExists(error: unknown): boolean {
   return isObject(error) && error.code === 'EEXIST';
 }
 
+function isNameTooLong(error: unknown): boolean {
+  return isObject(error) && error.code === 'ENAMETOOLONG';
+}
+
+function parsePredecessor(value: unknown): Predecessor {
+  if (!isObject(value) || (value.kind !== 'attempt' && value.kind !== 'window') ||
+      typeof value.id !== 'string' || value.id.length === 0) {
+    throw new Error('Invalid watchdog recovery window predecessor');
+  }
+  return { kind: value.kind, id: value.id };
+}
+
 function parseWindowSeed(raw: string): WindowSeed {
   const value: unknown = JSON.parse(raw);
-  if (!isObject(value) || value.schemaVersion !== SCHEMA_VERSION ||
+  if (!isObject(value) ||
+      (value.schemaVersion !== SCHEMA_VERSION && value.schemaVersion !== WINDOW_SEED_SCHEMA_VERSION) ||
       typeof value.windowId !== 'string' || value.windowId.length === 0 ||
       typeof value.openedAtMs !== 'number' || !Number.isFinite(value.openedAtMs) ||
       typeof value.generation !== 'number' || !Number.isSafeInteger(value.generation) || value.generation < 0 ||
       typeof value.budget !== 'number' || !Number.isSafeInteger(value.budget) || value.budget < 1 ||
       value.state !== 'open') {
     throw new Error('Invalid watchdog recovery window record');
+  }
+  if (value.schemaVersion === WINDOW_SEED_SCHEMA_VERSION) {
+    parsePredecessor(value.predecessor);
   }
   return value as unknown as WindowSeed;
 }
@@ -219,19 +248,85 @@ export function listWatchdogRecoveryWindows(fs: FileSystem): WatchdogRecoveryWin
     if (isNotFound(error)) return [];
     throw error;
   }
-  return entries
+  const windows = entries
     .filter((entry) => entry.isDirectory && !entry.name.startsWith('.'))
-    .map((entry) => inspectWatchdogRecoveryWindow(fs, entry.name))
-    .sort((a, b) => a.generation - b.generation || a.openedAtMs - b.openedAtMs || a.windowId.localeCompare(b.windowId));
+    .map((entry) => inspectWatchdogRecoveryWindow(fs, entry.name));
+  const windowIds = new Set(windows.map((window) => window.windowId));
+  for (const window of windows) {
+    const seed = readWindowSeed(fs, window.windowId);
+    if (seed.schemaVersion !== WINDOW_SEED_SCHEMA_VERSION) continue;
+    const legacyId = legacySuccessorId(seed.predecessor);
+    if (legacyId && windowIds.has(legacyId)) {
+      throw new Error(`Recovery successor divergence: ${legacyId} and ${window.windowId}`);
+    }
+  }
+  return windows.sort((a, b) =>
+    a.generation - b.generation || a.openedAtMs - b.openedAtMs || a.windowId.localeCompare(b.windowId));
 }
 
-function recoveryWindowIdAfter(attemptId: string): string {
-  return `recovery-after-${attemptId}`;
+function boundedSuccessorId(predecessor: Predecessor): string {
+  return `rw2-${sha256Hex(JSON.stringify([predecessor.kind, predecessor.id]))}`;
+}
+
+function legacySuccessorId(predecessor: Predecessor): string | undefined {
+  const candidate = `recovery-after-${predecessor.id}`;
+  return Buffer.byteLength(candidate, 'utf8') <= 255 ? candidate : undefined;
 }
 
 interface WindowSelection {
   readonly windowId: string;
   readonly generation: number;
+  readonly predecessor?: Predecessor;
+  readonly expectedSeedVersion?: 1;
+}
+
+function assertWindowAbsent(fs: FileSystem, windowId: string): void {
+  if (fs.existsSync(windowDir(windowId)) || fs.existsSync(`${windowDir(windowId)}/${WINDOW_FILE}`)) {
+    throw new Error(`Incomplete watchdog recovery window: ${windowId}`);
+  }
+}
+
+function probeWindow(
+  fs: FileSystem,
+  windowId: string,
+  allowUnaddressable: boolean,
+): WatchdogRecoveryWindow | null {
+  try {
+    readWindowSeed(fs, windowId);
+  } catch (error) {
+    if (allowUnaddressable && isNameTooLong(error)) return null;
+    if (!isNotFound(error)) throw error;
+    assertWindowAbsent(fs, windowId);
+    return null;
+  }
+  try {
+    // Once the legacy seed is addressable, later failures are corruption or I/O
+    // errors, not proof that the old path itself is unaddressable.
+    return inspectWatchdogRecoveryWindow(fs, windowId);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    assertWindowAbsent(fs, windowId);
+    return null;
+  }
+}
+
+function selectSuccessorWindow(
+  fs: FileSystem,
+  predecessor: Predecessor,
+  generation: number,
+): WindowSelection {
+  const legacyId = legacySuccessorId(predecessor);
+  const boundedId = boundedSuccessorId(predecessor);
+  const legacy = legacyId ? probeWindow(fs, legacyId, true) : null;
+  const bounded = probeWindow(fs, boundedId, false);
+  if (legacy && bounded) {
+    throw new Error(`Recovery successor divergence: ${legacyId} and ${boundedId}`);
+  }
+  return {
+    windowId: legacy ? legacyId! : boundedId,
+    generation,
+    predecessor,
+  };
 }
 
 function selectWindow(fs: FileSystem, staleOwner: WindowOwnerFact | null): WindowSelection {
@@ -239,37 +334,80 @@ function selectWindow(fs: FileSystem, staleOwner: WindowOwnerFact | null): Windo
     const parent = staleOwner.recovery_window_id
       ? inspectWatchdogRecoveryWindow(fs, staleOwner.recovery_window_id)
       : null;
-    return {
-      windowId: recoveryWindowIdAfter(staleOwner.attempt_id),
-      generation: (parent?.generation ?? 0) + 1,
-    };
+    return selectSuccessorWindow(
+      fs,
+      { kind: 'attempt', id: staleOwner.attempt_id },
+      (parent?.generation ?? 0) + 1,
+    );
   }
   const windows = listWatchdogRecoveryWindows(fs);
   const latest = windows.at(-1);
-  if (!latest) return { windowId: 'recovery-initial', generation: 0 };
+  if (!latest) return { windowId: 'recovery-initial', generation: 0, expectedSeedVersion: 1 };
   if (latest.state === 'open' || latest.state === 'exhausted') {
     return { windowId: latest.windowId, generation: latest.generation };
   }
-  return {
-    windowId: recoveryWindowIdAfter(latest.winnerAttemptId ?? latest.windowId),
-    generation: latest.generation + 1,
-  };
+  return selectSuccessorWindow(
+    fs,
+    latest.winnerAttemptId
+      ? { kind: 'attempt', id: latest.winnerAttemptId }
+      : { kind: 'window', id: latest.windowId },
+    latest.generation + 1,
+  );
+}
+
+function samePredecessor(left: Predecessor, right: Predecessor): boolean {
+  return left.kind === right.kind && left.id === right.id;
+}
+
+function validateSelectedWindow(fs: FileSystem, selection: WindowSelection): void {
+  const seed = readWindowSeed(fs, selection.windowId);
+  if (seed.generation !== selection.generation) {
+    throw new Error(`Recovery window generation mismatch: ${selection.windowId}`);
+  }
+  const predecessor = selection.predecessor;
+  if (!predecessor) {
+    if (selection.expectedSeedVersion && seed.schemaVersion !== selection.expectedSeedVersion) {
+      throw new Error(`Recovery window seed version mismatch: ${selection.windowId}`);
+    }
+    return;
+  }
+  if (selection.windowId === legacySuccessorId(predecessor)) {
+    if (seed.schemaVersion !== SCHEMA_VERSION) {
+      throw new Error(`Invalid legacy recovery successor seed: ${selection.windowId}`);
+    }
+    return;
+  }
+  if (selection.windowId !== boundedSuccessorId(predecessor) ||
+      seed.schemaVersion !== WINDOW_SEED_SCHEMA_VERSION ||
+      !samePredecessor(seed.predecessor, predecessor)) {
+    throw new Error(`Recovery successor identity mismatch: ${selection.windowId}`);
+  }
 }
 
 function createWindow(
   fs: FileSystem,
-  windowId: string,
-  generation: number,
+  selection: WindowSelection,
   options: CandidateRecoveryOptions,
 ): WatchdogRecoveryWindow {
-  const seed: WindowSeed = {
-    schemaVersion: SCHEMA_VERSION,
-    windowId,
-    openedAtMs: options.nowMs ?? Date.now(),
-    generation,
-    budget: options.budget ?? WATCHDOG_CANDIDATE_BUDGET,
-    state: 'open',
-  };
+  const { windowId, generation, predecessor } = selection;
+  const seed: WindowSeed = predecessor
+    ? {
+        schemaVersion: WINDOW_SEED_SCHEMA_VERSION,
+        windowId,
+        openedAtMs: options.nowMs ?? Date.now(),
+        generation,
+        budget: options.budget ?? WATCHDOG_CANDIDATE_BUDGET,
+        state: 'open',
+        predecessor,
+      }
+    : {
+        schemaVersion: SCHEMA_VERSION,
+        windowId,
+        openedAtMs: options.nowMs ?? Date.now(),
+        generation,
+        budget: options.budget ?? WATCHDOG_CANDIDATE_BUDGET,
+        state: 'open',
+      };
   const staging = `${windowsDir()}/.opening-${newUuid()}`;
   fs.ensureDirSync(staging);
   fs.writeAtomicSync(`${staging}/${WINDOW_FILE}`, JSON.stringify(seed, null, 2));
@@ -278,8 +416,13 @@ function createWindow(
   } catch (error) {
     try { fs.removeDirSync(staging); } catch { // silent: preserve the original commit error
     }
-    if (!fs.existsSync(windowDir(windowId))) throw error;
+    const lostRenameRace = isExists(error) ||
+      (isObject(error) && error.code === 'ENOTEMPTY');
+    if (!lostRenameRace) throw error;
   }
+  // A concurrent winner may have a different opening time or caller budget. Its
+  // durable budget is authoritative, but identity and causal facts must agree.
+  validateSelectedWindow(fs, selection);
   return inspectWatchdogRecoveryWindow(fs, windowId);
 }
 
@@ -323,6 +466,36 @@ function rejected(
   return { kind: 'rejected', reason, attemptId, windowId: window.windowId, window };
 }
 
+function newAttemptId(windowId: string, slot: number): string {
+  const legacy = `${windowId}-candidate-${slot}`;
+  if (Buffer.byteLength(legacy, 'utf8') <= 96) return legacy;
+  return `ca2-${sha256Hex(JSON.stringify([windowId, slot]))}`;
+}
+
+function sameAdmission(left: WatchdogCandidateAdmission, right: WatchdogCandidateAdmission): boolean {
+  return left.schemaVersion === right.schemaVersion &&
+    left.attemptId === right.attemptId &&
+    left.windowId === right.windowId &&
+    left.slot === right.slot &&
+    left.admittedAtMs === right.admittedAtMs &&
+    left.callerPid === right.callerPid;
+}
+
+function mirrorCommittedAdmission(fs: FileSystem, admission: WatchdogCandidateAdmission): void {
+  const mirror = `${candidateDir(admission.attemptId)}/${ADMISSION_FILE}`;
+  let existing: WatchdogCandidateAdmission | null = null;
+  try {
+    existing = parseAdmission(fs.readSync(mirror));
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+  if (existing && !sameAdmission(existing, admission)) {
+    throw new Error(`Candidate admission mirror conflict for attempt ${admission.attemptId}`);
+  }
+  fs.ensureDirSync(candidateDir(admission.attemptId));
+  if (!existing) fs.writeAtomicSync(mirror, JSON.stringify(admission, null, 2));
+}
+
 /**
  * Atomically consume one fixed slot, then persist the candidate admission before
  * any spawn. A crash in either window leaves the committed slot consumed.
@@ -333,8 +506,7 @@ export function admitWatchdogCandidate(
   options: CandidateRecoveryOptions = {},
 ): WatchdogCandidateAdmissionResult {
   const selection = selectWindow(fs, staleOwner);
-  const windowId = selection.windowId;
-  let window = inspectWindowOrCreate(fs, windowId, selection.generation, options);
+  let window = inspectWindowOrCreate(fs, selection, options);
   if (window.state === 'winner_committed' || window.state === 'closed') {
     return rejected(fs, window, 'window_closed');
   }
@@ -343,7 +515,7 @@ export function admitWatchdogCandidate(
   for (let slot = 0; slot < window.budget; slot++) {
     const admission: WatchdogCandidateAdmission = {
       schemaVersion: SCHEMA_VERSION,
-      attemptId: `${window.windowId}-candidate-${slot}`,
+      attemptId: newAttemptId(window.windowId, slot),
       windowId: window.windowId,
       slot,
       admittedAtMs: options.nowMs ?? Date.now(),
@@ -363,11 +535,7 @@ export function admitWatchdogCandidate(
 
     // The permanent slot is the budget fact. Mirror its immutable identity into
     // the candidate directory before spawn for owner/outcome reconstruction.
-    fs.ensureDirSync(candidateDir(admission.attemptId));
-    fs.writeAtomicSync(
-      `${candidateDir(admission.attemptId)}/${ADMISSION_FILE}`,
-      JSON.stringify(admission, null, 2),
-    );
+    mirrorCommittedAdmission(fs, admission);
     window = inspectWatchdogRecoveryWindow(fs, window.windowId);
     if (window.state === 'winner_committed' || window.state === 'closed') {
       return rejected(fs, window, 'window_closed');
@@ -389,15 +557,21 @@ export function admitWatchdogCandidate(
 
 function inspectWindowOrCreate(
   fs: FileSystem,
-  windowId: string,
-  generation: number,
+  selection: WindowSelection,
   options: CandidateRecoveryOptions,
 ): WatchdogRecoveryWindow {
   try {
-    return inspectWatchdogRecoveryWindow(fs, windowId);
+    const window = inspectWatchdogRecoveryWindow(fs, selection.windowId);
+    validateSelectedWindow(fs, selection);
+    return window;
   } catch (error) {
     if (!isNotFound(error)) throw error;
-    return createWindow(fs, windowId, generation, options);
+    assertWindowAbsent(fs, selection.windowId);
+    if (selection.predecessor &&
+        selection.windowId === legacySuccessorId(selection.predecessor)) {
+      throw error;
+    }
+    return createWindow(fs, selection, options);
   }
 }
 
