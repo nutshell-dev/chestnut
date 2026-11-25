@@ -11,7 +11,7 @@ export {
   createCanonicalToolManifestFromDefinitions,
 } from './registry.js';
 export { enforceToolResultBounds } from './output-cap.js';
-export { DEFAULT_TOOL_OUTPUT_BOUNDS } from './constants.js';
+export { DEFAULT_TOOL_OUTPUT_BOUNDS, TOOL_EXECUTION_JOURNAL_ROOT } from './constants.js';
 
 // Executor (interfaces + implementation)
 export {
@@ -36,6 +36,12 @@ export type {
   FileState,
   ToolRegistry,
   ToolRegistryRuntimeCapability,
+  ToolExecutionRef,
+  ToolExecutionFinal,
+  ToolExecutionView,
+  ToolExecutionPersistence,
+  ToolExecutionWriteEvidence,
+  StopReceipt,
   CanonicalToolManifest,
   ToolExecutionContext,
   ToolGateResult,

@@ -78,9 +78,10 @@ describe('ToolExecutor output bounds', () => {
       ownerBounded: true,
       artifact: { kind: 'durable', path: expect.stringContaining('../tasks/sync/test/') },
     });
-    expect(writeAtomic).toHaveBeenCalledOnce();
-    expect(writeAtomic.mock.calls[0]![0]).toMatch(/^tasks\/sync\/test\/[a-f0-9-]+\.md$/);
-    expect(writeAtomic.mock.calls[0]![1]).toBe(raw);
+    const outputWrites = writeAtomic.mock.calls.filter(([path]) => path.startsWith('tasks/sync/test/'));
+    expect(outputWrites).toHaveLength(1);
+    expect(outputWrites[0]![0]).toMatch(/^tasks\/sync\/test\/[a-f0-9-]+\.md$/);
+    expect(outputWrites[0]![1]).toBe(raw);
     const finalAudit = events.find(([type]) => type === 'tool_exec');
     expect(finalAudit).toContain(`summary=${result.content}`);
   });
@@ -274,8 +275,9 @@ describe('Tool output ownership and parallel execution', () => {
 
     expect(results).toHaveLength(2);
     expect(results.every((result) => result?.success === true)).toBe(true);
-    expect(writes.map((write) => write.content).sort()).toEqual(['a'.repeat(2_000), 'b'.repeat(2_000)]);
-    expect(new Set(writes.map((write) => write.path)).size).toBe(2);
+    const outputWrites = writes.filter((write) => write.path.startsWith('tasks/sync/test/'));
+    expect(outputWrites.map((write) => write.content).sort()).toEqual(['a'.repeat(2_000), 'b'.repeat(2_000)]);
+    expect(new Set(outputWrites.map((write) => write.path)).size).toBe(2);
     for (const result of results) expectWithin(result!.content, bounds());
   });
 

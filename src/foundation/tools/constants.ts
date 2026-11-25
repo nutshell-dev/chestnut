@@ -9,9 +9,9 @@
 export const DEFAULT_TOOL_TIMEOUT_MS = 3_600_000;
 
 /**
- * Bounded cleanup barrier (ms) after a tool timeout: the executor aborts the
- * merged controller, then waits at most this long for the execution loser to
- * settle before returning the timeout result with `cleanup=pending`.
+ * Observation budget (ms) after a tool timeout: the executor requests abort and
+ * records `cleanup=pending` if the real handler is still running at this point.
+ * This timer never completes the execution or delivers its completion.
  *
  * Value: 3000 = L1 exec worst-case honest cleanup (TERM grace 1000 +
  * post-KILL confirm 1000, see foundation/process-exec/constants.ts) + 1000
@@ -30,5 +30,8 @@ export const DEFAULT_TOOL_OUTPUT_BOUNDS = Object.freeze({
 
 /** Executor-owned artifacts live below this caller/claw-relative directory. */
 export const TOOL_OUTPUT_ARTIFACT_ROOT = 'tasks/sync';
+
+/** Tools-owned execution facts; every execution has an isolated child directory. */
+export const TOOL_EXECUTION_JOURNAL_ROOT = 'tasks/sync/tool-executions';
 
 

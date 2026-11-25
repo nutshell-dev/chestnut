@@ -62,6 +62,13 @@ export type {
 // Re-export commonly used types
 export type { ToolResult } from './foundation/tool-protocol/index.js';
 export type { ExecContext, Tool } from './foundation/tools/index.js';
-export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
+export type {
+  ToolRegistry,
+  IToolExecutor,
+  ToolExecutionRef,
+  ToolExecutionFinal,
+  ToolExecutionView,
+  StopReceipt,
+} from './foundation/tools/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/index.js';

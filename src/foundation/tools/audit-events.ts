@@ -19,6 +19,10 @@ export const TOOL_AUDIT_EVENTS = {
   TOOL_OUTPUT_CAP: 'tool_output_cap',
   TOOL_GATE_DENIED: 'tool_gate_denied',
   STOP_REQUESTED: 'stop_requested',
+  TOOL_EXECUTION_STOP_REQUESTED: 'tool_execution_stop_requested',
+  TOOL_EXECUTION_CLEANUP_PENDING: 'tool_execution_cleanup_pending',
+  TOOL_EXECUTION_SETTLED: 'tool_execution_settled',
+  TOOL_EXECUTION_PERSIST_FAILED: 'tool_execution_persist_failed',
 } as const;
 
 
@@ -36,4 +40,8 @@ export const TOOLS_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   tool_output_cap: 'audit',
   tool_gate_denied: 'audit',
   stop_requested: 'audit',
+  tool_execution_stop_requested: 'audit',
+  tool_execution_cleanup_pending: 'audit',
+  tool_execution_settled: 'audit',
+  tool_execution_persist_failed: 'audit',
 } as const;

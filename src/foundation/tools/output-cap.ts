@@ -7,9 +7,27 @@
 import * as nodePath from 'node:path';
 import { formatErr, newShortUuid, truncateUtf8Prefix } from '../node-utils/index.js';
 import type { ToolResult, ToolResultArtifact } from '../tool-protocol/index.js';
+import type { FileSystem } from '../fs/index.js';
 import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { DEFAULT_TOOL_OUTPUT_BOUNDS, TOOL_OUTPUT_ARTIFACT_ROOT } from './constants.js';
 import type { ExecContext, ToolOutputBounds } from './types.js';
+
+export interface ToolOutputWriteSide {
+  readonly fs: Pick<FileSystem, 'writeAtomic'>;
+  readonly baseDir: string;
+  readonly syncDir: string;
+  readonly workspaceDir: string;
+}
+
+/** Capture the caller output domain before a cross-claw read rebinds ctx.fs. */
+export function resolveToolOutputWriteSide(ctx: ExecContext): ToolOutputWriteSide {
+  return ctx.toolOutput ?? {
+    fs: ctx.fs,
+    baseDir: ctx.clawDir,
+    syncDir: ctx.syncDir,
+    workspaceDir: ctx.workspaceDir,
+  };
+}
 
 interface OutputSize {
   bytes: number;
@@ -150,10 +168,10 @@ export async function enforceToolResultBounds(
     return ownerOverflowResult(ctx, toolName, result, bounds, size);
   }
 
-  const writeSide = ctx.toolOutput ?? ctx;
+  const writeSide = resolveToolOutputWriteSide(ctx);
   const fileName = `${newShortUuid()}.md`;
   const writePath = `${TOOL_OUTPUT_ARTIFACT_ROOT}/${bounds.artifactKind}/${fileName}`;
-  const absolutePath = nodePath.join(ctx.toolOutput?.baseDir ?? ctx.clawDir, writePath);
+  const absolutePath = nodePath.join(writeSide.baseDir, writePath);
   const displayPath = nodePath.relative(writeSide.workspaceDir, absolutePath);
 
   let written: Awaited<ReturnType<typeof writeSide.fs.writeAtomic>>;

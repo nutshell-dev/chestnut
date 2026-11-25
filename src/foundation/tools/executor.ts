@@ -5,13 +5,21 @@
  * phase 501: 4 interface 抽 to types.ts (C-α 极保守整理性)
  */
 
-import { formatErr } from "../node-utils/index.js";
+import { formatErr, newShortUuid } from "../node-utils/index.js";
 import type { llmProviderProtocol } from '../llm-provider/index.js';
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
   ToolTimeoutError } from './errors.js';
-import type { ExecContext, Tool, ToolGateResult } from './types.js';
+import type {
+  ExecContext,
+  Tool,
+  ToolExecutionErrorEvidence,
+  ToolExecutionFinal,
+  ToolExecutionPresentation,
+  ToolExecutionRef,
+  ToolGateResult,
+} from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
@@ -25,6 +33,8 @@ import {
   TOOL_EXEC_CLEANUP_BUDGET_MS,
 } from './constants.js';
 import { enforceToolResultBounds } from './output-cap.js';
+import { ToolExecution, createSettledToolExecution } from './execution.js';
+import { ToolExecutionStore } from './execution-store.js';
 
 /** phase 1802: tool 执行 owner 自定义的 abort reason（L1 只承载 opaque evidence） */
 type ToolTimeoutAbortReason = { type: 'tool_timeout'; ms: number };
@@ -38,17 +48,6 @@ import type {
 const CALLER_SNAPSHOT_ACCESS_GATE_SITE =
   'site=tools/executor:caller_snapshot_access_gate';
 
-/**
- * Discriminated race outcome for one tool execution (phase 1269 Step D).
- * `timeout` means the executor's own timeout controller fired — the tool
- * execution may still be unwinding and is awaited through a bounded cleanup
- * barrier before the timeout result is returned.
- */
-type ExecutionWinner =
-  | { kind: 'completed'; result: ToolResult }
-  | { kind: 'failed'; error: unknown }
-  | { kind: 'timeout'; error: ToolTimeoutError };
-
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
 export type {
   ToolRegistry,
@@ -59,6 +58,18 @@ export type {
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
   return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
+}
+
+function toExecutionError(error: unknown): ToolExecutionErrorEvidence {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+      ...(error.cause !== undefined ? { cause: formatErr(error.cause) } : {}),
+    };
+  }
+  return { name: 'NonErrorToolFailure', message: formatErr(error) };
 }
 
 /**
@@ -75,27 +86,45 @@ export class ToolExecutorImpl implements IToolExecutor {
     this.baseRegistry = baseRegistry;
   }
 
-  /**
-   * Execute a single tool
-   */
-  async execute(options: ExecuteOptions): Promise<ToolResult> {
+  /** Begin after the admission/started journal barrier; completion means real settlement. */
+  async begin(options: ExecuteOptions): Promise<ToolExecutionRef> {
     const { toolName, args, ctx } = options;
     const startTime = Date.now();
+    const executionId = newShortUuid();
+    const store = new ToolExecutionStore(ctx, executionId);
+    const onObserverError = (error: unknown) => {
+      process.stderr.write(`[tools] execution observer failed: ${formatErr(error)}\n`);
+    };
+    const reject = async (
+      presentedResult: ToolResult,
+      presentation: ToolExecutionPresentation,
+      actualError?: ToolExecutionErrorEvidence,
+    ): Promise<ToolExecutionRef> => {
+      const base: Omit<ToolExecutionFinal, 'persistence'> = {
+        id: executionId,
+        outcome: 'rejected',
+        presentedResult,
+        presentation,
+        ...(actualError ? { actualError } : {}),
+      };
+      const finalWrite = await store.recordFinal(base);
+      const final: ToolExecutionFinal = { ...base, persistence: store.persistence(finalWrite) };
+      return createSettledToolExecution(executionId, final, onObserverError);
+    };
 
-    // 1. Find tool
     const tool = this.registry.get(toolName);
     if (!tool) {
-      ctx.auditWriter?.write(
-        TOOL_AUDIT_EVENTS.TOOL_NOT_FOUND,
-        `toolName=${toolName}`,
-      );
-      return enforceToolResultBounds(ctx, toolName, {
+      ctx.auditWriter?.write(TOOL_AUDIT_EVENTS.TOOL_NOT_FOUND, `toolName=${toolName}`);
+      return reject(await enforceToolResultBounds(ctx, toolName, {
         success: false,
         content: `Tool '${toolName}' not found in registry. Available tools depend on caller profile.`,
-      }, DEFAULT_TOOL_OUTPUT_BOUNDS);
+      }, DEFAULT_TOOL_OUTPUT_BOUNDS), {
+        kind: 'rejected',
+        reason: 'tool_not_found',
+      });
     }
 
-    // 2. Dynamic execution gate: visibility is manifest-owned, never profile-filtered.
+    // Dynamic execution gate: visibility is manifest-owned, never profile-filtered.
     const gateResult = this.gate(tool, ctx);
     if (!gateResult.allowed) {
       let manifestRevision = ctx.execution?.manifestRevision ?? 'unavailable';
@@ -120,16 +149,17 @@ export class ToolExecutorImpl implements IToolExecutor {
       } catch (auditError) {
         process.stderr.write(`[tools] gate denial audit failed: ${formatErr(auditError)}\n`);
       }
-      return enforceToolResultBounds(ctx, toolName, {
+      return reject(await enforceToolResultBounds(ctx, toolName, {
         success: false,
         error: gateResult.code,
         content: gateResult.reason,
-      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS);
+      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS), {
+        kind: 'rejected',
+        reason: gateResult.code,
+      });
     }
 
     const timeoutMs = options.timeoutMs ?? tool.defaultTimeoutMs ?? this.defaultTimeoutMs;
-
-    // 3. Schema validation (simple check)
     const validation = this.validateArgs(toolName, args);
     if (!validation.valid) {
       const errMsg = validation.errors?.[0] ?? 'Invalid input';
@@ -138,170 +168,219 @@ export class ToolExecutorImpl implements IToolExecutor {
         `toolName=${toolName}`,
         `error=${errMsg}`,
       );
-      return enforceToolResultBounds(ctx, toolName, {
+      return reject(await enforceToolResultBounds(ctx, toolName, {
         success: false,
         content: `Invalid input for tool '${toolName}': ${errMsg}`,
-      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS);
+      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS), {
+        kind: 'rejected',
+        reason: 'invalid_input',
+      });
     }
 
-    // 4. Execute with timeout using Promise.race (sync path)
-    const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort({ type: 'tool_timeout', ms: timeoutMs } satisfies ToolTimeoutAbortReason), timeoutMs);
+    const started = await store.recordStarted(options, timeoutMs);
+    if (started.kind === 'failed') {
+      const reason = started.error ?? 'started journal write failed';
+      return reject({
+        success: false,
+        error: 'tool_execution_journal_persist_failed',
+        content: `Tool '${toolName}' was not started because its execution journal could not be persisted: ${reason}`,
+      }, { kind: 'journal_failed', reason }, {
+        name: 'ToolExecutionJournalError',
+        message: reason,
+      });
+    }
 
-    const upstreamSignals = ctx.signal ? [ctx.signal] : [];
-    const mergedSignal = upstreamSignals.length === 0
-      ? timeoutController.signal
-      : AbortSignal.any([...upstreamSignals, timeoutController.signal]);
-
-    const timeoutWinner = new Promise<ExecutionWinner>((resolve) => {
-      timeoutController.signal.addEventListener(
-        'abort',
-        () => resolve({ kind: 'timeout', error: new ToolTimeoutError(toolName, timeoutMs) }),
-        { once: true },
-      );
+    const stopController = new AbortController();
+    const signals = [stopController.signal];
+    if (ctx.signal) signals.push(ctx.signal);
+    const mergedSignal = AbortSignal.any(signals);
+    const ctxWithSignal = cloneExecContext(ctx, {
+      signal: mergedSignal,
+      currentToolUseId: options.toolUseId,
     });
 
-    const ctxWithSignal = cloneExecContext(ctx, { signal: mergedSignal, currentToolUseId: options.toolUseId });
-
-    // phase 1406: caller-access gate. Tools that did not declare
-    // `accessesCaller: true` are wrapped to throw + audit-emit when calling
-    // `ctx.getCallerSnapshot()`. Tools that declared but receive a ctx
-    // without a bound provider also see the throw (Assembly装配 omission).
+    // Caller-access gate remains on the actual per-execution context.
     const declaredAccess = tool.accessesCaller === true;
     if (!declaredAccess) {
-      const audit = ctx.auditWriter;
-      const toolNameLocal = toolName;
       ctxWithSignal.getCallerSnapshot = async () => {
-        audit?.write(
+        ctx.auditWriter?.write(
           TOOL_AUDIT_EVENTS.TOOL_CALLER_ACCESS_VIOLATION,
-          toolNameLocal,
+          toolName,
           options.toolUseId ?? '',
           'reason=accessesCaller_not_declared',
         );
-        audit?.write(
+        ctx.auditWriter?.write(
           TOOL_AUDIT_EVENTS.INVARIANT_VIOLATION,
           CALLER_SNAPSHOT_ACCESS_GATE_SITE,
-          `kind=caller_access_not_declared`,
-          `toolName=${toolNameLocal}`,
+          'kind=caller_access_not_declared',
+          `toolName=${toolName}`,
         );
         throw new Error(
-          `[INVARIANT VIOLATION] tools/executor: Tool '${toolNameLocal}' did not declare accessesCaller=true ` +
-          `but called ctx.getCallerSnapshot()`,
+          `[INVARIANT VIOLATION] tools/executor: Tool '${toolName}' did not declare accessesCaller=true ` +
+          'but called ctx.getCallerSnapshot()',
         );
       };
     } else if (typeof ctxWithSignal.getCallerSnapshot !== 'function') {
-      const audit = ctx.auditWriter;
-      const toolNameLocal = toolName;
       ctxWithSignal.getCallerSnapshot = async () => {
-        audit?.write(
+        ctx.auditWriter?.write(
           TOOL_AUDIT_EVENTS.TOOL_CALLER_ACCESS_VIOLATION,
-          toolNameLocal,
+          toolName,
           options.toolUseId ?? '',
           'reason=provider_not_bound',
         );
-        audit?.write(
+        ctx.auditWriter?.write(
           TOOL_AUDIT_EVENTS.INVARIANT_VIOLATION,
           CALLER_SNAPSHOT_ACCESS_GATE_SITE,
-          `kind=caller_access_provider_not_bound`,
-          `toolName=${toolNameLocal}`,
+          'kind=caller_access_provider_not_bound',
+          `toolName=${toolName}`,
         );
         throw new Error(
-          `[INVARIANT VIOLATION] tools/executor: Tool '${toolNameLocal}' declared accessesCaller=true but ExecContext ` +
-          `was constructed without getCallerSnapshot provider`,
+          `[INVARIANT VIOLATION] tools/executor: Tool '${toolName}' declared accessesCaller=true but ExecContext ` +
+          'was constructed without getCallerSnapshot provider',
         );
       };
     }
 
-    const executionPromise = tool.execute(args, ctxWithSignal);
-    executionPromise.catch((err: unknown) => {
-      // race loser audit：execution 真实抛错但 timeoutPromise 先 race 赢、winner audit 仅记 ToolTimeoutError、
-      // 此处补 loser 真实 root cause 留痕（D2 信息不丢失）
-      const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    const stopWrites: Promise<unknown>[] = [];
+    const execution = new ToolExecution(executionId, async (reason) => {
+      // Cancellation protection is sent first; the receipt separately reports durability.
+      stopController.abort(reason);
+      const write = store.recordStop(reason);
+      stopWrites.push(write);
+      return write;
+    }, onObserverError);
+    const requestStop = async (reason: unknown) => {
+      const receipt = await execution.requestStop(reason);
       ctx.auditWriter?.write(
-        TOOL_AUDIT_EVENTS.TOOL_EXEC_RACE_LOSER,
-        toolName,
-        'err',
-        'context=execution_after_timeout',
-        `error=${ctx.auditWriter?.message(errMsg) ?? errMsg}`,
+        TOOL_AUDIT_EVENTS.TOOL_EXECUTION_STOP_REQUESTED,
+        `executionId=${executionId}`,
+        `toolName=${toolName}`,
+        `accepted=${receipt.accepted}`,
+        `persisted=${receipt.persisted}`,
+        `reason=${ctx.auditWriter?.message(formatErr(reason)) ?? formatErr(reason)}`,
       );
-    });
+      return receipt;
+    };
 
-    let result: ToolResult | undefined;
+    let timeoutPresentation: { reason: ToolTimeoutAbortReason; result: ToolResult } | undefined;
     let cleanupState: 'settled' | 'pending' | undefined;
-    try {
-      const winner: ExecutionWinner = await Promise.race([
-        executionPromise.then(
-          (r): ExecutionWinner => ({ kind: 'completed', result: r }),
-          (err): ExecutionWinner => ({ kind: 'failed', error: err }),
-        ),
-        timeoutWinner,
-      ]);
+    let cleanupTimer: NodeJS.Timeout | undefined;
+    const timeoutId = setTimeout(() => {
+      const reason: ToolTimeoutAbortReason = { type: 'tool_timeout', ms: timeoutMs };
+      const error = new ToolTimeoutError(toolName, timeoutMs);
+      timeoutPresentation = { reason, result: { success: false, content: formatErr(error) } };
+      cleanupState = 'settled';
+      execution.markTimeout(timeoutPresentation.result, reason);
+      void requestStop(reason);
+      cleanupTimer = setTimeout(() => {
+        cleanupState = 'pending';
+        execution.markCleanupPending();
+        ctx.auditWriter?.write(
+          TOOL_AUDIT_EVENTS.TOOL_EXECUTION_CLEANUP_PENDING,
+          `executionId=${executionId}`,
+          `toolName=${toolName}`,
+          `cleanup_ms=${TOOL_EXEC_CLEANUP_BUDGET_MS}`,
+        );
+      }, TOOL_EXEC_CLEANUP_BUDGET_MS);
+    }, timeoutMs);
 
-      if (winner.kind === 'completed') {
-        result = await enforceToolResultBounds(
-          ctxWithSignal,
-          toolName,
-          winner.result,
-          tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
-        );
-      } else if (winner.kind === 'failed') {
-        result = await enforceToolResultBounds(
-          ctxWithSignal,
-          toolName,
-          { success: false, content: formatErr(winner.error) },
-          tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
-        );
-      } else {
-        // Timeout won: the merged controller is already aborted (that is
-        // what fired the winner) — make the abort explicit here instead of
-        // relying on the finally block's implicit control flow — then wait
-        // a bounded cleanup barrier for the execution loser to settle. The
-        // user-facing result stays the original ToolTimeoutError no matter
-        // how the loser settles afterwards.
-        timeoutController.abort();
-        cleanupState = await Promise.race([
-          executionPromise.then(
-            () => 'settled' as const,
-            () => 'settled' as const,
-          ),
-          new Promise<'pending'>((resolve) =>
-            setTimeout(() => resolve('pending'), TOOL_EXEC_CLEANUP_BUDGET_MS),
-          ),
-        ]);
-        executionPromise.then(
-          (lateResult) => {
-            // A late result after a timeout must neither overwrite the
-            // timeout result nor pass silently.
-            ctx.auditWriter?.write(
-              TOOL_AUDIT_EVENTS.TOOL_EXEC_RACE_LOSER,
-              toolName,
-              lateResult.success ? 'ok' : 'err',
-              'context=execution_after_timeout',
-              'late_result_ignored',
-            );
-          },
-          () => { /* error loser is already audited by the unconditional catch above */ },
-        );
-        result = { success: false, content: formatErr(winner.error) };
-      }
-    } finally {
+    const upstreamSignal = ctx.signal;
+    const onUpstreamAbort = () => { void requestStop(upstreamSignal?.reason); };
+    upstreamSignal?.addEventListener('abort', onUpstreamAbort, { once: true });
+    if (upstreamSignal?.aborted) onUpstreamAbort();
+
+    const clearExecutionControls = () => {
       clearTimeout(timeoutId);
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+      upstreamSignal?.removeEventListener('abort', onUpstreamAbort);
+    };
 
-      const duration = Date.now() - startTime;
-      const auditResult = result ?? { success: false, content: 'unknown' };
-      // phase 272 Step A allowlist anchor: 'tool_exec' 沿 phase 614 inline raw 模板 by-design / 0 NEW const
-      // 升档条件: 若 future allowlist 漂出 N >= 2 同模板 inline raw -> 抽 TOOL_AUDIT_EVENTS.TOOL_EXEC const
+    // Keep the real promise until it settles; no timeout/cleanup race projects completion.
+    const executionPromise = Promise.resolve().then(() => tool.execute(args, ctxWithSignal));
+    const finish = async (
+      settlement: { outcome: 'completed'; result: ToolResult } | { outcome: 'failed'; error: unknown },
+    ) => {
+      clearExecutionControls();
+      const actualError = settlement.outcome === 'failed' ? toExecutionError(settlement.error) : undefined;
+      const rawForBounds = settlement.outcome === 'completed'
+        ? settlement.result
+        : { success: false, content: formatErr(settlement.error) };
+      let boundedActualResult: ToolResult;
+      try {
+        boundedActualResult = await enforceToolResultBounds(
+          ctxWithSignal,
+          toolName,
+          rawForBounds,
+          tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
+        );
+      } catch (presentationError) {
+        boundedActualResult = {
+          success: false,
+          error: 'tool_result_presentation_failed',
+          content: `Tool result presentation failed: ${formatErr(presentationError)}`,
+        };
+      }
+
+      const presentedResult = timeoutPresentation?.result ?? boundedActualResult;
+      const presentation: ToolExecutionPresentation = timeoutPresentation
+        ? { kind: 'timeout', reason: timeoutPresentation.reason }
+        : { kind: 'actual' };
+      const stopReason = execution.firstStopReason;
+      const base: Omit<ToolExecutionFinal, 'persistence'> = {
+        id: executionId,
+        outcome: settlement.outcome,
+        ...(settlement.outcome === 'completed' ? { actualResult: settlement.result } : {}),
+        boundedActualResult,
+        ...(actualError ? { actualError } : {}),
+        presentedResult,
+        presentation,
+        ...(stopReason !== undefined ? { stopReason } : {}),
+      };
+      await Promise.all(stopWrites);
+      const finalWrite = await store.recordFinal(base);
+      const final: ToolExecutionFinal = { ...base, persistence: store.persistence(finalWrite) };
+
+      if (timeoutPresentation) {
+        ctx.auditWriter?.write(
+          TOOL_AUDIT_EVENTS.TOOL_EXEC_RACE_LOSER,
+          toolName,
+          settlement.outcome === 'completed' && settlement.result.success ? 'ok' : 'err',
+          'context=execution_after_timeout',
+          settlement.outcome === 'completed'
+            ? 'late_result_retained'
+            : `error=${ctx.auditWriter?.message(`${actualError?.name}: ${actualError?.message}`) ?? `${actualError?.name}: ${actualError?.message}`}`,
+        );
+      }
       ctx.auditWriter?.write(
         'tool_exec',
         toolName,
-        auditResult.success ? 'ok' : 'err',
-        `elapsed_ms=${duration}`,
+        presentedResult.success ? 'ok' : 'err',
+        `elapsed_ms=${Date.now() - startTime}`,
         ...(cleanupState !== undefined ? [`cleanup=${cleanupState}`] : []),
-        `summary=${ctx.auditWriter?.message(auditResult.content ?? '') ?? (auditResult.content ?? '')}`,
+        `summary=${ctx.auditWriter?.message(presentedResult.content) ?? presentedResult.content}`,
       );
-    }
+      execution.settle(final);
+      ctx.auditWriter?.write(
+        TOOL_AUDIT_EVENTS.TOOL_EXECUTION_SETTLED,
+        `executionId=${executionId}`,
+        `toolName=${toolName}`,
+        `outcome=${final.outcome}`,
+        `presentation=${final.presentation.kind}`,
+        `final_persisted=${final.persistence.final.persisted}`,
+      );
+    };
 
-    return result!;
+    void executionPromise.then(
+      (result) => finish({ outcome: 'completed', result }),
+      (error: unknown) => finish({ outcome: 'failed', error }),
+    );
+    return execution;
+  }
+
+  /** Compatibility projection: resolve only after the real execution has settled. */
+  async execute(options: ExecuteOptions): Promise<ToolResult> {
+    const execution = await this.begin(options);
+    return (await execution.completion).presentedResult;
   }
 
   private gate(tool: Tool, ctx: ExecContext): ToolGateResult {

@@ -324,10 +324,85 @@ export interface ExecuteOptions {
   toolUseId?: ToolUseId;   // 新增：LLM 生成的 tool_use block id
 }
 
+export type ToolExecutionState = 'running' | 'stopping' | 'settled';
+
+/** Durable and merely committed writes are deliberately not conflated. */
+export interface ToolExecutionWriteEvidence {
+  readonly path: string;
+  readonly kind: 'durable' | 'committed_platform_limited' | 'committed_durability_unknown' | 'failed' | 'unavailable';
+  readonly persisted: boolean;
+  readonly durable: boolean;
+  readonly error?: string;
+}
+
+export interface ToolExecutionPersistence {
+  readonly journalPath: string;
+  readonly started?: ToolExecutionWriteEvidence;
+  readonly stops: readonly ToolExecutionWriteEvidence[];
+  readonly final: ToolExecutionWriteEvidence;
+}
+
+export interface ToolExecutionErrorEvidence {
+  readonly name: string;
+  readonly message: string;
+  readonly stack?: string;
+  readonly cause?: string;
+}
+
+export type ToolExecutionPresentation =
+  | { readonly kind: 'actual' }
+  | { readonly kind: 'timeout'; readonly reason: unknown }
+  | { readonly kind: 'rejected'; readonly reason: string }
+  | { readonly kind: 'journal_failed'; readonly reason: string };
+
+/** Real handler settlement is separate from the result shown to the caller. */
+export interface ToolExecutionFinal {
+  readonly id: string;
+  readonly outcome: 'completed' | 'failed' | 'rejected';
+  /** Exact handler result, before output bounding; absent for rejection/failure. */
+  readonly actualResult?: ToolResult;
+  /** Bounded handler projection, including any full-output artifact reference. */
+  readonly boundedActualResult?: ToolResult;
+  readonly actualError?: ToolExecutionErrorEvidence;
+  readonly presentedResult: ToolResult;
+  readonly presentation: ToolExecutionPresentation;
+  /** First accepted stop cause; a late result never overwrites it. */
+  readonly stopReason?: unknown;
+  readonly persistence: ToolExecutionPersistence;
+}
+
+export interface ToolExecutionView {
+  readonly id: string;
+  readonly seq: number;
+  readonly state: ToolExecutionState;
+  readonly stopReason?: unknown;
+  /** Timeout presentation may be observable while the real handler still runs. */
+  readonly presentedResult?: ToolResult;
+  readonly cleanup?: 'settled' | 'pending';
+  readonly final?: ToolExecutionFinal;
+}
+
+export interface StopReceipt {
+  readonly executionId: string;
+  readonly accepted: boolean;
+  readonly state: ToolExecutionState;
+  readonly reason: unknown;
+  readonly persisted: boolean;
+  readonly persistence?: ToolExecutionWriteEvidence;
+}
+
+export interface ToolExecutionRef {
+  readonly id: string;
+  readonly completion: Promise<ToolExecutionFinal>;
+  observe(listener: (view: ToolExecutionView) => void): () => void;
+  requestStop(reason: unknown): Promise<StopReceipt>;
+}
+
 /**
  * Tool executor interface
  */
 export interface IToolExecutor {
+  begin(options: ExecuteOptions): Promise<ToolExecutionRef>;
   execute(options: ExecuteOptions): Promise<ToolResult>;
   executeParallel(
     batch: Array<{ toolName: string; args: Record<string, unknown> }>,

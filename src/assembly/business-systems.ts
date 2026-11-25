@@ -51,7 +51,7 @@ import {
   MOTION_CLAW_ID,
   resolveClawDaemonDir,
 } from '../core/claw-topology/index.js';
-import { createToolExecutor } from '../foundation/tools/index.js';
+import { createToolExecutor, TOOL_EXECUTION_JOURNAL_ROOT } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
 import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundation/dialog-store/index.js';
 import type { DialogStore } from '../foundation/dialog-store/index.js';
@@ -142,6 +142,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       TASKS_SYNC_SUBAGENT_DIR,
       TASKS_SYNC_SPAWN_DIR,
       TASKS_SYNC_SHADOW_DIR,
+      TOOL_EXECUTION_JOURNAL_ROOT,
     ],
   });
   const selfClawRoot = clawDir;

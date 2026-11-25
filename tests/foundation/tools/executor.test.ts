@@ -1,10 +1,8 @@
 /**
- * Phase 1269 Step D — ToolExecutor timeout cleanup barrier
+ * ToolExecutor timeout cleanup observation and real settlement.
  *
- * Before this phase, the timeout promise could win the race and return while
- * the execution loser kept running without constraint. Now the executor
- * aborts the merged controller and waits a bounded cleanup barrier
- * (TOOL_EXEC_CLEANUP_BUDGET_MS) before returning the timeout result.
+ * Timeout fixes the presented failure and requests abort. The cleanup budget is
+ * observational only: completion still waits for the real handler to settle.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
@@ -41,7 +39,7 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     );
   });
 
-  it('timeout → abort → loser settles inside barrier: order preserved, timeout result kept (反向 1/4)', async () => {
+  it('timeout → abort → real settlement: order preserved, timeout result kept (反向 1/4)', async () => {
     // CLEANUP_SETTLE_MS: loser's settle delay after abort — well inside
     // TOOL_EXEC_CLEANUP_BUDGET_MS (3000ms) so the barrier observes the settle.
     // EXECUTION_TIMEOUT_MS: fires the timeout winner before the loser settles
@@ -85,26 +83,26 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     expect(toolExec[0]).toContain('cleanup=settled');
     // Late result must be audited, not silently dropped (反向 4).
     const loserOk = auditEvents.filter(
-      ([t, ...cols]) => t === 'tool_exec_race_loser' && cols.includes('late_result_ignored'),
+      ([t, ...cols]) => t === 'tool_exec_race_loser' && cols.includes('late_result_retained'),
     );
     expect(loserOk).toHaveLength(1);
     expect(loserOk[0]).toContain('ok');
   });
 
-  it('abort-ignoring tool: executor returns after cleanup budget and audits cleanup=pending (反向 3)', async () => {
+  it('abort-ignoring tool stays stopping after cleanup budget until its real late settlement (反向 3)', async () => {
     vi.useFakeTimers();
-    // EXECUTION_TIMEOUT_MS: fires the timeout winner while the tool keeps
-    // ignoring abort; the executor must then wait exactly the cleanup budget.
     const EXECUTION_TIMEOUT_MS = 200;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     const tool: Tool = {
       name: 'stubborn',
-      description: 'ignores abort forever',
+      description: 'ignores abort until the test gate opens',
       schema: { type: 'object' },
       readonly: true,
       idempotent: true,
       execute: async () => {
-        await new Promise(() => {}); // never settles, ignores ctx.signal
-        return { success: true, content: '' };
+        await gate;
+        return { success: true, content: 'eventual real output' };
       },
     };
     registry.register(tool);
@@ -112,17 +110,24 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const executor = new ToolExecutorImpl(registry, 60_000);
 
     const start = Date.now();
-    const pendingResult = executor.execute({
+    const ref = await executor.begin({
       toolName: 'stubborn', args: {}, ctx: makeCtx(audit), timeoutMs: EXECUTION_TIMEOUT_MS,
     });
+    let settled = false;
+    void ref.completion.then(() => { settled = true; });
     await vi.advanceTimersByTimeAsync(EXECUTION_TIMEOUT_MS + TOOL_EXEC_CLEANUP_BUDGET_MS);
-    const result = await pendingResult;
-    const elapsed = Date.now() - start;
 
-    expect(result.success).toBe(false);
-    expect(result.content).toContain('execution limit');
-    expect(elapsed).toBe(EXECUTION_TIMEOUT_MS + TOOL_EXEC_CLEANUP_BUDGET_MS);
-    const toolExec = auditEvents.filter(([t]) => t === 'tool_exec');
+    expect(settled).toBe(false);
+    expect(auditEvents.some(([type]) => type === 'tool_execution_cleanup_pending')).toBe(true);
+    expect(auditEvents.filter(([type]) => type === 'tool_exec')).toHaveLength(0);
+
+    release();
+    const final = await ref.completion;
+    expect(Date.now() - start).toBe(EXECUTION_TIMEOUT_MS + TOOL_EXEC_CLEANUP_BUDGET_MS);
+    expect(final.actualResult?.content).toBe('eventual real output');
+    expect(final.presentedResult.success).toBe(false);
+    expect(final.presentedResult.content).toContain('execution limit');
+    const toolExec = auditEvents.filter(([type]) => type === 'tool_exec');
     expect(toolExec[0]).toContain('cleanup=pending');
   });
 

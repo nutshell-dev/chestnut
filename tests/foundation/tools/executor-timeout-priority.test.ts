@@ -2,14 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../../src/foundation/tools/executor.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
-import { TOOL_EXEC_CLEANUP_BUDGET_MS } from '../../../src/foundation/tools/constants.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Tool } from '../../../src/foundation/tool-protocol/index.js';
 
-// phase 1269 Step D: these fixtures use a never-settling tool, so after the
-// timeout winner the executor waits the full cleanup barrier before
-// returning. Expected wall time is therefore timeoutMs + cleanup budget.
-const TIMEOUT_RETURN_MS = (timeoutMs: number) => timeoutMs + TOOL_EXEC_CLEANUP_BUDGET_MS;
+// Timeout fixes the presented failure, but execute still waits for the handler's
+// real settlement. These cooperative fixtures settle when they receive abort.
 
 describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs > executor.defaultTimeoutMs)', () => {
   let registry: ToolRegistryImpl;
@@ -22,14 +19,17 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
 
   const makeSlowTool = (defaultTimeoutMs?: number): Tool => ({
     name: 'slow',
-    description: 'Never resolves',
+    description: 'Settles after abort',
     schema: { type: 'object' },
     readonly: true,
     idempotent: true,
     defaultTimeoutMs,
-    execute: async () => {
-      await new Promise(() => {}); // never resolves
-      return { success: true, content: '' };
+    execute: async (_args, ctx) => {
+      await new Promise<void>((resolve) => {
+        if (ctx.signal?.aborted) return resolve();
+        ctx.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return { success: true, content: 'real cleanup complete' };
     },
   });
 
@@ -50,7 +50,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
     try {
       const start = Date.now();
       const pendingResult = executor.execute(options);
-      await vi.advanceTimersByTimeAsync(TIMEOUT_RETURN_MS(timeoutMs));
+      await vi.advanceTimersByTimeAsync(timeoutMs);
       return {
         result: await pendingResult,
         elapsed: Date.now() - start,
@@ -71,7 +71,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('execution limit');
-    expect(elapsed).toBe(TIMEOUT_RETURN_MS(TIMEOUT_MS));
+    expect(elapsed).toBe(TIMEOUT_MS);
   });
 
   it('uses options.timeoutMs over tool.defaultTimeoutMs', async () => {
@@ -88,7 +88,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('execution limit');
-    expect(elapsed).toBe(TIMEOUT_RETURN_MS(TIMEOUT_MS));
+    expect(elapsed).toBe(TIMEOUT_MS);
   });
 
   it('falls back to executor.defaultTimeoutMs when neither tool nor options declare timeout', async () => {
@@ -102,6 +102,6 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('execution limit');
-    expect(elapsed).toBe(TIMEOUT_RETURN_MS(TIMEOUT_MS));
+    expect(elapsed).toBe(TIMEOUT_MS);
   });
 });

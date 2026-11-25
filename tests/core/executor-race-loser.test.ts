@@ -64,14 +64,15 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       },
     });
 
-    const pendingResult = executor.execute({
+    // begin awaits the real started-journal barrier before installing the timer.
+    const ref = await executor.begin({
       toolName: 'slow-throw',
       args: {},
       ctx,
       timeoutMs: RACE_TIMEOUT_MS,
     });
     await vi.advanceTimersByTimeAsync(RACE_TIMEOUT_MS);
-    const result = await pendingResult;
+    const result = (await ref.completion).presentedResult;
     vi.useRealTimers();
 
     expect(result.success).toBe(false);
