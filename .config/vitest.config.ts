@@ -291,6 +291,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/orphan-sweep.test.ts',
   'tests/watchdog/orphan-inspection.test.ts',  // phase 2200: vi.mock spawn must not share fast module state
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
+  'tests/watchdog/watchdog-claws-supervision-recovery.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
   'tests/cli/claw-router-root-config.test.ts',  // phase 1301 Step C: vi.mock claw/stop/ps/ensure/pid/audit factories
   // phase 1895 Step H: EventLoop 驱动迁移补登记——11 文件 vi.mock event-loop/constants

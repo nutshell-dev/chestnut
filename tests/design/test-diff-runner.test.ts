@@ -14,6 +14,9 @@ const INVARIANTS = 'tests/design/invariants.test.ts';
 const INTEGRATION_PROJECTS = ['integration-process', 'integration-io'];
 const VITEST_MODULE = fileURLToPath(import.meta.resolve('vitest'));
 const VITEST_CLI = path.resolve(path.dirname(VITEST_MODULE), '../vitest.mjs');
+// The outer test also owns fixture setup, Git operations and receipt checks.
+const FULL_LANE_SUBPROCESS_TIMEOUT_MS = 15_000;
+const FULL_LANE_TEST_TIMEOUT_MS = 20_000;
 const tempDirs: string[] = [];
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -223,7 +226,7 @@ function executeRealFullLane(cwd: string, injectOldSeparator = false) {
   const spawn: Spawn = (command, args, options) => {
     if (command === 'pnpm' && args[0] === 'run' && args[1] === 'test:preflight') {
       const invoked = injectOldSeparator ? [...args.slice(0, 2), '--', ...args.slice(2)] : args;
-      return spawnSync(command, invoked, { ...options, timeout: 15_000 });
+      return spawnSync(command, invoked, { ...options, timeout: FULL_LANE_SUBPROCESS_TIMEOUT_MS });
     }
     return harness.spawn(command, args, options);
   };
@@ -619,7 +622,7 @@ describe('full-lane reporter arguments with real pnpm and Vitest', () => {
       }],
     });
     expect(receipt.executions[0].execution.command).not.toContain('--');
-  }, 20_000);
+  }, FULL_LANE_TEST_TIMEOUT_MS);
 
   it('rejects a zero-exit full lane when the old separator suppresses the JSON receipt', () => {
     const cwd = createRealFullLaneFixture();
@@ -630,5 +633,5 @@ describe('full-lane reporter arguments with real pnpm and Vitest', () => {
       reason: 'Vitest JSON reporter did not create an output file',
       executions: [{ outcome: 'failed', execution: { exitCode: 0 } }],
     });
-  }, 20_000);
+  }, FULL_LANE_TEST_TIMEOUT_MS);
 });
