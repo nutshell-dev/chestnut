@@ -12,6 +12,7 @@ import type { ExecResult } from '../../../src/foundation/process-exec/types.js';
 import { createTrackedTempDir } from '../../utils/temp.js';
 
 const PID = 12345;
+const EXPECTED_CWD_QUERY_TIMEOUT_MS = 2000;
 const evidence: ProcessEvidence = { version: 1, atMs: 0, facts: [] };
 
 function result(stdout: string): ExecResult {
@@ -28,7 +29,7 @@ describe('process cwd query', () => {
     expect(execute).toHaveBeenCalledExactlyOnceWith(
       '/usr/sbin/lsof',
       ['-a', '-p', String(PID), '-d', 'cwd', '-F0pfn'],
-      { cwd: '/', timeout: 2000, maxBuffer: 64 * 1024 },
+      { cwd: '/', timeout: EXPECTED_CWD_QUERY_TIMEOUT_MS, maxBuffer: 64 * 1024 },
     );
     expect(observation).toMatchObject({ kind: 'observed', cwd: '/work/space ' });
     expect(observation.evidence.facts).toHaveLength(1);
