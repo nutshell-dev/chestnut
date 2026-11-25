@@ -33,16 +33,16 @@ import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
 import {
   resolveClawDaemonDir,
+  enumerateOrdinaryClaws,
   MOTION_CLAW_ID,
   requireMotionAccess,
 } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr, newUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
-import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { CLAWS_DIR, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -181,11 +181,11 @@ export async function notifyRunningDaemons(
     }
   };
 
-  const candidates: string[] = [MOTION_CLAW_ID];
+  const candidates = [MOTION_CLAW_ID];
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
   if (rootFs.existsSync(clawsDir)) {
     const subFs = deps.fsFactory(clawsDir);
-    candidates.push(...enumerateClaws(subFs, '.'));
+    candidates.push(...enumerateOrdinaryClaws(subFs, '.').valid);
   }
 
   let notified = 0;
@@ -195,9 +195,8 @@ export async function notifyRunningDaemons(
     resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
   });
   for (const id of candidates) {
-    const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
     const liveness = pm.liveness(resolveClawDaemonDir(
-      clawId,
+      id,
       getCapturedCliMotionAccess('configure'),
       'configure',
     ));

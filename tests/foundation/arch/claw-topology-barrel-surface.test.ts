@@ -21,6 +21,7 @@ const barrel = fs.readFileSync(path.join(root, barrelRel), 'utf8');
 /** 白名单：值导出（运行时键）。 */
 const VALUE_EXPORTS = [
   'createClawTopology',
+  'enumerateOrdinaryClaws',
   'MOTION_CLAW_ID',
   'makeClawNotifyTargetResolver',
   'resolveClawDaemonDir',

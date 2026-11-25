@@ -3,38 +3,45 @@ import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-identity/index.
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { makeClawId, CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ClawEnumerationSnapshot, ClawTopology, ClawTopologyDeps } from './types.js';
 import { ClawIdResolveError, CrossClawReadError } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
+
+export function enumerateOrdinaryClaws(fs: FileSystem, clawsDir: string) {
+  const valid: ClawId[] = [];
+  const invalid: { dir: string; reason: 'reserved_motion' | 'invalid_claw_id_format' }[] = [];
+  for (const dir of enumerateClaws(fs, clawsDir)) {
+    if (dir === MOTION_CLAW_ID) {
+      invalid.push({ dir, reason: 'reserved_motion' });
+      continue;
+    }
+    try {
+      valid.push(makeClawId(dir));
+    } catch {
+      // silent: the rejected directory is retained as structured observation evidence.
+      invalid.push({ dir, reason: 'invalid_claw_id_format' });
+    }
+  }
+  return { valid, invalid };
+}
 
 export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
   const { fs, chestnutRoot, sink, motionDir } = deps;
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
 
   const enumerateSnapshot = (): ClawEnumerationSnapshot => {
-    // phase 944: isolate invalid claw directory names so one bad entry does not
-    // abort enumeration of the remaining valid claws.
-    const rawNames = enumerateClaws(fs, clawsDir);
-    const clawIds: ClawId[] = [];
-    const invalid: { dir: string; reason: string }[] = [];
-    for (const name of rawNames) {
-      // phase 1864 Step F（CT-D9）：claws/ 下同名 motion 目录 = motion identity 自身
-      // 的映射，不产生重复 identity（audit 行不变——现状本就无该行）。
-      if (name === MOTION_CLAW_ID) continue;
-      try {
-        clawIds.push(makeClawId(name));
-      } catch {
-        sink?.write(
-          CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
-          `dir=${name}`,
-          'reason=invalid_claw_id_format',
-        );
-        // phase 1864 Step F: 非法项进 snapshot.invalid（不再静默丢弃），继续枚举其余
-        invalid.push({ dir: name, reason: 'invalid_claw_id_format' });
-      }
+    const { valid, invalid } = enumerateOrdinaryClaws(fs, clawsDir);
+    for (const { dir, reason } of invalid) {
+      if (reason !== 'invalid_claw_id_format') continue;
+      sink?.write(
+        CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
+        `dir=${dir}`,
+        'reason=invalid_claw_id_format',
+      );
     }
-    return { valid: [MOTION_CLAW_ID, ...clawIds], invalid };
+    return { valid: [MOTION_CLAW_ID, ...valid], invalid };
   };
 
   return {

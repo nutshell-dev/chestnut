@@ -7,7 +7,8 @@
  * for that unknown scope.
  */
 
-import { CLAWS_DIR, enumerateClaws } from '../foundation/claw-identity/index.js';
+import { CLAWS_DIR, type ClawId } from '../foundation/claw-identity/index.js';
+import { enumerateOrdinaryClaws } from '../core/claw-topology/index.js';
 import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
@@ -16,17 +17,20 @@ export const CLAWS_SUPERVISION_RETRY_MAX_MS = 5 * 60_000;
 
 export type ClawsDirectoryFailureReason = 'permission_denied' | 'missing_capability' | 'io_failed';
 
+type RejectedClawDirectory = ReturnType<typeof enumerateOrdinaryClaws>['invalid'][number];
+
 export interface DirectoryEvidence {
   readonly directory: typeof CLAWS_DIR;
   readonly observedAtMs: number;
   readonly outcome: 'available' | 'empty' | 'unavailable';
+  readonly rejected?: readonly RejectedClawDirectory[];
   readonly reason?: ClawsDirectoryFailureReason;
   readonly code?: string;
   readonly error?: string;
 }
 
 export type ClawsDirectoryObservation =
-  | { readonly kind: 'available'; readonly clawIds: string[]; readonly evidence: DirectoryEvidence }
+  | { readonly kind: 'available'; readonly clawIds: ClawId[]; readonly evidence: DirectoryEvidence }
   | { readonly kind: 'empty'; readonly evidence: DirectoryEvidence }
   | {
       readonly kind: 'unavailable';
@@ -36,7 +40,7 @@ export type ClawsDirectoryObservation =
     };
 
 export type SupervisionCoverage =
-  | { readonly kind: 'known'; readonly clawIds: string[] }
+  | { readonly kind: 'known'; readonly clawIds: ClawId[] }
   | { readonly kind: 'unknown'; readonly reason: 'directory_unavailable'; readonly retryAtMs: number };
 
 export interface ClawsSupervisionState {
@@ -88,12 +92,17 @@ export function clawsSupervisionRetryDelayMs(consecutiveFailures: number): numbe
 /** Read and classify the directory without assigning supervision semantics to the FS layer. */
 export function observeClawsDirectory(fs: FileSystem, observedAtMs: number): ClawsDirectoryObservation {
   try {
-    const clawIds = enumerateClaws(fs, CLAWS_DIR);
-    return clawIds.length > 0
+    const { valid: clawIds, invalid: rejected } = enumerateOrdinaryClaws(fs, CLAWS_DIR);
+    return clawIds.length > 0 || rejected.length > 0
       ? {
           kind: 'available',
           clawIds,
-          evidence: { directory: CLAWS_DIR, observedAtMs, outcome: 'available' },
+          evidence: {
+            directory: CLAWS_DIR,
+            observedAtMs,
+            outcome: 'available',
+            ...(rejected.length > 0 ? { rejected } : {}),
+          },
         }
       : {
           kind: 'empty',

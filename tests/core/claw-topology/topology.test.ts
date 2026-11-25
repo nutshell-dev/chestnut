@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
+import { createClawTopology, enumerateOrdinaryClaws } from '../../../src/core/claw-topology/topology.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
 import { ClawIdResolveError, CrossClawReadError } from '../../../src/core/claw-topology/types.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
@@ -39,6 +39,37 @@ describe('createClawTopology', () => {
     expect(ids).toContain('claw1');
     expect(ids).toContain('claw2');
     expect(ids.length).toBe(3);
+  });
+
+  it('enumerateOrdinaryClaws 保留顺序并分类 reserved/invalid', () => {
+    vi.spyOn(fs, 'listSync').mockReturnValue([
+      { name: 'zeta', isDirectory: true },
+      { name: 'motion', isDirectory: true },
+      { name: '.trash', isDirectory: true },
+      { name: 'alpha', isDirectory: true },
+      { name: 'a..b', isDirectory: true },
+    ] as any);
+
+    expect(enumerateOrdinaryClaws(fs, 'claws')).toEqual({
+      valid: [makeClawId('zeta'), makeClawId('alpha')],
+      invalid: [
+        { dir: 'motion', reason: 'reserved_motion' },
+        { dir: '.trash', reason: 'invalid_claw_id_format' },
+        { dir: 'a..b', reason: 'invalid_claw_id_format' },
+      ],
+    });
+  });
+
+  it('enumerateOrdinaryClaws 原样透传 FS 错误', () => {
+    const failure = Object.assign(new Error('claws EACCES'), { code: 'EACCES' });
+    vi.spyOn(fs, 'listSync').mockImplementation(() => { throw failure; });
+    let thrown: unknown;
+    try {
+      enumerateOrdinaryClaws(fs, 'claws');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(failure);
   });
 
   it('resolve motion → chestnutRoot/motion', () => {
@@ -133,15 +164,27 @@ describe('createClawTopology', () => {
     expect(auditWrites.filter(e => e[0] === CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR)).toHaveLength(1);
   });
 
-  // phase 1864 Step F（CT-D9）：claws/ 下同名 motion 目录不产生重复 identity
-  it('enumerateSnapshot 去重 claws/ 下的 motion 目录', async () => {
-    await fs.ensureDir('claws/motion');
+  it('enumerateSnapshot 保留 claws/motion 与无效目录证据且不修改工作文件', async () => {
+    await fs.ensureDir('claws/motion/clawspace/work');
+    await fs.writeAtomic('claws/motion/clawspace/work/sentinel.txt', 'keep me');
     await fs.ensureDir('claws/claw1');
+    await fs.ensureDir('claws/.trash');
     const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const snapshot = topology.enumerateSnapshot();
     expect(snapshot.valid).toEqual([makeClawId('motion'), makeClawId('claw1')]);
-    expect(snapshot.invalid).toEqual([]);
+    expect(snapshot.invalid).toHaveLength(2);
+    expect(snapshot.invalid).toEqual(expect.arrayContaining([
+      { dir: 'motion', reason: 'reserved_motion' },
+      { dir: '.trash', reason: 'invalid_claw_id_format' },
+    ]));
     expect(topology.enumerate()).toEqual([...snapshot.valid]);
+    const invalidDirAudits = auditWrites.filter(e => e[0] === CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR);
+    expect(invalidDirAudits).toHaveLength(2);
+    expect(invalidDirAudits).toEqual(expect.arrayContaining([
+      [CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR, 'dir=.trash', 'reason=invalid_claw_id_format'],
+    ]));
+    expect(invalidDirAudits.flat().join(' ')).not.toContain('dir=motion');
+    expect(await fs.read('claws/motion/clawspace/work/sentinel.txt')).toBe('keep me');
   });
 
   // phase 1864 Step I（CT-D12）：sink 省略（无观察装配）/ 注入 / throw 三态语义

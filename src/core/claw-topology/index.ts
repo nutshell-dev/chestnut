@@ -1,4 +1,4 @@
-export { createClawTopology } from './topology.js';
+export { createClawTopology, enumerateOrdinaryClaws } from './topology.js';
 export { MOTION_CLAW_ID } from './motion-claw-id.js';
 // phase 1864 Step B2（CT-D1 + CT-D5）：安装路径 API 群已撤出本 barrel——
 // 稳定 owner = foundation/claw-identity（caller 直 import 该 owner、不经转发）。

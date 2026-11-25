@@ -29,8 +29,8 @@ import {
 import {
   getChestnutRoot,
   getNamedSubrootDir,
+  type ClawId,
 } from '../foundation/claw-identity/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { subscribeHostExit } from '../foundation/process-exec/index.js';
@@ -611,8 +611,9 @@ export async function runWatchdogLoop(
   });
 
   let aliveIds: string[] = [];
-  let presentClawIds: string[] = [];
+  let presentClawIds: ClawId[] = [];
   let supervisionCoverage: SupervisionCoverage = { kind: 'known', clawIds: [] };
+  let rejectedFingerprint = '[]';
 
   while (!stopped) {
     const now = Date.now();
@@ -680,6 +681,12 @@ export async function runWatchdogLoop(
           `error=${evidence.error ?? formatErr(observation.error)}`,
         );
       } else {
+        const rejected = observation.evidence.rejected ?? [];
+        const fingerprint = JSON.stringify(rejected);
+        if (fingerprint !== rejectedFingerprint) {
+          auditWriter.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `rejected=${fingerprint}`);
+        }
+        rejectedFingerprint = fingerprint;
         const clawIds = observation.kind === 'available' ? observation.clawIds : [];
         supervisionCoverage = { kind: 'known', clawIds };
         if (reduced.transition === 'recovered') {
@@ -695,9 +702,9 @@ export async function runWatchdogLoop(
 
     if (supervisionCoverage.kind === 'known') {
       presentClawIds = [...supervisionCoverage.clawIds];
-      for (const rawClawId of presentClawIds) {
-        if (pm.liveness(resolveClawDaemonDir(makeClawId(rawClawId))).kind === 'alive') {
-          aliveIds.push(rawClawId);
+      for (const clawId of presentClawIds) {
+        if (pm.liveness(resolveClawDaemonDir(clawId)).kind === 'alive') {
+          aliveIds.push(clawId);
         }
       }
       // phase 690: alive/present 独立列，避免单 col 多 key=value 的解析失真。

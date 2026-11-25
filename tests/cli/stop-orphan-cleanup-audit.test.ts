@@ -8,6 +8,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // ============================================================================
 // Hoisted mock state
@@ -23,6 +25,7 @@ const mockAuditState = vi.hoisted(() => {
   };
 });
 
+const actualFsState = vi.hoisted(() => ({ value: undefined as unknown as typeof import('fs') }));
 const mockKill = vi.hoisted(() => vi.fn());
 const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
@@ -115,6 +118,7 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => {
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
+  actualFsState.value = actual;
   return {
     ...actual,
     readdirSync: vi.fn().mockReturnValue([]),
@@ -159,6 +163,15 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   beforeEach(() => {
     mockAuditState.clear();
     vi.clearAllMocks();
+    vi.mocked(fs.readdirSync).mockReset().mockReturnValue([]);
+    vi.mocked(fs.statSync).mockReset().mockReturnValue({ isDirectory: () => true });
+    vi.mocked(fs.writeFileSync).mockReset().mockImplementation(() => {});
+    vi.mocked(fs.openSync).mockReset().mockReturnValue(1);
+    vi.mocked(fs.fsyncSync).mockReset().mockImplementation(() => {});
+    vi.mocked(fs.closeSync).mockReset().mockImplementation(() => {});
+    vi.mocked(fs.renameSync).mockReset().mockImplementation(() => {});
+    vi.mocked(fs.unlinkSync).mockReset().mockImplementation(() => {});
+    vi.mocked(fs.existsSync).mockReset().mockReturnValue(true);
     // phase 880 Step C: clearAllMocks does not reset implementations. Reset each
     // hoisted mock back to a known default so one test's mockImplementation cannot
     // leak into the next test.
@@ -511,6 +524,54 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       expect(log).not.toHaveBeenCalledWith('Done.');
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it('真实 claws/motion 与无效目录不进入普通 stop，Motion 独立停止一次且工作文件不变', async () => {
+    const realFs = actualFsState.value;
+    vi.mocked(fs.readdirSync).mockImplementation(realFs.readdirSync as any);
+    vi.mocked(fs.statSync).mockImplementation(realFs.statSync as any);
+    vi.mocked(fs.writeFileSync).mockImplementation(realFs.writeFileSync as any);
+    vi.mocked(fs.openSync).mockImplementation(realFs.openSync as any);
+    vi.mocked(fs.fsyncSync).mockImplementation(realFs.fsyncSync as any);
+    vi.mocked(fs.closeSync).mockImplementation(realFs.closeSync as any);
+    vi.mocked(fs.renameSync).mockImplementation(realFs.renameSync as any);
+    vi.mocked(fs.unlinkSync).mockImplementation(realFs.unlinkSync as any);
+    vi.mocked(fs.existsSync).mockImplementation(realFs.existsSync as any);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const workspace = realFs.mkdtempSync(path.join(os.tmpdir(), 'stop-ordinary-'));
+    const previousRoot = process.env.CHESTNUT_ROOT;
+    process.env.CHESTNUT_ROOT = workspace;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const sentinel = path.join(workspace, '.chestnut', 'claws', 'motion', 'clawspace', 'work', 'sentinel.txt');
+      realFs.mkdirSync(path.dirname(sentinel), { recursive: true });
+      realFs.writeFileSync(sentinel, 'keep me');
+      realFs.mkdirSync(path.join(workspace, '.chestnut', 'claws', '.trash'), { recursive: true });
+      realFs.mkdirSync(path.join(workspace, '.chestnut', 'claws', 'a..b'), { recursive: true });
+      realFs.mkdirSync(path.join(workspace, '.chestnut', 'claws', 'alpha'), { recursive: true });
+      const stop = vi.fn().mockResolvedValue({ kind: 'not_running' });
+      vi.mocked(createProcessManagerForCLI).mockReturnValue({
+        stop,
+        findProcessesSyncForCli: mockFindProcesses,
+      } as any);
+
+      await expect(stopAllCommand(stopDeps, {
+        audit: { write: mockAuditState.write } as any,
+      })).resolves.toBeUndefined();
+
+      expect(mockMotionStop).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(String(stop.mock.calls[0][0])).toMatch(/[\\/]claws[\\/]alpha$/);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('reserved claw directory: motion'));
+      expect(realFs.readFileSync(sentinel, 'utf8')).toBe('keep me');
+    } finally {
+      if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
+      else process.env.CHESTNUT_ROOT = previousRoot;
+      realFs.rmSync(workspace, { recursive: true, force: true });
+      log.mockRestore();
+      warn.mockRestore();
     }
   });
 });

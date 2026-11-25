@@ -17,6 +17,18 @@ import {
 } from '../../src/watchdog/watchdog-context.js';
 import { loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
 import { WATCHDOG_PATHS } from '../../src/watchdog/layout.js';
+import { runWatchdogLoop, _resetShutdownGuard } from '../../src/watchdog/watchdog.js';
+import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
+import { AuditWriter } from '../../src/foundation/audit/writer.js';
+import { setTimeout as setTimeoutP } from 'timers/promises';
+import { aliveLiveness } from '../helpers/liveness-fixtures.js';
+import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+
+vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
+  return { ...actual, createProcessManagerForCLI: vi.fn() };
+});
+vi.mock('timers/promises', () => ({ setTimeout: vi.fn().mockResolvedValue(undefined) }));
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
@@ -33,10 +45,12 @@ describe('watchdog claws supervision recovery', () => {
     previousRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = workspaceDir;
     _resetWatchdogContextForTest();
+    _resetShutdownGuard();
   });
 
   afterEach(() => {
     _resetWatchdogContextForTest();
+    _resetShutdownGuard();
     if (previousRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = previousRoot;
     vi.restoreAllMocks();
@@ -101,6 +115,88 @@ describe('watchdog claws supervision recovery', () => {
       kind: 'empty',
       evidence: { outcome: 'empty', observedAtMs: 5_000 },
     });
+  });
+
+  it('只有 reserved/invalid 时仍是 available，rejected 证据不进入 clawIds', () => {
+    const nodeFs = getNodeFs();
+    const workDir = path.join(chestnutDir, 'claws', 'motion', 'clawspace', 'work');
+    fs.mkdirSync(workDir, { recursive: true });
+    const sentinel = path.join(workDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'keep me');
+    fs.mkdirSync(path.join(chestnutDir, 'claws', '.trash'), { recursive: true });
+
+    const observation = observeClawsDirectory(nodeFs, 4_000);
+
+    expect(observation).toMatchObject({
+      kind: 'available',
+      clawIds: [],
+      evidence: { outcome: 'available' },
+    });
+    expect(observation.evidence.rejected).toHaveLength(2);
+    expect(observation.evidence.rejected).toEqual(expect.arrayContaining([
+      { dir: '.trash', reason: 'invalid_claw_id_format' },
+      { dir: 'motion', reason: 'reserved_motion' },
+    ]));
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('keep me');
+  });
+
+  it('Watchdog rejected fingerprint 只在变化时记录且不 liveness rejected', async () => {
+    const workDir = path.join(chestnutDir, 'claws', 'motion', 'clawspace', 'work');
+    fs.mkdirSync(workDir, { recursive: true });
+    const sentinel = path.join(workDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'keep me');
+    fs.mkdirSync(path.join(chestnutDir, 'claws', '.trash'), { recursive: true });
+    fs.mkdirSync(path.join(chestnutDir, 'claws', 'alpha'), { recursive: true });
+    fs.mkdirSync(path.join(chestnutDir, WATCHDOG_PATHS.root), { recursive: true });
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_PATHS.config),
+      'schema_version: 1\ninterval_ms: 5000\n',
+    );
+    const mockPm = {
+      liveness: vi.fn().mockReturnValue(aliveLiveness()),
+      isAlive: vi.fn().mockReturnValue(true),
+      spawn: vi.fn().mockResolvedValue(9999),
+      stop: vi.fn().mockResolvedValue(undefined),
+    } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
+    vi.mocked(createProcessManagerForCLI).mockReturnValue(mockPm);
+    const auditWrite = vi.spyOn(AuditWriter.prototype, 'write').mockImplementation(() => {});
+    let sleeps = 0;
+    vi.mocked(setTimeoutP).mockImplementation(async () => {
+      sleeps += 1;
+      if (sleeps === 2) {
+        fs.rmSync(path.join(chestnutDir, 'claws', '.trash'), { recursive: true, force: true });
+      }
+      if (sleeps === 3) {
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+        process.emit('SIGTERM');
+        exitSpy.mockRestore();
+      }
+    });
+
+    try {
+      await runWatchdogLoop(fsFactory);
+    } catch (error) {
+      if ((error as Error).message !== 'exit') throw error;
+    }
+
+    expect(sleeps).toBe(3);
+    const livenessTargets = vi.mocked(mockPm.liveness).mock.calls.map(call => String(call[0]));
+    expect(livenessTargets.filter(target => target.endsWith(`${path.sep}claws${path.sep}alpha`))).toHaveLength(3);
+    expect(livenessTargets.some(target => target.endsWith(`${path.sep}claws${path.sep}motion`))).toBe(false);
+    expect(livenessTargets.some(target => target.endsWith(`${path.sep}claws${path.sep}.trash`))).toBe(false);
+    const rejectedAudits = auditWrite.mock.calls.filter(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
+    expect(rejectedAudits).toHaveLength(2);
+    expect(rejectedAudits[0]).toEqual(expect.arrayContaining([
+      WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+      expect.stringContaining('reserved_motion'),
+      expect.stringContaining('invalid_claw_id_format'),
+    ]));
+    expect(rejectedAudits[1]).toEqual(expect.arrayContaining([
+      WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+      expect.stringContaining('reserved_motion'),
+    ]));
+    expect(rejectedAudits[1].join(' ')).not.toContain('invalid_claw_id_format');
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('keep me');
   });
 
   function getNodeFs(): NodeFileSystem {

@@ -107,6 +107,27 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     expect(listInbox(tmpDir, 'claws/bar').length).toBe(1);
   });
 
+  it('claws/motion 影子目录与无效目录不重复通知 Motion，用户文件保持不变', async () => {
+    writeActiveGeneration(tmpDir, 'motion', process.pid);
+    writeActiveGeneration(tmpDir, 'claws/alpha', process.pid);
+    writeActiveGeneration(tmpDir, 'claws/motion', process.pid);
+    const workDir = path.join(tmpDir, '.chestnut', 'claws', 'motion', 'clawspace', 'work');
+    fs.mkdirSync(workDir, { recursive: true });
+    const sentinel = path.join(workDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'keep me');
+    fs.mkdirSync(path.join(tmpDir, '.chestnut', 'claws', '.trash'), { recursive: true });
+
+    await notifyRunningDaemons(deps, 'set-primary');
+
+    expect(listInbox(tmpDir, 'motion')).toHaveLength(1);
+    expect(listInbox(tmpDir, 'claws/alpha')).toHaveLength(1);
+    expect(listInbox(tmpDir, 'claws/motion')).toEqual([]);
+    expect(notification.record.mock.calls.map(call => call[0].target)).toEqual([
+      'motion', 'motion', 'alpha', 'alpha',
+    ]);
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('keep me');
+  });
+
   it('混合：motion 存活、1 claw 死 → 仅 motion 收到', async () => {
     writeActiveGeneration(tmpDir, 'motion', process.pid);
     // 写一个 dead pid（isAlive 会返回 false）

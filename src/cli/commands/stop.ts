@@ -5,9 +5,10 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { getChestnutRoot, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { enumerateClaws, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
+import { getRelativeClawDir, type ClawId } from '../../foundation/claw-identity/index.js';
 import {
   resolveClawDaemonDir,
+  enumerateOrdinaryClaws,
   MOTION_CLAW_ID,
   requireMotionAccess,
 } from '../../core/claw-topology/index.js';
@@ -39,7 +40,6 @@ import {
 } from '../../foundation/process-exec/index.js';
 import { actionAuditFor, registerActionResource } from '../action-scope.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 import { resolveDaemonEntry } from '../../daemon/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -359,11 +359,17 @@ export async function stopAllCommand(
     }
 
     const pm = createProcessManagerForCLI({ fsFactory: deps.fsFactory, baseDir });
-    let clawNames: string[] = [];
+    let clawNames: ClawId[] = [];
     const clawEnumerationFailures: string[] = [];
     try {
       const baseFs = deps.fsFactory(baseDir);
-      clawNames = enumerateClaws(baseFs, 'claws');
+      const { valid, invalid } = enumerateOrdinaryClaws(baseFs, 'claws');
+      clawNames = valid;
+      for (const { dir, reason } of invalid) {
+        if (reason === 'reserved_motion') {
+          console.warn(`[stop] Skipping reserved claw directory: ${dir}`);
+        }
+      }
     } catch (error) {
       if (!isFileNotFound(error)) {
         clawEnumerationFailures.push(formatErr(error));
@@ -410,7 +416,7 @@ export async function stopAllCommand(
       console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
       await Promise.all(running.map(async name => {
         try {
-          const outcome = await pm.stop(resolveClawDaemonDir(makeClawId(name)));
+          const outcome = await pm.stop(resolveClawDaemonDir(name));
           clawOutcomes.set(name, outcome.kind);
           if (outcome.kind === 'failed') {
             const error = new Error(
