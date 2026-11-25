@@ -40,7 +40,7 @@ describe('buildShadowPayload (phase 1865 SH-D1)', () => {
   });
 
   const toolsForLLM: ToolDefinition[] = [
-    { type: 'function', function: { name: 'read', description: 'read' } },
+    { name: 'read', description: 'read', input_schema: { type: 'object', properties: {} } },
   ];
 
   it('maps fields 1:1 (systemPrompt/toolsForLLM/budget/postProcessor)', () => {

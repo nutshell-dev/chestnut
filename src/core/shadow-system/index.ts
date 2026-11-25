@@ -22,11 +22,19 @@ export { createShadowTool } from './tools/shadow.js';
 // phase 1185: spawnShadowSubagent helper — shadow subagent 装配业务归位
 export { spawnShadowSubagent } from './spawn-shadow-subagent.js';
 
-// ── 契约面（1863 E 的消费面 import 点）────────────────────────────────────────
-// phase 1865 (SH-D1): shadow 执行 payload 契约 + owner 构造器
-// phase 1863 (AT-D7): executor payload 解释面（装配注入 AsyncTaskSystem 的 owner adapter）
-export { buildShadowPayload, interpretShadowExecutorPayload } from './payload.js';
-export type { ShadowExecutorPayload } from './types.js';
+// ── 契约面（显式执行输入与 Shadow 主动迁移）──────────────────────────────────
+export {
+  buildShadowPayload,
+  decodeLegacyShadowPayload,
+  prepareShadowInput,
+} from './payload.js';
+export { migrateShadowTaskInputs } from './task-input-migration.js';
+export type {
+  LegacyShadowPayloadDecodeResult,
+  ShadowExecutorPayload,
+  ShadowTaskInputMigrationResult,
+  ShadowTaskInputMigrationStore,
+} from './types.js';
 
 // ── 目录/策略常量（装配与 CLI 消费；归属注释见 constants.ts）────────────────────
 export { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';

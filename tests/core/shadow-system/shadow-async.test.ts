@@ -20,6 +20,7 @@ import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 
 import { createMockTaskSystem } from '../../helpers/task-system.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
@@ -92,7 +93,9 @@ describe('shadow tool async (phase 1087)', () => {
     shadowTool = createShadowTool({
       getTurnSnapshot: () => ({
         systemPrompt: 'test-system-prompt',
-        tools: [{ type: 'function', function: { name: 'read', description: 'read' } }] as ToolDefinition[],
+        tools: [{
+          name: 'read', description: 'read', input_schema: { type: 'object', properties: {} },
+        }] as ToolDefinition[],
         messages: dialogMessages,
       }),
       runSubagent: mockRunSubagent,
@@ -119,15 +122,17 @@ describe('shadow tool async (phase 1087)', () => {
       const callArgs = mockSchedule.mock.calls[0][1];
       expect(callArgs.kind).toBe('subagent');
       expect(callArgs.intent).toBe('test task');
-      // phase 1863 (AT-D7)：shadow 语义收进 opaque executorPayload（ATS 侧无 mode/isShadow/shadow* 顶层字段）
-      const payload = callArgs.executorPayload as Record<string, unknown>;
-      expect(payload.detached).toBe(true);
-      expect(payload.systemPrompt).toBe('test-system-prompt');
-      expect(payload.toolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
+      expect(callArgs.executorPayload).toBeUndefined();
+      expect(callArgs).not.toHaveProperty('signal');
+      const input = decodeSubagentInput(callArgs.executionInput.input);
+      expect(input.systemPrompt).toEqual({ kind: 'text', text: 'test-system-prompt' });
+      expect(input.tools.manifest.llmTools).toEqual([{
+        name: 'read', description: 'read', input_schema: { type: 'object', properties: {} },
+      }]);
       // synthesized by stripIncompleteToolUse + synthesizeFormB:
       // main messages stripped of trailing assistant (tool_use) → 1 user msg
       // + instruction = 2 messages (phase 1115: 3-turn reverted to 1-turn baseline)
-      const shadowMessages = payload.messages as Array<{ role: string; content: unknown }>;
+      const shadowMessages = input.messages ?? [];
       expect(shadowMessages).toHaveLength(2);
       expect(shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
       expect(shadowMessages[1]).toMatchObject({ role: 'user' });

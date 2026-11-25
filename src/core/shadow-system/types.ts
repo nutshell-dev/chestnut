@@ -2,7 +2,13 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { SubAgentTaskScheduler, TaskId } from '../async-task-system/index.js';
+import type {
+  FullTaskId,
+  SubAgentTaskScheduler,
+  TaskExecutionInputStore,
+  TaskId,
+} from '../async-task-system/index.js';
+import type { PreparedSubagentInput } from '../subagent/index.js';
 import type { SHADOW_DETACHED } from './constants.js';
 
 
@@ -68,6 +74,29 @@ export interface ShadowIdentity {
  * phase 1865 (SH-D1)：shadow 执行 payload 契约（owner 定义；构造经 {@link buildShadowPayload}）。
  * ATS 侧 opaque 消费与字段形态迁移归 phase 1863 E。
  */
+export type LegacyShadowPayloadDecodeResult =
+  | { readonly kind: 'decoded'; readonly value: ShadowExecutorPayload }
+  | { readonly kind: 'not_applicable' }
+  | { readonly kind: 'invalid'; readonly reason: string };
+
+/** Shadow consumes only ATS's narrow list/conditional-commit migration surface. */
+export type ShadowTaskInputMigrationStore = Pick<
+  TaskExecutionInputStore,
+  'listUnpreparedInputs' | 'commitPreparedInput'
+>;
+
+export type ShadowTaskInputMigrationResult =
+  | { readonly kind: 'migrated'; readonly taskId: FullTaskId; readonly input: PreparedSubagentInput }
+  | { readonly kind: 'not_applicable'; readonly taskId: FullTaskId }
+  | { readonly kind: 'invalid'; readonly taskId: FullTaskId; readonly reason: string }
+  | { readonly kind: 'source_changed'; readonly taskId: FullTaskId; readonly cause: unknown }
+  | {
+      readonly kind: 'conflict';
+      readonly taskId: FullTaskId;
+      readonly code: 'conflict' | 'active_execution';
+      readonly cause: unknown;
+    };
+
 export interface ShadowExecutorPayload {
   /** shadow 视角完整 system prompt（KV cache 对齐 main）。 */
   readonly systemPrompt: string;

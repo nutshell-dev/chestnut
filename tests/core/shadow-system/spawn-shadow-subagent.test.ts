@@ -2,13 +2,13 @@
  * spawn-shadow-subagent tests (phase 1185)
  *
  * Coverage:
- * - 反向 1: 装配产 shadow task 含 mode='shadow' + intent 与 task 对应
- * - 反向 2: shadowMessages 不含 task body 重复
+ * - 反向 1: 装配产 shadow task 含显式 executionInput + intent 与 task 对应
+ * - 反向 2: executionInput.messages 不含 task body 重复
  * - 反向 3: shadowIdPrefix 默认 'shadow' / summon 可定 'summon'
  * - 反向 4: postProcessor 透传
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { spawnShadowSubagent } from '../../../src/core/shadow-system/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
@@ -21,6 +21,7 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
 
 async function readPendingTasks(baseDir: string): Promise<Array<Record<string, unknown>>> {
   const dir = path.join(baseDir, TASKS_QUEUES_PENDING_DIR);
@@ -62,7 +63,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
   });
 
   describe('spawnShadowSubagent behavior', () => {
-    it('反向 1 — 装配产 shadow task 含 opaque executorPayload + intent 与 task 对应', async () => {
+    it('反向 1 — 装配产 shadow task 含显式 executionInput + intent 与 task 对应', async () => {
       const mainMessages: Message[] = [{ role: 'user', content: 'prior' }];
       const toolsForLLM: ToolDefinition[] = [];
 
@@ -81,19 +82,23 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       const task = tasks[0];
-      // phase 1863 (AT-D7)：shadow 语义收进 owner payload；ATS 侧不再有 mode/shadow* 顶层字段
-      const payload = task.executorPayload as Record<string, unknown>;
-      expect(payload).toBeDefined();
-      expect(payload.detached).toBe(true);
-      expect(payload.systemPrompt).toBe('sp');
-      expect(Array.isArray(payload.messages)).toBe(true);
-      expect((payload.identity as Record<string, unknown>).shadowId).toBe(shadowId);
+      expect(task.executorPayload).toBeUndefined();
+      const envelope = task.executionInput as { schema_version: number; input: unknown };
+      expect(envelope.schema_version).toBe(1);
+      const input = decodeSubagentInput(envelope.input);
+      expect(input.systemPrompt).toEqual({ kind: 'text', text: 'sp' });
+      expect(Array.isArray(input.messages)).toBe(true);
+      expect(input.messages?.at(-1)?.content).toContain(`shadow_id: ${shadowId}`);
+      expect(input.execution).toMatchObject({
+        callerKind: 'shadow', allowDone: true, allowShadow: false,
+        allowSummon: false, allowNotifyClaw: false,
+      });
       expect(task.mode).toBeUndefined();
       expect(task.intent).toBe('do X');
       expect(task.intentPreview).toBeUndefined();
     });
 
-    it('反向 2 — payload.messages 不含 task body 重复', async () => {
+    it('反向 2 — executionInput.messages 不含 task body 重复', async () => {
       const mainMessages: Message[] = [
         { role: 'user', content: 'msg1' },
         { role: 'assistant', content: 'reply1' },
@@ -111,8 +116,8 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       expect(taskId).toBeDefined();
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      const payload = tasks[0].executorPayload as Record<string, unknown>;
-      const shadowMessages = payload.messages as Array<{ role: string; content: unknown }>;
+      const envelope = tasks[0].executionInput as { input: unknown };
+      const shadowMessages = decodeSubagentInput(envelope.input).messages ?? [];
       expect(shadowMessages).toHaveLength(mainMessages.length + 1);
 
       // task body 只出现 1 次（在 SHADOW INSTRUCTION 内）
