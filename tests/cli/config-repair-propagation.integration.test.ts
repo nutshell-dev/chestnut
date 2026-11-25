@@ -88,7 +88,7 @@ async function withRoot<T>(root: string, read: () => T): Promise<T> {
   }
 }
 
-async function waitForApplication(root: string): Promise<{
+async function waitForApplication(root: string, revision: string): Promise<{
   fact: LLMApplicationFact;
   publishStates: boolean[];
 }> {
@@ -98,11 +98,11 @@ async function waitForApplication(root: string): Promise<{
     const deadline = Date.now() + APPLICATION_WAIT_TIMEOUT_MS;
     for (;;) {
       const fact = store.read('motion');
-      if (fact?.revision === '2' && fact.outcome === 'applied') {
+      if (fact?.revision === revision && fact.outcome === 'applied') {
         if (publishStates.at(-1) !== fact.publish_pending) publishStates.push(fact.publish_pending);
         if (!fact.publish_pending) return { fact, publishStates };
       }
-      if (Date.now() >= deadline) throw new Error(`rev2 application not settled: ${JSON.stringify(fact)}`);
+      if (Date.now() >= deadline) throw new Error(`rev${revision} application not settled: ${JSON.stringify(fact)}`);
       await new Promise<void>(resolve => setTimeout(resolve, POLL_MS));
     }
   });
@@ -112,14 +112,20 @@ async function readOperationalIdentity(root: string): Promise<string> {
   return withRoot(root, () => snapshotLLMConfig(createLLMConfiguration(deps).loadSnapshot()).operationalIdentity);
 }
 
-async function repair(workspace: ConfigRepairWorkspace, signal: AbortSignal): Promise<void> {
+async function repair(
+  workspace: ConfigRepairWorkspace,
+  signal: AbortSignal,
+  expectedRevision = 2,
+): Promise<string> {
   const outcome = await runConfigRepairSession(workspace, ['config', 'provider', 'repair', 'main'], [
     { prompt: /> : $/, value: '3' },
     { prompt: /New model \(b = back\): $/, value: 'after-repair' },
   ], signal);
   expect(outcome.status).toBe(0);
   expect(outcome.execution.kind).toBe('gone');
-  expect(readConfigRepairRaw(workspace.root).document.revision).toBe(2);
+  const revision = readConfigRepairRaw(workspace.root).document.revision;
+  expect(revision).toBe(expectedRevision);
+  return String(revision);
 }
 
 async function stopOwnedMotion(workspace: ConfigRepairWorkspace): Promise<void> {
@@ -167,21 +173,23 @@ describe('real CLI repair save notify and Motion application', () => {
         await runCommand(workspace, ['motion', 'init'], context.signal);
         const started = await runCommand(workspace, ['motion', 'daemon'], context.signal);
         pid = daemonPid(started.stdout);
-        await repair(workspace, context.signal);
+        // Initial durable construction may explicitly backfill legacy entry IDs.
+        const beforeRepair = readConfigRepairRaw(workspace.root).document.revision;
+        const revision = await repair(workspace, context.signal, beforeRepair + 1);
 
         const notification = await withRoot(workspace.root, () =>
-          createLLMNotificationStore(deps).read('2', 'motion'));
-        expect(notification).toMatchObject({ revision: '2', target: 'motion', status: 'sent' });
-        const { fact, publishStates } = await waitForApplication(workspace.root);
+          createLLMNotificationStore(deps).read(revision, 'motion'));
+        expect(notification).toMatchObject({ revision, target: 'motion', status: 'sent' });
+        const { fact, publishStates } = await waitForApplication(workspace.root, revision);
         const identity = await readOperationalIdentity(workspace.root);
         expect(fact).toMatchObject({
           claw_id: 'motion',
           process_id: pid,
-          revision: '2',
+          revision,
           identity,
           outcome: 'applied',
           publish_pending: false,
-          last_applied_revision: '2',
+          last_applied_revision: revision,
           last_applied_identity: identity,
         });
         expect(publishStates.at(-1)).toBe(false);
@@ -200,21 +208,21 @@ describe('real CLI repair save notify and Motion application', () => {
       await withCleanupPreservingError(async () => {
         await runCommand(workspace, ['init'], context.signal);
         await runCommand(workspace, ['motion', 'init'], context.signal);
-        await repair(workspace, context.signal);
+        const revision = await repair(workspace, context.signal);
 
         const notification = await withRoot(workspace.root, () =>
-          createLLMNotificationStore(deps).read('2', 'motion'));
-        expect(notification).toMatchObject({ revision: '2', target: 'motion', status: 'offline' });
+          createLLMNotificationStore(deps).read(revision, 'motion'));
+        expect(notification).toMatchObject({ revision, target: 'motion', status: 'offline' });
         expect(await withRoot(workspace.root, () => createLLMApplicationStore(deps).read('motion')))
           .toBeUndefined();
 
         const started = await runCommand(workspace, ['motion', 'daemon'], context.signal);
         pid = daemonPid(started.stdout);
-        const { fact } = await waitForApplication(workspace.root);
+        const { fact } = await waitForApplication(workspace.root, revision);
         const identity = await readOperationalIdentity(workspace.root);
         expect(fact).toMatchObject({
           process_id: pid,
-          revision: '2',
+          revision,
           identity,
           outcome: 'applied',
           publish_pending: false,

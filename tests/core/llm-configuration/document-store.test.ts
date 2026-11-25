@@ -104,6 +104,29 @@ describe('LLM configuration document reads', () => {
     expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
   });
 
+  it('ensureEntryIds 锁内只补缺失身份且重跑不改已有 ID 或 revision', async () => {
+    const existingId = 'f66ad270-2747-4b0e-b2e2-e08dd768b6f8';
+    const source = referencedSource();
+    source.primary.entry_id = existingId;
+    const configPath = getLLMConfigurationPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, yaml.dump({ ...source, schema_version: 1, revision: 4 }));
+    const store = makeStore();
+
+    await store.ensureEntryIds();
+    const committed = store.read();
+    expect(committed.revision).toBe(5);
+    expect(committed.primary.entry_id).toBe(existingId);
+    expect(committed.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
+    expect(committed.fallbacks?.[0]?.entry_id).toMatch(ENTRY_ID_PATTERN);
+    expect(committed.fallbacks?.[0]?.entry_id).not.toBe(existingId);
+    const before = fs.readFileSync(configPath, 'utf8');
+
+    await store.ensureEntryIds();
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+    expect(store.read()).toEqual(committed);
+  });
+
   it('loadGlobal/loadSnapshot 同源保留 raw ref、revision 与 scope，重建后身份一致', () => {
     makeStore().createFromSource(referencedSource(), 'test-seed');
     const firstAdmin = createLLMConfiguration(deps);

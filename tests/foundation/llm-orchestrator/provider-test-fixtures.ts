@@ -6,6 +6,8 @@ import {
 } from '../../../src/foundation/llm-provider/provider-connection.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 import type { ApiFormat } from '../../../src/foundation/llm-provider/presets.js';
+import type { ConfiguredProviderCandidate } from '../../../src/foundation/llm-orchestrator/types.js';
+import { sha256Hex } from '../../../src/foundation/node-utils/index.js';
 
 export type ProviderInput = llmProviderCall.ProviderInput;
 export type ProviderFactory = llmProviderCall.ProviderFactory;
@@ -62,6 +64,21 @@ export function descriptorFor(input: ProviderInput) {
   return 'providerId' in input && 'apiFormat' in input
     ? describeProviderConnection(input as unknown as InternalProviderConnection)
     : describeProviderInput(input);
+}
+
+/** Stable test-only entry IDs; production IDs remain L4-owned persisted UUIDs. */
+export function providerEntryId(name: string): string {
+  const hex = sha256Hex(`test-provider-entry:${name}`).slice(0, 32).split('');
+  hex[12] = '4';
+  hex[16] = '8';
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
+
+export function durableProviderCandidate(
+  input: ProviderConnection,
+  entryId = providerEntryId(input.providerId),
+): ConfiguredProviderCandidate {
+  return { entryId, input, callDefaults: {}, displayName: input.providerId };
 }
 
 /** Wrap a fake adapter in the new handle contract; legacy metadata never enters production. */

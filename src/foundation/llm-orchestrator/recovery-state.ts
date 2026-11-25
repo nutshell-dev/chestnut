@@ -64,8 +64,8 @@ export interface LLMRecoveryProviderFact {
    */
   providerLabel?: string;
   /**
-   * Phase 2027：旧算法身份已重键到当前身份，但尚未确认配置修订是否不变。
-   * 可选以保持旧文件兼容；新修订必须对标记事实做一次保守重估。
+   * Phase 2027 旧文件的离线解释标记。Phase 2245 起 V4 不再重键 recovery facts；
+   * 该字段仅供 legacy-recovery-compat，现役 begin 不读取也不调用 release。
    */
   identityMigrationPending?: boolean;
 }
@@ -454,8 +454,18 @@ export function validateRecoveryState(
 
 export type RecoveryStateLoad =
   | { kind: 'missing' }
-  | { kind: 'ok'; state: LLMRecoveryStateV1; imported?: true }
+  | { kind: 'ok'; state: LLMRecoveryStateV1; imported?: true; source: { path: string; raw: string } }
   | { kind: 'unusable'; reason: 'parse_failed' | 'schema_invalid' | 'field_type_mismatch' | 'scope_mismatch' | 'read_failed'; detail: string };
+
+function recoveryStateLoaded(
+  state: LLMRecoveryStateV1,
+  source: { path: string; raw: string },
+  imported?: true,
+): RecoveryStateLoad {
+  const result = { kind: 'ok', state, ...(imported ? { imported } : {}) } as unknown as RecoveryStateLoad;
+  Object.defineProperty(result, 'source', { value: source, enumerable: false });
+  return result;
+}
 
 /** 相对 scope FileSystem base 的状态文件路径；缺省 status 仅作旧文件兼容。 */
 export function recoveryStateRelPath(stateDir = 'status'): string {
@@ -531,7 +541,7 @@ function loadLegacyRetryStateV2(
     quotaDelayMs: legacy.llmQuotaDelayMs ?? initialBudget.quotaDelayMs,
   }, nowMs);
   state.importedSources = [LEGACY_RETRY_STATE_SOURCE];
-  return { kind: 'ok', state, imported: true };
+  return recoveryStateLoaded(state, { path: LEGACY_RETRY_STATE_REL_PATH, raw }, true);
 }
 
 export function loadRecoveryState(
@@ -562,5 +572,5 @@ export function loadRecoveryState(
   }
   const v = validateRecoveryState(saved, scopeId);
   if (!v.ok) return { kind: 'unusable', reason: v.reason, detail: v.detail };
-  return { kind: 'ok', state: v.state };
+  return recoveryStateLoaded(v.state, { path: recoveryStateRelPath(stateDir), raw });
 }

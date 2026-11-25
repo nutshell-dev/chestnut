@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory, providerEntryId } from './provider-test-fixtures.js';
 import { mockProviderFactory } from './provider-test-fixtures.js';
 /**
  * phase 320 Step A: LLMOrchestratorImpl.reloadConfig — 原地替换 primary/fallbacks/providerStates，对象引用不变。
@@ -284,6 +284,7 @@ describe('Phase 2027 selective runtime reload', () => {
     const ids = [...internalsOf(orch).providerRuntime.providerIds()] as string[];
     const records = ids.map((providerId, i) => ({
       providerId,
+      operationalIdentity: internalsOf(orch).providerRuntime.operationalIdentities()[i],
       status: 'waiting',
       retryAt: i + 1,
       lastError: { class: 'transient', at: i + 1, message: `offline-${i}` },
@@ -295,21 +296,22 @@ describe('Phase 2027 selective runtime reload', () => {
       fallbacks: [fallbackA, { ...fallbackB, model: 'mb-new' }],
     });
 
-    expect(providerStatesOf(orch)).toHaveLength(2);
+    expect(providerStatesOf(orch)).toHaveLength(3);
     expect(providerStatesOf(orch)[0]).toEqual(records[0]);
     expect(providerStatesOf(orch)[1]).toEqual(records[1]);
-    expect(providerStatesOf(orch).some((provider: { providerId: string }) =>
-      provider.providerId === ids[2])).toBe(false);
+    expect(providerStatesOf(orch)[2]).toMatchObject({ providerId: ids[2], status: 'available' });
+    expect(providerStatesOf(orch)[2]).not.toHaveProperty('lastError');
     expect((orch as any).breakers).toBeUndefined();
   });
 
-  it('只改 temperature 时保留故障身份与 waiting/lastError、清成功 cache，但创建新 adapter', () => {
+  it('raw 兼容输入的 adapter behavior 变化清除该条目健康与选择', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
     const id = internalsOf(orch).providerRuntime.providerIds()[0];
     const adapter = internalsOf(orch).providerRuntime.primary();
     const record = {
       providerId: id,
+      operationalIdentity: internalsOf(orch).providerRuntime.operationalIdentities()[0],
       status: 'waiting',
       retryAt: 1,
       lastError: { class: 'transient', at: 1, message: 'offline' },
@@ -323,12 +325,12 @@ describe('Phase 2027 selective runtime reload', () => {
     expect(internalsOf(orch).providerRuntime.providerIds()[0]).toBe(id);
     expect(providerStatesOf(orch)[0]).toMatchObject({
       providerId: id,
-      status: 'waiting',
-      retryAt: 1,
-      lastError: record.lastError,
+      status: 'available',
+      previousOperationalIdentity: record.operationalIdentity,
+      operationalChangeReason: 'operational_identity_changed',
     });
+    expect(providerStatesOf(orch)[0]).not.toHaveProperty('lastError');
     expect(providerStatesOf(orch)[0]).not.toHaveProperty('lastSuccessAt');
-    expect(providerStatesOf(orch)[0]).not.toHaveProperty('cacheValidUntil');
     expect(lastSuccessProviderOf(orch)).toBeNull();
     expect(internalsOf(orch).providerRuntime.primary()).not.toBe(adapter);
   });
@@ -339,6 +341,7 @@ describe('Phase 2027 selective runtime reload', () => {
     const ids = [...internalsOf(orch).providerRuntime.providerIds()] as string[];
     const record = {
       providerId: ids[0],
+      operationalIdentity: internalsOf(orch).providerRuntime.operationalIdentities()[0],
       status: 'waiting',
       retryAt: 1,
       lastError: { class: 'transient', at: 1, message: 'offline' },
@@ -387,5 +390,56 @@ describe('Phase 2027 selective runtime reload', () => {
     expect((await pending).value).toMatchObject({ type: 'done' });
     expect((await stream.next()).done).toBe(true);
     expect(lastSuccessProviderOf(orch)).toBeNull();
+  });
+
+  it('reload 换 entry 后旧 invocation 的失败审计保留旧 ID 且不写新健康', async () => {
+    const { sink, emitted } = createSink();
+    let markOldCallStarted!: () => void;
+    const oldCallStarted = new Promise<void>(resolve => { markOldCallStarted = resolve; });
+    let failOldCall!: (error: Error) => void;
+    const oldAdapter = {
+      name: 'old-primary',
+      model: 'old-model',
+      call: () => {
+        markOldCallStarted();
+        return new Promise<LLMResponse>((_resolve, reject) => { failOldCall = reject; });
+      },
+    };
+    const newAdapter = {
+      name: 'new-primary',
+      model: 'new-model',
+      async call() { return { content: [], stop_reason: 'end_turn' } as LLMResponse; },
+    };
+    const oldInput = { ...primary, providerId: 'old-primary', model: 'old-model' };
+    const newInput = { ...primary, providerId: 'new-primary', model: 'new-model' };
+    const config = {
+      ...baseConfig(sink),
+      primary: durableProviderCandidate(oldInput, providerEntryId('reload-old-primary')),
+      fallbacks: [],
+      providerFactory: legacyProviderFactory(connection =>
+        connection.providerId === 'old-primary' ? oldAdapter : newAdapter),
+    };
+    const orch = new LLMOrchestratorImpl(config);
+    const oldProviderId = internalsOf(orch).providerRuntime.providerIds()[0]!;
+    const pending = orch.call({ messages: [] });
+    await oldCallStarted;
+
+    orch.reloadConfig({
+      ...config,
+      primary: durableProviderCandidate(newInput, providerEntryId('reload-new-primary')),
+    });
+    const newProviderId = internalsOf(orch).providerRuntime.providerIds()[0]!;
+    expect(newProviderId).not.toBe(oldProviderId);
+    failOldCall(new Error('old primary offline'));
+    const error = await pending.then(() => undefined, reason => reason);
+
+    expect(error).toMatchObject({
+      failures: [expect.objectContaining({ providerId: oldProviderId })],
+    });
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'call_attempt_result', outcome: 'failure', providerId: oldProviderId,
+    }));
+    const newState = providerStatesOf(orch).find(provider => provider.providerId === newProviderId);
+    expect(newState).toBeUndefined();
   });
 });

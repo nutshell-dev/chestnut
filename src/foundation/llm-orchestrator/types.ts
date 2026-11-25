@@ -60,6 +60,8 @@ export interface LLMCallOptions extends L1LLMCallOptions {
 
 /** Atomic candidate projection: one persisted choice supplies both connection and call defaults. */
 export interface ConfiguredProviderCandidate {
+  /** L4-owned persistent configuration-entry identity; never forwarded in ProviderInput. */
+  readonly entryId?: string;
   readonly input: ProviderInput;
   readonly callDefaults: ProviderCallDefaults;
   readonly displayName?: string;

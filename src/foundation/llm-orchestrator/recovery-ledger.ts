@@ -53,7 +53,7 @@ export interface RecoveryLedgerSnapshot {
 export interface RecoveryLedgerDeps {
   store: InstanceStateStore;
   providerIds: readonly string[];
-  legacyProviderIds: readonly string[];
+  operationalIdentities: readonly string[];
   emit(event: LLMEvent): void;
   admission: ProviderAdmission;
   now?: () => number;
@@ -150,7 +150,7 @@ function hasAcceptedFact(
 export class LLMRecoveryControllerImpl implements RecoveryLedger {
   private readonly instanceId: string;
   private providerIds: readonly string[];
-  private legacyProviderIds: readonly string[];
+  private operationalIdentities: readonly string[];
   private readonly store: InstanceStateStore;
   private readonly commitListeners = new Set<(context: string) => void>();
   private readonly emitEvent: RecoveryLedgerDeps['emit'];
@@ -160,13 +160,12 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
   constructor(deps: RecoveryLedgerDeps) {
     this.instanceId = deps.store.snapshot().instanceId;
     this.providerIds = [...deps.providerIds];
-    this.legacyProviderIds = [...deps.legacyProviderIds];
+    this.operationalIdentities = [...deps.operationalIdentities];
     this.store = deps.store;
     this.emitEvent = deps.emit;
     this.admission = deps.admission;
     this.now = deps.now ?? Date.now;
-    // 构造顺序是持久协议：先身份迁移，再把重启后的在途 invocation 记账。
-    this.migrateProviderIdentities();
+    // Store 已完成旧身份转换；这里只恢复 V4 中仍属于当前实例的在途 invocation。
     this.recoverInvocationsAfterRestart();
   }
 
@@ -184,24 +183,39 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     return () => { this.commitListeners.delete(listener); };
   }
 
-  /** Persist the next identity filter before either Runtime or this view switches. */
-  reloadProviderIdentities(providerIds: readonly string[], legacyProviderIds: readonly string[]): void {
+  /** Persist per-entry execution versions before Runtime activates the prepared handles. */
+  reloadProviderIdentities(
+    providerIds: readonly string[],
+    operationalIdentities: readonly string[],
+  ): void {
+    if (operationalIdentities.length !== providerIds.length) {
+      throw new Error('LLM provider and operational identity counts differ');
+    }
     const current = new Set(providerIds);
     const providers = this.getProviders()
       .filter(provider => current.has(provider.providerId))
       .map(provider => {
-        const { lastSuccessAt: _lastSuccessAt, cacheValidUntil: _cacheValidUntil, ...retained } = provider;
-        return retained;
+        const index = providerIds.indexOf(provider.providerId);
+        const operationalIdentity = operationalIdentities[index];
+        if (operationalIdentity === undefined) throw new Error(`Missing operational identity for ${provider.providerId}`);
+        if (provider.operationalIdentity === operationalIdentity) return { ...provider };
+        return {
+          providerId: provider.providerId,
+          status: 'available' as const,
+          operationalIdentity,
+          previousOperationalIdentity: provider.operationalIdentity,
+          operationalChangeReason: 'operational_identity_changed' as const,
+        };
       });
     const result = this.store.commit('reload_config', {
       providers: [...providers],
       recovery: this.getState(),
-    }, { providerIds, force: true });
+    }, { providerIds, operationalIdentities, force: true });
     if (result.kind === 'failed') {
       throw new Error('LLM instance state persistence failed during reloadConfig', { cause: result.error });
     }
     this.providerIds = [...providerIds];
-    this.legacyProviderIds = [...legacyProviderIds];
+    this.operationalIdentities = [...operationalIdentities];
   }
 
   private getState(): LLMInstanceRecoveryState {
@@ -222,51 +236,6 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
 
   async inspect(): Promise<LLMRecoverySchedule> {
     return this.currentSchedule();
-  }
-
-  private migrateProviderIdentities(): void {
-    const legacyToCurrent = new Map<string, string>();
-    const currentIds = this.providerIds;
-    const legacyIds = this.legacyProviderIds;
-    for (let i = 0; i < currentIds.length; i++) {
-      const currentId = currentIds[i];
-      const legacyId = legacyIds[i];
-      if (currentId !== undefined && legacyId !== undefined && legacyId !== currentId) {
-        const existing = legacyToCurrent.get(legacyId);
-        if (existing !== undefined && existing !== currentId) {
-          throw new Error(`legacy provider identity migration is ambiguous at ${legacyId}`);
-        }
-        legacyToCurrent.set(legacyId, currentId);
-      }
-    }
-    const state = this.getState();
-    let migrated = false;
-    const next = cloneRecovery(state);
-    next.providers = next.providers.map(fact => {
-      const currentId = legacyToCurrent.get(fact.providerId);
-      if (currentId === undefined) return fact;
-      migrated = true;
-      return { ...fact, providerId: currentId, identityMigrationPending: true };
-    });
-    const recoveryIds = new Set<string>();
-    for (const fact of next.providers) {
-      if (migrated && recoveryIds.has(fact.providerId)) {
-        throw new Error(`legacy recovery fact migration is ambiguous at ${fact.providerId}`);
-      }
-      recoveryIds.add(fact.providerId);
-    }
-    const providers = this.getProviders().map(provider => ({ ...provider }));
-    for (let i = 0; i < providers.length; i++) {
-      const provider = providers[i]!;
-      const currentId = legacyToCurrent.get(provider.providerId);
-      if (currentId === undefined) continue;
-      if (providers.some((other, index) => index !== i && other.providerId === currentId)) {
-        throw new Error(`legacy provider identity migration conflicts at ${currentId}`);
-      }
-      provider.providerId = currentId;
-      migrated = true;
-    }
-    if (migrated) this.commitNext(next, 'migration', providers);
   }
 
   private recoverInvocationsAfterRestart(): void {
@@ -461,7 +430,11 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     const index = providers.findIndex(provider => provider.providerId === providerId);
     const previous: LLMProviderRecoveryState = index >= 0
       ? providers[index]!
-      : { providerId, status: 'available' };
+      : {
+        providerId,
+        status: 'available',
+        operationalIdentity: this.operationalIdentities[this.providerIds.indexOf(providerId)],
+      };
     const next = this.admission.recordSuccess(previous, { nowMs, updateSelection });
     if (index >= 0) providers[index] = next;
     else providers.push(next);
@@ -514,7 +487,11 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       const index = providers.findIndex(provider => provider.providerId === failure.providerId);
       const previous: LLMProviderRecoveryState = index >= 0
         ? providers[index]!
-        : { providerId: failure.providerId, status: 'available' };
+        : {
+          providerId: failure.providerId,
+          status: 'available',
+          operationalIdentity: this.operationalIdentities[this.providerIds.indexOf(failure.providerId)],
+        };
       const nextProvider = this.admission.recordFailure(previous, {
         errorClass: failure.errorClass,
         message: failure.message,

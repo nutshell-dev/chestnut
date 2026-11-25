@@ -1,6 +1,6 @@
 /**
  * LLMOrchestrator 实例的唯一持久事实：健康、选择基础、恢复历史与在途 invocation。
- * 旧 recovery/retry 文件只由 InstanceStateStore 构造期只读导入；原子写入由 Store 调用本文件。
+ * 旧 V1/V2/V3 recovery/retry 文件只由 InstanceStateStore 构造期只读导入；V4 原子写入由 Store 调用本文件。
  */
 import * as path from 'path';
 import { formatErr, newUuid } from '../node-utils/index.js';
@@ -39,6 +39,8 @@ export interface LLMInstanceProviderState {
   providerId: string;
   breaker: LLMInstanceBreakerState;
   sharedFailure?: LLMInstanceSharedFailure;
+  /** Rare legacy snapshots may carry proof of their applied execution version. */
+  operationalIdentity?: string;
 }
 
 export interface LLMInstanceStateV1 {
@@ -91,6 +93,11 @@ export interface LLMInstanceStateV2 {
 /** 每个 provider 唯一的运行期恢复事实；恢复历史仍留在 recovery 中供审计。 */
 export interface LLMProviderRecoveryState {
   providerId: string;
+  /** V4 requires this applied execution-version proof; V3 may lack it and stays legacy. */
+  operationalIdentity?: string;
+  /** Last cleared execution version and reason; retained as an audit fact in V4. */
+  previousOperationalIdentity?: string;
+  operationalChangeReason?: 'operational_identity_changed';
   status: 'available' | 'waiting';
   /** 最早可持续探测时刻（epoch ms）。 */
   retryAt?: number;
@@ -117,10 +124,42 @@ export interface LLMInstanceStateV3 {
   recovery: LLMInstanceRecoveryState;
 }
 
+export type LLMInstanceMigrationClassification =
+  | 'inherited'
+  | 'missing_execution_identity'
+  | 'execution_identity_mismatch'
+  | 'ambiguous'
+  | 'unmatched';
+
+export interface LLMInstanceMigrationTransition {
+  sourceProviderId: string;
+  classification: LLMInstanceMigrationClassification;
+  targetProviderId?: string;
+}
+
+export interface LLMInstanceMigrationMetadata {
+  sourceDigest: string;
+  evidencePath: string;
+  transitions: LLMInstanceMigrationTransition[];
+}
+
+export type LLMProviderRecoveryStateV4 = LLMProviderRecoveryState & { operationalIdentity: string };
+
+/** Entry-keyed scheduling state; schema_version=4 is the explicit identity protocol marker. */
+export interface LLMInstanceStateV4 {
+  schema_version: 4;
+  instanceId: string;
+  revision: number;
+  updatedAt: string;
+  providers: LLMProviderRecoveryStateV4[];
+  recovery: LLMInstanceRecoveryState;
+  migration?: LLMInstanceMigrationMetadata;
+}
+
 export type LLMInstanceStateLoad =
   | { kind: 'missing' }
-  | { kind: 'ok'; state: LLMInstanceStateV3 }
-  | { kind: 'legacy'; state: LLMInstanceStateV1 | LLMInstanceStateV2 }
+  | { kind: 'ok'; state: LLMInstanceStateV4 }
+  | { kind: 'legacy'; state: LLMInstanceStateV1 | LLMInstanceStateV2 | LLMInstanceStateV3; raw: string }
   | { kind: 'unusable'; reason: 'read_failed' | 'parse_failed' | 'schema_invalid'; detail: string };
 
 const ERROR_CLASSES = new Set<LLMErrorClass>([
@@ -184,7 +223,9 @@ function validateProviders(value: unknown): value is LLMInstanceProviderState[] 
   if (!Array.isArray(value)) return false;
   const ids = new Set<string>();
   for (const provider of value) {
-    if (!isRecord(provider) || !hasOnlyKeys(provider, ['providerId', 'breaker', 'sharedFailure'])) return false;
+    if (!isRecord(provider) || !hasOnlyKeys(provider, ['providerId', 'breaker', 'sharedFailure', 'operationalIdentity'])) return false;
+    if (provider.operationalIdentity !== undefined
+      && (typeof provider.operationalIdentity !== 'string' || provider.operationalIdentity.length === 0)) return false;
     if (typeof provider.providerId !== 'string' || provider.providerId.length === 0 || ids.has(provider.providerId)) return false;
     if (!validateBreaker(provider.breaker)) return false;
     if (provider.sharedFailure !== undefined && !validateSharedFailure(provider.sharedFailure)) return false;
@@ -344,14 +385,21 @@ function validateLastError(value: unknown): value is NonNullable<LLMProviderReco
   return value.migrationSources === undefined || isStringArray(value.migrationSources);
 }
 
-function validateRecoveryProviders(value: unknown): value is LLMProviderRecoveryState[] {
+function validateRecoveryProviders(value: unknown, requireOperationalIdentity = false): value is LLMProviderRecoveryState[] {
   if (!Array.isArray(value)) return false;
   const ids = new Set<string>();
   for (const provider of value) {
     if (!isRecord(provider) || !hasOnlyKeys(provider, [
       'providerId', 'status', 'retryAt', 'lastError', 'lastSuccessAt', 'cacheValidUntil', 'consecutiveFailures',
+      'operationalIdentity', 'previousOperationalIdentity', 'operationalChangeReason',
     ])) return false;
     if (typeof provider.providerId !== 'string' || provider.providerId.length === 0 || ids.has(provider.providerId)) return false;
+    if ((requireOperationalIdentity || provider.operationalIdentity !== undefined)
+      && (typeof provider.operationalIdentity !== 'string' || provider.operationalIdentity.length === 0)) return false;
+    if (provider.previousOperationalIdentity !== undefined
+      && (typeof provider.previousOperationalIdentity !== 'string' || provider.previousOperationalIdentity.length === 0)) return false;
+    if (provider.operationalChangeReason !== undefined && provider.operationalChangeReason !== 'operational_identity_changed') return false;
+    if ((provider.previousOperationalIdentity === undefined) !== (provider.operationalChangeReason === undefined)) return false;
     if (provider.status !== 'available' && provider.status !== 'waiting') return false;
     if (provider.retryAt !== undefined && !isNonNegativeNumber(provider.retryAt)) return false;
     if (provider.status === 'waiting' ? provider.retryAt === undefined : provider.retryAt !== undefined) return false;
@@ -396,9 +444,34 @@ export function createEmptyLLMInstanceRecoveryState(): LLMInstanceRecoveryState 
   };
 }
 
-export function createEmptyLLMInstanceState(instanceId = `llm-${newUuid()}`): LLMInstanceStateV3 {
+function validateMigration(value: unknown): value is LLMInstanceMigrationMetadata {
+  if (!isRecord(value) || !hasOnlyKeys(value, ['sourceDigest', 'evidencePath', 'transitions'])) return false;
+  if (typeof value.sourceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.sourceDigest)
+    || typeof value.evidencePath !== 'string' || value.evidencePath.length === 0
+    || !Array.isArray(value.transitions)) return false;
+  return value.transitions.every(transition => isRecord(transition)
+    && hasOnlyKeys(transition, ['sourceProviderId', 'classification', 'targetProviderId'])
+    && typeof transition.sourceProviderId === 'string' && transition.sourceProviderId.length > 0
+    && ['inherited', 'missing_execution_identity', 'execution_identity_mismatch', 'ambiguous', 'unmatched'].includes(String(transition.classification))
+    && (transition.targetProviderId === undefined || typeof transition.targetProviderId === 'string')
+    && (transition.classification === 'inherited' ? typeof transition.targetProviderId === 'string' : transition.targetProviderId === undefined));
+}
+
+function validateV4(value: unknown): value is LLMInstanceStateV4 {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    'schema_version', 'instanceId', 'revision', 'updatedAt', 'providers', 'recovery', 'migration',
+  ])) return false;
+  if (value.schema_version !== 4 || typeof value.instanceId !== 'string' || value.instanceId.length === 0) return false;
+  if (!isNonNegativeInteger(value.revision) || !isIsoDate(value.updatedAt) || !validateRecoveryProviders(value.providers, true)) return false;
+  if (!validateRecovery(value.recovery)) return false;
+  if (value.migration !== undefined && !validateMigration(value.migration)) return false;
+  const revision = value.revision;
+  return value.recovery.acceptedFactBatches?.every(batch => batch.revision <= revision) ?? true;
+}
+
+export function createEmptyLLMInstanceState(instanceId = `llm-${newUuid()}`): LLMInstanceStateV4 {
   return {
-    schema_version: 3,
+    schema_version: 4,
     instanceId,
     revision: 0,
     updatedAt: new Date(0).toISOString(),
@@ -436,6 +509,7 @@ function importLegacyRecovery(
   legacy: LLMRecoveryStateV1,
   currentProviderIds: readonly string[],
   legacyProviderIds: readonly string[],
+  connectionProviderIds: readonly string[],
 ): LLMInstanceRecoveryState {
   if (legacy.schedule.kind !== 'ready' && legacy.providers.length === 0) {
     throw new Error('legacy recovery wait has no provider health fact to map');
@@ -449,7 +523,10 @@ function importLegacyRecovery(
     for (let i = 0; i < currentProviderIds.length; i++) {
       const currentId = currentProviderIds[i];
       const legacyId = legacyProviderIds[i];
-      if (currentId !== undefined && !ids.has(currentId) && (legacyId === undefined || !ids.has(legacyId))) {
+      const connectionId = connectionProviderIds[i];
+      if (currentId !== undefined && !ids.has(currentId)
+        && (legacyId === undefined || !ids.has(legacyId))
+        && (connectionId === undefined || !ids.has(connectionId))) {
         throw new Error(`legacy recovery wait has no health fact for current provider ${currentId}`);
       }
     }
@@ -581,6 +658,7 @@ function migrateProviderStates(
       .filter((count): count is number => count !== undefined);
     return {
       providerId,
+      ...(old?.operationalIdentity !== undefined ? { operationalIdentity: old.operationalIdentity } : {}),
       status: waiting ? 'waiting' : 'available',
       ...(waiting ? { retryAt: Math.max(...retryLowerBounds) } : {}),
       ...(lastError !== undefined ? { lastError } : {}),
@@ -611,19 +689,20 @@ function migrateProviderStates(
   return providers;
 }
 
-/** V1/V2/旧 scope → V3 的唯一迁移入口；不可无损表达时拒绝，不修改旧原文。 */
+/** V1/V2/旧 scope → 中间 V3 的 intake；Store 再以执行证据映射到 V4。 */
 export function upgradeLLMInstanceState(
   health: LLMInstanceStateV1 | LLMInstanceStateV2 | undefined,
   legacy: LLMRecoveryStateV1 | undefined,
   nowMs = Date.now(),
   currentProviderIds: readonly string[] = [],
   legacyProviderIds: readonly string[] = [],
+  connectionProviderIds: readonly string[] = [],
 ): LLMInstanceStateV3 {
   if (!isNonNegativeNumber(nowMs)) throw new Error('legacy migration nowMs must be a non-negative finite number');
   const recovery = health?.schema_version === 2
     ? cloneRecoveryState(health.recovery)
     : legacy
-      ? importLegacyRecovery(legacy, currentProviderIds, legacyProviderIds)
+      ? importLegacyRecovery(legacy, currentProviderIds, legacyProviderIds, connectionProviderIds)
       : createEmptyLLMInstanceRecoveryState();
   const state: LLMInstanceStateV3 = {
     schema_version: 3,
@@ -636,6 +715,16 @@ export function upgradeLLMInstanceState(
   };
   if (!validateV3(state)) throw new Error('legacy instance state cannot be mapped losslessly to V3');
   return state;
+}
+
+function legacyStateLoad(
+  state: LLMInstanceStateV1 | LLMInstanceStateV2 | LLMInstanceStateV3,
+  raw: string,
+): LLMInstanceStateLoad {
+  // Keep the historical enumerable result shape while exposing exact source bytes to the Store.
+  const result = { kind: 'legacy', state } as LLMInstanceStateLoad;
+  Object.defineProperty(result, 'raw', { value: raw, enumerable: false });
+  return result;
 }
 
 export function loadLLMInstanceState(fs: FileSystem, stateDir?: string): LLMInstanceStateLoad {
@@ -654,14 +743,18 @@ export function loadLLMInstanceState(fs: FileSystem, stateDir?: string): LLMInst
   }
   if (isRecord(parsed) && parsed.schema_version === 1) {
     if (!validateV1(parsed)) return { kind: 'unusable', reason: 'schema_invalid', detail: 'invalid LLM instance state V1' };
-    return { kind: 'legacy', state: parsed };
+    return legacyStateLoad(parsed, raw);
   }
   if (isRecord(parsed) && parsed.schema_version === 2) {
     if (!validateV2(parsed)) return { kind: 'unusable', reason: 'schema_invalid', detail: 'invalid LLM instance state V2' };
-    return { kind: 'legacy', state: parsed };
+    return legacyStateLoad(parsed, raw);
   }
   if (isRecord(parsed) && parsed.schema_version === 3) {
     if (!validateV3(parsed)) return { kind: 'unusable', reason: 'schema_invalid', detail: 'invalid LLM instance state V3' };
+    return legacyStateLoad(parsed, raw);
+  }
+  if (isRecord(parsed) && parsed.schema_version === 4) {
+    if (!validateV4(parsed)) return { kind: 'unusable', reason: 'schema_invalid', detail: 'invalid LLM instance state V4' };
     return { kind: 'ok', state: parsed };
   }
   return { kind: 'unusable', reason: 'schema_invalid', detail: 'unknown LLM instance state schema' };
@@ -669,10 +762,10 @@ export function loadLLMInstanceState(fs: FileSystem, stateDir?: string): LLMInst
 
 export function saveLLMInstanceState(
   fs: FileSystem,
-  state: LLMInstanceStateV3,
+  state: LLMInstanceStateV4,
   stateDir?: string,
 ): ReturnType<FileSystem['writeAtomicSync']> {
-  if (!validateV3(state)) throw new Error('Refusing to persist invalid LLM instance state V3');
+  if (!validateV4(state)) throw new Error('Refusing to persist invalid LLM instance state V4');
   fs.ensureDirSync(stateDir ?? 'status');
   return fs.writeAtomicSync(instanceStatePath(stateDir), `${JSON.stringify(state, null, 2)}\n`);
 }

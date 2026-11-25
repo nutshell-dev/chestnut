@@ -10,7 +10,7 @@ export function legacyProviderIdentity(descriptor: ProviderDescriptor): string {
   return descriptor.legacyIdentity;
 }
 
-/** Fault/recovery ownership identity supplied by L1. */
+/** @deprecated Old connection identity; Phase 2245 uses it only for one-time legacy conversion. */
 export function providerIdentity(descriptor: ProviderDescriptor): string {
   return descriptor.identity;
 }

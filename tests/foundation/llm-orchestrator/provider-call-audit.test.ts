@@ -753,7 +753,11 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const adapter = failProvider('kimi-year', new LLMNetworkError('kimi-year', new Error('ECONNREFUSED')));
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'durable', fs: nfs },
-      primary: { providerId: 'kimi-year', authentication: { kind: 'api_key' as const, value: 'test-key', identity: 'test-key' }, model: 'model-x', apiFormat: 'anthropic' as const },
+      primary: {
+        entryId: '94c2d0cb-02fa-4d63-95b3-4ea0eb92b12d',
+        input: { providerId: 'kimi-year', authentication: { kind: 'api_key' as const, value: 'test-key', identity: 'test-key' }, model: 'model-x', apiFormat: 'anthropic' as const },
+        callDefaults: {},
+      },
       maxAttempts: 1,
       retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,

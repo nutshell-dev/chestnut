@@ -23,6 +23,7 @@ import {
 import {
   mutateGlobalConfigLocked,
   patchGlobalConfigPrimary,
+  ensureClawPrimaryEntryId,
   saveClawConfig,
 } from '../../src/assembly/config/config-load.js';
 import type { ClawConfig } from '../../src/assembly/config/compose-config.js';
@@ -161,6 +162,26 @@ describe('RootConfigReader/Admin: claw load/save', () => {
     expect(claw?.name).toBe('testclaw');
     expect(claw?.llm?.primary?.model).toBe('gpt-test');
     expect(claw?.llm?.primary?.entry_id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('durable Assembly owner 锁内建档旧 claw override 且已有 ID 不重写', async () => {
+    const clawPath = getClawConfigPath('ensure-entry-id');
+    admin.saveClaw(clawPath, makeClawConfig('ensure-entry-id'));
+    const existing = admin.loadClaw(clawPath)?.llm?.primary?.entry_id;
+    const existingBytes = fs.readFileSync(clawPath, 'utf8');
+    await ensureClawPrimaryEntryId({ fsFactory }, clawPath);
+    expect(fs.readFileSync(clawPath, 'utf8')).toBe(existingBytes);
+
+    const legacyBytes = existingBytes.split('\n')
+      .filter(line => !line.trimStart().startsWith('entry_id:')).join('\n');
+    fs.writeFileSync(clawPath, legacyBytes);
+    await ensureClawPrimaryEntryId({ fsFactory }, clawPath);
+    const assigned = admin.loadClaw(clawPath)?.llm?.primary?.entry_id;
+    expect(assigned).toMatch(/^[0-9a-f-]{36}$/);
+    expect(assigned).not.toBe(existing);
+    const committedBytes = fs.readFileSync(clawPath, 'utf8');
+    await ensureClawPrimaryEntryId({ fsFactory }, clawPath);
+    expect(fs.readFileSync(clawPath, 'utf8')).toBe(committedBytes);
   });
 
   it('claw save 缺 ID 时分配且已有保留，load 只读不写盘', () => {

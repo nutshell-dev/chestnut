@@ -1,4 +1,4 @@
-import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
+import { descriptorFor, durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -60,8 +60,8 @@ async function durable(adapters: ProviderAdapter[]) {
   const fs = new NodeFileSystem({ baseDir: dir });
   const makeOwner = (nextAdapters = adapters) => createLLMOrchestrator({
     lifecycle: { mode: 'durable', fs },
-    primary: config(nextAdapters[0].name),
-    fallbacks: nextAdapters.slice(1).map(item => config(item.name)),
+    primary: durableProviderCandidate(config(nextAdapters[0].name)),
+    fallbacks: nextAdapters.slice(1).map(item => durableProviderCandidate(config(item.name))),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: () => {} },

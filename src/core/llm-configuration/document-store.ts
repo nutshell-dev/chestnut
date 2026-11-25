@@ -112,6 +112,8 @@ export interface LLMConfigurationDocumentStore {
     credentialFacts: Readonly<Record<string, CredentialFact>>;
   };
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
+  /** Durable Assembly 入口显式建档：锁内重读，仅补缺失 ID，已有 ID 不变。 */
+  ensureEntryIds(): Promise<void>;
   /** 显式迁移既有 shared legacy 文档；正常读取不会隐式调用。 */
   migrateLegacyDocument(): Promise<LLMConfigurationDocumentMigrationResult>;
   readRevision(): LLMConfigurationRevision;
@@ -163,6 +165,8 @@ export interface LLMConfigurationAdmin {
     expectedRevision?: number,
   ): Promise<LLMConfigurationCommitResult>;
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
+  /** Durable Assembly 入口显式建档：锁内重读，仅补缺失 ID，已有 ID 不变。 */
+  ensureEntryIds(): Promise<void>;
   /** 显式迁移既有 shared legacy 文档；正常读取不会隐式调用。 */
   migrateLegacyDocument(): Promise<LLMConfigurationDocumentMigrationResult>;
   readRevision(): LLMConfigurationRevision;
@@ -864,6 +868,25 @@ export function createLLMConfigurationDocumentStore(deps: {
     return confirmation;
   };
 
+  const ensureEntryIds = async (): Promise<void> => {
+    await withYamlConfigLock(deps, configPath, () => {
+      const fresh = read();
+      if (providerEntries(fresh).every(provider => provider.entry_id !== undefined)) return;
+      // This owner transaction backfills only identity; it does not rename, resolve or
+      // normalize legacy entries. Existing IDs are copied unchanged by the helper.
+      const committed = backfillMissingEntryIds(documentConfig(fresh));
+      llmOrchestratorConfigSchema.parse(committed);
+      const result = writeYamlConfig(deps, configPath, {
+        ...committed,
+        schema_version: DOCUMENT_SCHEMA_VERSION,
+        revision: fresh.revision + 1,
+      });
+      if (result.kind !== 'durable') {
+        throw new Error('LLM provider entry identity backfill was not confirmed durable', { cause: result.error });
+      }
+    });
+  };
+
   const mutate = async (
     fn: (fresh: LLMConfigDocument) => LLMConfigDocument,
   ): Promise<AtomicWriteResult> => {
@@ -1111,6 +1134,7 @@ export function createLLMConfigurationDocumentStore(deps: {
     read,
     readResolved,
     readSnapshot,
+    ensureEntryIds,
     migrateLegacyApiKeys: (audit) => migrateLegacyApiKeysAtPath(deps, configPath, audit),
     migrateLegacyDocument,
     readRevision: () => {
@@ -1156,6 +1180,7 @@ export function createLLMConfiguration(deps: {
         workspaceRoot: getChestnutRoot(),
       };
     },
+    ensureEntryIds: () => store().ensureEntryIds(),
     loadSnapshot: () => {
       const document = store().readSnapshot();
       return {

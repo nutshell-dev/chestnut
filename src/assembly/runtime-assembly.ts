@@ -20,7 +20,7 @@ import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // phase 320: LLM hot-reload — reloader 每次调时重读磁盘
-import { loadClawConfig } from './config/config-load.js';
+import { ensureClawPrimaryEntryId, loadClawConfig } from './config/config-load.js';
 import {
   createLLMApplicationStore,
   createLLMConfiguration,
@@ -187,12 +187,18 @@ export async function createRuntimeAssembly(
   // 由 Runtime._drainOwnInbox 收到 reload_llm_config 消息时调用。
   // **不 capture 起步态 globalConfig/clawConfig**（CLOSURE 反模式：那样永远拿不到新配置）。
   const llmConfiguration = createLLMConfiguration({ fsFactory });
-  const configReloader = () => {
+  const configReloader = async () => {
+    // The async owner boundary runs before L2 prepares any replacement handles.
+    await llmConfiguration.ensureEntryIds();
     const fresh = llmConfiguration.loadSnapshot();
     const revision = fresh.revision.id;
-    const freshClawCfg = isMotion
+    let freshClawCfg = isMotion
       ? undefined
       : loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
+    if (freshClawCfg?.llm?.primary !== undefined) {
+      await ensureClawPrimaryEntryId({ fsFactory }, getClawConfigPath(clawId));
+      freshClawCfg = loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
+    }
     const snapshot = snapshotLLMConfig(fresh, freshClawCfg, {
       clawId,
       credentials: createAuthenticationCapability({ fsFactory }),

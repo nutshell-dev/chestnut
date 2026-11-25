@@ -1152,7 +1152,7 @@ export class Runtime {
     let loadedIdentity: string | undefined;
     let loadedReloadIdentity: string | undefined;
     try {
-      const loaded = this.options.configReloader();
+      const loaded = await this.options.configReloader();
       if ('config' in loaded && 'revision' in loaded) {
         newConfig = loaded.config;
         savedRevision = loaded.revision;

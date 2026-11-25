@@ -512,6 +512,25 @@ export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   );
 }
 
+/** Durable Assembly owner for legacy claw overrides; L2 never writes configuration IDs. */
+export async function ensureClawPrimaryEntryId(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  configPath: string,
+): Promise<void> {
+  if (!configExists(deps, configPath)) return;
+  await withYamlConfigLock(deps, configPath, () => {
+    const fresh = readYamlDocument(deps, configPath);
+    getClawConfigSchema().parse(fresh);
+    const primary = (fresh as ClawConfig).llm?.primary;
+    if (primary === undefined || primary.entry_id !== undefined) return;
+    // Reuse the existing Assembly save path under the lock; all unrelated raw fields survive.
+    const result = saveClawConfig(deps, configPath, fresh as ClawConfig);
+    if (result.kind !== 'durable') {
+      throw new Error('Claw LLM provider entry identity backfill was not confirmed durable', { cause: result.error });
+    }
+  });
+}
+
 /**
  * Phase 1910 Step E（RACE-CLAW-CREATE-CHECK-THEN-CREATE）：claw 创建的独占
  * 发布提交点。claw config 是 claw 资源的身份 artifact（loadClaw 读它），

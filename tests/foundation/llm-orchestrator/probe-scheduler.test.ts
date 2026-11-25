@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1933 Step F：进程内探针唤醒调度（scheduleProbe / subscribeReady / close 取消）。
  *
@@ -98,8 +98,12 @@ function createOwner(
   const { sink, emitted } = createMockSink();
   const owner = createLLMOrchestrator({
     lifecycle,
-    primary: providerConfig(primary.name),
-    fallbacks: adapters.slice(1).map(adapter => providerConfig(adapter.name)),
+    primary: lifecycle.mode === 'durable'
+      ? durableProviderCandidate(providerConfig(primary.name))
+      : providerConfig(primary.name),
+    fallbacks: adapters.slice(1).map(adapter => lifecycle.mode === 'durable'
+      ? durableProviderCandidate(providerConfig(adapter.name))
+      : providerConfig(adapter.name)),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用调用内重试等待；probe 调度由 fake timers 控制。
     events: sink,

@@ -51,6 +51,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.instanceStateStore = new LLMInstanceStateStore({
       ...config.lifecycle,
       providerIds: this.providerRuntime.providerIds(),
+      operationalIdentities: this.providerRuntime.operationalIdentities(),
+      connectionProviderIds: this.providerRuntime.connectionProviderIds(),
       legacyProviderIds: this.providerRuntime.legacyProviderIds(),
       events,
     });
@@ -59,7 +61,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.recoveryController = new LLMRecoveryControllerImpl({
       store: this.instanceStateStore,
       providerIds: this.providerRuntime.providerIds(),
-      legacyProviderIds: this.providerRuntime.legacyProviderIds(),
+      operationalIdentities: this.providerRuntime.operationalIdentities(),
       admission,
       emit: event => events.emit(event),
     });
@@ -257,7 +259,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const prepared = this.providerRuntime.prepareReload(newConfig);
     this.recoveryController.reloadProviderIdentities(
       prepared.providerIds,
-      prepared.legacyProviderIds,
+      prepared.operationalIdentities,
     );
     this.providerRuntime.commitReload(prepared);
     this.probeController.reload();

@@ -3,16 +3,17 @@ import { LLMRecoveryControllerImpl } from '../../../src/foundation/llm-orchestra
 import { LLMProviderAdmission } from '../../../src/foundation/llm-orchestrator/provider-admission.js';
 import {
   createEmptyLLMInstanceState,
-  type LLMInstanceStateV3,
+  type LLMInstanceStateV4,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { InstanceStateStore } from '../../../src/foundation/llm-orchestrator/instance-state-store.js';
 
 function fixture(
-  initial: LLMInstanceStateV3 = createEmptyLLMInstanceState('instance-a'),
+  initial: LLMInstanceStateV4 = createEmptyLLMInstanceState('instance-a'),
   providerIds: readonly string[] = ['current'],
   legacyProviderIds: readonly string[] = ['legacy'],
 ) {
+  void legacyProviderIds;
   let state = structuredClone(initial);
   const events: LLMEvent[] = [];
   const contexts: string[] = [];
@@ -34,7 +35,7 @@ function fixture(
         ...state,
         revision: state.revision + 1,
         recovery: candidate.recovery,
-        providers: [...candidate.providers],
+        providers: candidate.providers as LLMInstanceStateV4['providers'],
       };
       return { kind: 'ephemeral', revision: state.revision };
     },
@@ -42,7 +43,7 @@ function fixture(
   const controller = new LLMRecoveryControllerImpl({
     store,
     providerIds,
-    legacyProviderIds,
+    operationalIdentities: providerIds.map(providerId => `op-${providerId}`),
     admission: new LLMProviderAdmission(),
     now: () => 10_000,
     emit: event => { events.push(event); },
@@ -55,9 +56,9 @@ function fixture(
 }
 
 describe('RecoveryLedger construction and admission', () => {
-  it('commits identity migration before restart recovery and retains unknown-result evidence', () => {
+  it('keeps legacy recovery facts untouched while recovering V4 invocations', () => {
     const initial = createEmptyLLMInstanceState('instance-a');
-    initial.providers = [{ providerId: 'legacy', status: 'waiting', retryAt: 40_000 }];
+    initial.providers = [{ providerId: 'current', operationalIdentity: 'op-current', status: 'waiting', retryAt: 40_000 }];
     initial.recovery.providers = [{
       providerId: 'legacy', errorClass: 'transient', at: '1970-01-01T00:00:01.000Z',
       consecutiveFailures: 1, detail: 'offline', blocking: true, retryAt: '1970-01-01T00:00:40.000Z',
@@ -68,9 +69,12 @@ describe('RecoveryLedger construction and admission', () => {
     ];
 
     const f = fixture(initial);
-    expect(f.contexts).toEqual(['migration', 'constructor']);
-    expect(f.read().providers).toEqual([{ providerId: 'current', status: 'waiting', retryAt: 40_000 }]);
-    expect(f.read().recovery.providers[0]).toMatchObject({ providerId: 'current', identityMigrationPending: true });
+    expect(f.contexts).toEqual(['constructor']);
+    expect(f.read().providers).toEqual([{
+      providerId: 'current', operationalIdentity: 'op-current', status: 'waiting', retryAt: 40_000,
+    }]);
+    expect(f.read().recovery.providers[0]).toMatchObject({ providerId: 'legacy' });
+    expect(f.read().recovery.providers[0]).not.toHaveProperty('identityMigrationPending');
     expect(f.read().recovery.invocations).toEqual([{
       invocationId: 'pending', attemptId: 'attempt-pending', started: false, requestKey: 'b',
       triggerKind: 'automatic', resumedFromRestart: true,
@@ -117,9 +121,9 @@ describe('RecoveryLedger construction and admission', () => {
     expect(f.read().recovery.invocations[0]?.resumedFromRestart).toBeUndefined();
     expect(f.events.at(-1)).toMatchObject({ type: 'recovery_attempt_admitted', trigger: 'resumed' });
   });
-  it('passes the current entry schedule to legacy release and persists the unchanged blocking fact', async () => {
+  it('begin persists facts without invoking legacy release or rewriting old provider IDs', async () => {
     const initial = createEmptyLLMInstanceState('instance-a');
-    initial.providers = [{ providerId: 'current', status: 'available' }];
+    initial.providers = [{ providerId: 'current', operationalIdentity: 'op-current', status: 'available' }];
     initial.recovery.providers = [
       {
         providerId: 'retired', errorClass: 'permanent', at: '1970-01-01T00:00:01.000Z',
@@ -180,8 +184,8 @@ describe('RecoveryLedger failure evidence', () => {
   it('reports ready with failure evidence when another current provider remains available', () => {
     const initial = createEmptyLLMInstanceState('instance-a');
     initial.providers = [
-      { providerId: 'primary', status: 'available' },
-      { providerId: 'fallback', status: 'available' },
+      { providerId: 'primary', operationalIdentity: 'op-primary', status: 'available' },
+      { providerId: 'fallback', operationalIdentity: 'op-fallback', status: 'available' },
     ];
     const f = fixture(initial, ['primary', 'fallback'], ['legacy-primary', 'legacy-fallback']);
 
@@ -204,8 +208,8 @@ describe('RecoveryLedger failure evidence', () => {
   it('reports ready when fallback fails but primary remains available', () => {
     const initial = createEmptyLLMInstanceState('instance-a');
     initial.providers = [
-      { providerId: 'primary', status: 'available' },
-      { providerId: 'fallback', status: 'available' },
+      { providerId: 'primary', operationalIdentity: 'op-primary', status: 'available' },
+      { providerId: 'fallback', operationalIdentity: 'op-fallback', status: 'available' },
     ];
     const f = fixture(initial, ['primary', 'fallback'], ['legacy-primary', 'legacy-fallback']);
 
@@ -221,7 +225,7 @@ describe('RecoveryLedger failure evidence', () => {
       errorClass: 'transient', failureCount: 1,
     })]);
     expect(f.read().providers).toEqual([
-      expect.objectContaining({ providerId: 'primary', status: 'available' }),
+      expect.objectContaining({ providerId: 'primary', operationalIdentity: 'op-primary', status: 'available' }),
       expect.objectContaining({ providerId: 'fallback', status: 'waiting' }),
     ]);
     expect(f.read().recovery.failures[0]).toMatchObject({
@@ -274,17 +278,35 @@ describe('RecoveryLedger provider facts', () => {
     expect(commits).toEqual(['provider_success']);
   });
 
-  it('persists reload filtering and clears selection before publishing new identities', () => {
+  it('persists reload filtering and preserves unchanged health and selection', () => {
     const initial = createEmptyLLMInstanceState('instance-a');
     initial.providers = [
-      { providerId: 'current', status: 'waiting', retryAt: 50_000, lastSuccessAt: 1, cacheValidUntil: 2 },
-      { providerId: 'removed', status: 'available', lastSuccessAt: 3, cacheValidUntil: 4 },
+      { providerId: 'current', operationalIdentity: 'op-current', status: 'waiting', retryAt: 50_000, lastSuccessAt: 1, cacheValidUntil: 2 },
+      { providerId: 'removed', operationalIdentity: 'op-removed', status: 'available', lastSuccessAt: 3, cacheValidUntil: 4 },
     ];
     const f = fixture(initial);
-    f.controller.reloadProviderIdentities(['current'], ['legacy-current']);
+    f.controller.reloadProviderIdentities(['current'], ['op-current']);
     expect(f.controller.snapshot().providers).toEqual([{
-      providerId: 'current', status: 'waiting', retryAt: 50_000,
+      providerId: 'current', operationalIdentity: 'op-current', status: 'waiting', retryAt: 50_000,
+      lastSuccessAt: 1, cacheValidUntil: 2,
     }]);
     expect(f.contexts).toEqual(['reload_config']);
+  });
+
+  it('clears only the entry whose execution version changed', () => {
+    const initial = createEmptyLLMInstanceState('instance-a');
+    initial.providers = [
+      { providerId: 'current', operationalIdentity: 'op-current', status: 'waiting', retryAt: 50_000, lastSuccessAt: 1, cacheValidUntil: 2 },
+      { providerId: 'fallback', operationalIdentity: 'op-fallback', status: 'waiting', retryAt: 60_000, consecutiveFailures: 2 },
+    ];
+    const f = fixture(initial, ['current', 'fallback']);
+    f.controller.reloadProviderIdentities(['current', 'fallback'], ['op-new', 'op-fallback']);
+    expect(f.controller.snapshot().providers).toEqual([
+      {
+        providerId: 'current', operationalIdentity: 'op-new', status: 'available',
+        previousOperationalIdentity: 'op-current', operationalChangeReason: 'operational_identity_changed',
+      },
+      { providerId: 'fallback', operationalIdentity: 'op-fallback', status: 'waiting', retryAt: 60_000, consecutiveFailures: 2 },
+    ]);
   });
 });

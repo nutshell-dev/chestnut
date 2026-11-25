@@ -1,4 +1,4 @@
-import { handleForProvider, legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, handleForProvider, legacyProviderFactory, providerEntryId } from './provider-test-fixtures.js';
 import { describe, expect, it, vi } from 'vitest';
 import { LLMProviderRuntime } from '../../../src/foundation/llm-orchestrator/provider-runtime.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
@@ -40,6 +40,105 @@ const primaryConfig: ProviderConnection = { providerId: 'primary', model: 'm1', 
 const nextConfig: ProviderConnection = { providerId: 'next', model: 'm2', authentication: { kind: 'api_key' as const, value: 'k2', identity: 'k2' }, apiFormat: 'openai' };
 
 describe('ProviderRuntime cache and reload lifecycle', () => {
+  it('rejects missing or duplicate durable entry IDs before creating handles', () => {
+    const eventSink = sink();
+    const factory = vi.fn((connection: ProviderConnection) => adapter(connection));
+    const base = config(primaryConfig, eventSink.sink, factory);
+    expect(() => new LLMProviderRuntime({
+      ...base,
+      lifecycle: { mode: 'durable', fs: {} as never },
+    })).toThrow('Missing persisted LLM entry ID');
+    expect(factory).not.toHaveBeenCalled();
+
+    const duplicate = durableProviderCandidate(primaryConfig);
+    expect(() => new LLMProviderRuntime({
+      ...base,
+      primary: duplicate,
+      fallbacks: [durableProviderCandidate(primaryConfig)],
+      lifecycle: { mode: 'durable', fs: {} as never },
+    })).toThrow('Duplicate LLM entry ID');
+    expect(factory).not.toHaveBeenCalled();
+
+    const runtime = new LLMProviderRuntime({
+      ...base, primary: duplicate, lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    const created = factory.mock.calls.length;
+    expect(() => runtime.prepareReload({ ...base, primary: primaryConfig })).toThrow('Missing persisted LLM entry ID');
+    expect(() => runtime.prepareReload({
+      ...base, primary: duplicate, fallbacks: [durableProviderCandidate(primaryConfig)],
+    })).toThrow('Duplicate LLM entry ID');
+    expect(factory).toHaveBeenCalledTimes(created);
+  });
+
+  it('keys equal durable inputs by entry while keeping SDK cache and candidate defaults positional', () => {
+    const eventSink = sink();
+    const received: unknown[] = [];
+    const factory = (connection: ProviderConnection) => {
+      received.push(connection);
+      return adapter(connection);
+    };
+    const first = {
+      ...durableProviderCandidate(primaryConfig, providerEntryId('entry-a')),
+      callDefaults: { temperature: 0.1 }, displayName: 'first',
+    };
+    const second = {
+      ...durableProviderCandidate(primaryConfig, providerEntryId('entry-b')),
+      callDefaults: { temperature: 0.9 }, displayName: 'second',
+    };
+    const runtime = new LLMProviderRuntime({
+      ...config(primaryConfig, eventSink.sink, factory),
+      primary: first, fallbacks: [second], lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    expect(runtime.providerIds()).toEqual([`entry:${providerEntryId('entry-a')}`, `entry:${providerEntryId('entry-b')}`]);
+    expect(runtime.operationalIdentities()[0]).not.toBe(runtime.operationalIdentities()[1]);
+    expect(runtime.primary()).toBe(runtime.fallbacks()[0]);
+    expect(runtime.callDefaults(runtime.primary(), 0)).toEqual({ temperature: 0.1 });
+    expect(runtime.callDefaults(runtime.fallbacks()[0], 1)).toEqual({ temperature: 0.9 });
+    expect(runtime.displayName(runtime.primary(), 0)).toBe('first');
+    expect(runtime.displayName(runtime.fallbacks()[0], 1)).toBe('second');
+    expect(received.every(input => typeof input === 'object' && input !== null && !('entryId' in input))).toBe(true);
+    expect(runtime.clientCache).toHaveProperty('size', 1);
+
+    const prepared = runtime.prepareReload({
+      ...config(primaryConfig, eventSink.sink, factory),
+      primary: second, fallbacks: [first], lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    runtime.commitReload(prepared);
+    expect(runtime.callDefaults(runtime.primary(), 0)).toEqual({ temperature: 0.9 });
+    expect(runtime.callDefaults(runtime.fallbacks()[0], 1)).toEqual({ temperature: 0.1 });
+    expect(runtime.displayName(runtime.primary(), 0)).toBe('second');
+  });
+
+  it('derives operational versions from authentication and defaults, not entry identity', () => {
+    const eventSink = sink();
+    const base = durableProviderCandidate(primaryConfig);
+    const runtime = new LLMProviderRuntime({
+      ...config(primaryConfig, eventSink.sink, adapter),
+      primary: base, lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    const before = runtime.operationalIdentities()[0];
+    const renamed = runtime.prepareReload({
+      ...config(primaryConfig, eventSink.sink, adapter),
+      primary: { ...base, displayName: 'renamed' }, lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    expect(renamed.operationalIdentities[0]).toBe(before);
+    const changedAuth = runtime.prepareReload({
+      ...config(primaryConfig, eventSink.sink, adapter),
+      primary: {
+        ...base,
+        input: { ...primaryConfig, authentication: { kind: 'api_key', value: 'new', identity: 'new' } },
+      },
+      lifecycle: { mode: 'durable', fs: {} as never },
+    });
+    expect(changedAuth.operationalIdentities[0]).not.toBe(before);
+  });
+
+  it('uses positions for un-IDed ephemeral candidates', () => {
+    const eventSink = sink();
+    const runtime = new LLMProviderRuntime(config(primaryConfig, eventSink.sink, adapter, [{ ...primaryConfig }]));
+    expect(runtime.providerIds()).toEqual(['ephemeral:0', 'ephemeral:1']);
+  });
+
   it('owns cache identity and prepares adapters without activating them before commit', () => {
     const eventSink = sink();
     const created: LLMProvider[] = [];

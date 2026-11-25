@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -47,8 +47,8 @@ async function fixture(adapters: ProviderAdapter[], maxAttempts = 3) {
   const events: LLMEvent[] = [];
   const makeOwner = (nextAdapters = adapters) => createLLMOrchestrator({
     lifecycle: { mode: 'durable', fs },
-    primary: config(nextAdapters[0].name),
-    fallbacks: nextAdapters.slice(1).map(item => config(item.name)),
+    primary: durableProviderCandidate(config(nextAdapters[0].name)),
+    fallbacks: nextAdapters.slice(1).map(item => durableProviderCandidate(config(item.name))),
     maxAttempts,
     retryDelayMs: 0, // 立即重试哨兵；Retry-After 本身由 provider 状态延迟。
     events: { emit: event => { events.push(event); } },

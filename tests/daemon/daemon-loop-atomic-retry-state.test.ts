@@ -1,5 +1,5 @@
 /**
- * Phase 2055：旧 EventLoop retry 状态只读迁移到 llm-instance-state.json V2。
+ * Phase 2055：旧 EventLoop retry 状态只读迁移到 llm-instance-state.json V4。
  * 原子 tmp+rename+fsync、崩溃不覆盖完整旧状态等屏障统一归 instance-state writer。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -18,8 +18,8 @@ import {
   createEmptyLLMInstanceState,
   loadLLMInstanceState,
   saveLLMInstanceState,
-  upgradeLLMInstanceState,
 } from '../../src/foundation/llm-orchestrator/instance-state.js';
+import { LLMInstanceStateStore } from '../../src/foundation/llm-orchestrator/instance-state-store.js';
 
 const STATUS_SUBDIR = 'status';
 
@@ -40,7 +40,7 @@ describe('LLM instance recovery state atomic persistence (phase 2055)', () => {
     fsNative.rmSync(agentDir, { recursive: true, force: true });
   });
 
-  it('writes V2 atomically: no tmp file left behind, content readable', () => {
+  it('writes V4 atomically: no tmp file left behind, content readable', () => {
     const state = { ...createEmptyLLMInstanceState('instance-a'), revision: 1, updatedAt: new Date().toISOString() };
     saveLLMInstanceState(fs, state);
 
@@ -49,7 +49,7 @@ describe('LLM instance recovery state atomic persistence (phase 2055)', () => {
     expect(loadLLMInstanceState(fs)).toEqual({ kind: 'ok', state });
   });
 
-  it('a crash mid-write leaves the previous full V2 state intact', () => {
+  it('a crash mid-write leaves the previous full V4 state intact', () => {
     const first = { ...createEmptyLLMInstanceState('instance-a'), revision: 1, updatedAt: new Date().toISOString() };
     saveLLMInstanceState(fs, first);
     const statusDir = path.join(agentDir, STATUS_SUBDIR);
@@ -103,8 +103,12 @@ describe('LLM instance recovery state atomic persistence (phase 2055)', () => {
     expect(loaded).toMatchObject({ kind: 'ok', imported: true });
     if (loaded.kind !== 'ok') return;
     expect(loaded.state.importedSources).toEqual(['status/llm-retry-state.json#schema_version=2']);
-    const migrated = upgradeLLMInstanceState(undefined, loaded.state, Date.now());
-    saveLLMInstanceState(fs, migrated);
+    const migrated = new LLMInstanceStateStore({
+      mode: 'durable', fs, stateDir: STATUS_SUBDIR,
+      providerIds: ['entry:a'], operationalIdentities: ['op-a'],
+      connectionProviderIds: ['provider-a'], legacyProviderIds: ['provider-a'],
+      events: { emit: () => {} },
+    }).load();
 
     expect(fsNative.readFileSync(legacyPath, 'utf-8')).toBe(legacyRaw);
     expect(fsNative.existsSync(path.join(agentDir, STATUS_SUBDIR, LLM_INSTANCE_STATE_FILE))).toBe(true);

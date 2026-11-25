@@ -1,4 +1,4 @@
-import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
+import { descriptorFor, durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -44,8 +44,8 @@ async function fixture(primary: ProviderAdapter, fallbacks: ProviderAdapter[] = 
   const adapters = new Map([primary, ...fallbacks].map(item => [item.name, item]));
   const owner = createLLMOrchestrator({
     lifecycle: { mode: 'durable', fs },
-    primary: config(primary.name),
-    fallbacks: fallbacks.map(item => config(item.name)),
+    primary: durableProviderCandidate(config(primary.name)),
+    fallbacks: fallbacks.map(item => durableProviderCandidate(config(item.name))),
     maxAttempts: 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
@@ -75,14 +75,14 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const events: LLMEvent[] = [];
     const makeOwner = () => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: event => { events.push(event); } },
       providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     });
     const migrated = makeOwner();
     const saved = f.readState();
     expect(saved).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       recovery: {
         budget: { retryCount: 3, retryDelayMs: 45_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
@@ -125,7 +125,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     fsNative.writeFileSync(retryPath, retryRaw);
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} }, providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     });
     const migrated = f.readState();
@@ -133,13 +133,11 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
       budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       providers: [{ blocking: true, retryAt: resumeAt }],
     });
-    expect(migrated.providers).toEqual([
-      expect.objectContaining({
-        status: 'waiting', retryAt: Date.parse(resumeAt), consecutiveFailures: 2,
-        lastError: expect.objectContaining({ class: 'transient', message: 'offline' }),
-      }),
-    ]);
-    expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'at', resumeAt });
+    expect(migrated.providers).toEqual([]);
+    expect(migrated.migration?.transitions).toEqual([expect.objectContaining({
+      classification: 'missing_execution_identity',
+    })]);
+    expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'ready' });
     expect(fsNative.readFileSync(scopePath, 'utf8')).toBe(scopeRaw);
     expect(fsNative.readFileSync(retryPath, 'utf8')).toBe(retryRaw);
     await owner.close();
@@ -166,7 +164,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     fsNative.writeFileSync(legacyPath, raw);
     expect(() => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} }, providerFactory: legacyProviderFactory((_connection) => adapter('primary', async () => OK)),
     })).toThrow(/scope_mismatch/);
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);

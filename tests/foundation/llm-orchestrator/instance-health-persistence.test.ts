@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as path from 'node:path';
@@ -50,8 +50,8 @@ async function fixture() {
     adapters: ProviderAdapter[],
     lifecycle: LLMInstanceLifecycle = { mode: 'durable', fs },
   ) => new LLMOrchestratorImpl({
-    primary: config(adapters[0].name),
-    fallbacks: adapters.slice(1).map(item => config(item.name)),
+    primary: durableProviderCandidate(config(adapters[0].name)),
+    fallbacks: adapters.slice(1).map(item => durableProviderCandidate(config(item.name))),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
@@ -80,7 +80,7 @@ describe('LLM instance health persistence', () => {
     const failing = adapter('primary', async () => { throw new LLMNetworkError('primary', new Error('offline')); });
     await expect(f.makeOwner([failing]).call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
-    expect(disk.schema_version).toBe(3);
+    expect(disk.schema_version).toBe(4);
     expect(disk.providers[0]).toMatchObject({
       status: 'waiting',
       consecutiveFailures: 1,
@@ -141,7 +141,7 @@ describe('LLM instance health persistence', () => {
     const emitted: LLMEvent[] = [];
     const primary = adapter('primary');
     const owner = new LLMOrchestratorImpl({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
@@ -159,7 +159,7 @@ describe('LLM instance health persistence', () => {
 
     const failure = adapter('failure', async () => { throw new LLMNetworkError('failure', new Error('original')); });
     const failingOwner = new LLMOrchestratorImpl({
-      primary: config('failure'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      primary: durableProviderCandidate(config('failure')), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
@@ -180,7 +180,7 @@ describe('LLM instance health persistence', () => {
     const emitted: LLMEvent[] = [];
     const primary = adapter('primary');
     const owner = new LLMOrchestratorImpl({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
       providerFactory: legacyProviderFactory((_connection) => primary),
@@ -207,7 +207,7 @@ describe('LLM instance health persistence', () => {
     failing = true;
 
     expect(() => owner.reloadConfig({
-      primary: config('next'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      primary: durableProviderCandidate(config('next')), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: () => {} },
       providerFactory: legacyProviderFactory((_connection) => next),
     })).toThrow('reloadConfig');
@@ -254,7 +254,7 @@ describe('LLM instance health persistence', () => {
     }]);
 
     owner.reloadConfig({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      primary: durableProviderCandidate(config('primary')), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: () => {} },
       providerFactory: legacyProviderFactory((_connection) => primary),

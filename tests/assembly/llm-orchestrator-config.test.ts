@@ -50,6 +50,26 @@ describe('Assembly toOrchestratorConfig', () => {
     expect(config.lifecycle).toBe(runtimeDeps.lifecycle);
   });
 
+  it('forwards entry IDs as scheduler metadata without adding them to ProviderInput', () => {
+    const withIdentity = {
+      entryId: '7f0b9273-38f2-4d5b-9f82-4a32853d228e',
+      input: primary,
+      callDefaults: { temperature: 0 },
+      displayName: 'named-entry',
+    };
+    const resolved: LLMResolvedConfiguration = {
+      primary: withIdentity,
+      fallbacks: [],
+      retry: { maxAttempts: 3, delayMs: 1000 },
+    };
+    const config = toOrchestratorConfig(resolved, deps());
+    expect(config.primary).toBe(withIdentity);
+    if (!('input' in config.primary)) throw new Error('expected configured candidate');
+    expect(config.primary.entryId).toBe(withIdentity.entryId);
+    expect(config.primary.input).toBe(primary);
+    expect(config.primary.input).not.toHaveProperty('entryId');
+  });
+
   it('omits circuitBreaker when the legacy configuration is absent', () => {
     const resolved: LLMResolvedConfiguration = {
       primary,

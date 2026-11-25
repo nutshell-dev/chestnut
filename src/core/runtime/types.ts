@@ -244,12 +244,14 @@ export interface RuntimeOptions {
    * phase 320: LLM 配置热更新 reloader。Assembly 装配期注入；调时**重读磁盘**拿最新配置。
    * inbox 收到 `reload_llm_config` 消息时由 drainInbox 拦截路径调用、传给 llm.reloadConfig。
    * undefined → 拦截路径 silent skip + audit LLM_RELOAD_SKIPPED。
+   * Phase 2245：允许 Promise，以便 durable owner 在返回候选前完成锁内 ID 建档。
    */
-  configReloader?: () => LLMOrchestratorConfig | RuntimeConfigReloadSnapshot;
+  configReloader?: () => LLMOrchestratorConfig | RuntimeConfigReloadSnapshot
+    | Promise<LLMOrchestratorConfig | RuntimeConfigReloadSnapshot>;
 
   /**
    * Phase 1945 Step C：兼容/测试上下文可从 configReloader 返回的同一 object
-   * 派生配置身份。与 configReloader 分离注入，不改变既有 reloader 签名与测试 double。
+   * 派生配置身份。与 configReloader 分离注入；同步测试 double 仍由 Runtime await 兼容。
    * 生产 Assembly 直接使用 L4 snapshot 携带的 identity，不从 L2 config 反推；缺省 = 不发布身份。
    */
   configIdentityOf?: (config: LLMOrchestratorConfig) => string;

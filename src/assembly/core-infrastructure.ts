@@ -21,6 +21,7 @@ import { toOrchestratorConfig } from './llm-orchestrator-config.js';
 import {
   resolveLLMConfig,
   snapshotLLMConfig,
+  createLLMConfiguration,
   createAuthenticationCapability,
 } from '../core/llm-configuration/index.js';
 import { createAuthenticationSetup } from '../core/llm-configuration/setup.js';
@@ -37,7 +38,7 @@ import { ContractSystem, ContractAuditor, createContractSystem } from '../core/c
 import { createContractNotificationAdapter } from './contract-notification-adapter.js';
 import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
 import { createInboxWriter } from '../foundation/messaging/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
+import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type MessagingWriterLimits, type OutboxWriter } from '../foundation/messaging/index.js';
 import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
@@ -47,6 +48,7 @@ import { createAggregatedFileRouting } from './file-routing-aggregator.js';
 import { initializeClawLayout } from './claw-subdirs.js';
 import { STATUS_SUBDIR } from './claw-subdirs.js';
 import { createAssemblyRollback } from './rollback.js';
+import { ensureClawPrimaryEntryId, loadClawConfig } from './config/config-load.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
 interface CoreInfraInput {
@@ -218,9 +220,19 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     let llmConfig: LLMOrchestratorConfig & { lifecycle: NonNullable<LLMOrchestratorConfig['lifecycle']> };
     let llmIdentities: CoreInfraOutput['llmIdentities'];
     try {
+      const configuration = createLLMConfiguration({ fsFactory });
+      // Durable handles wait for the shared-document L4 owner and claw Assembly owner.
+      await configuration.ensureEntryIds();
+      if (!isMotion && clawConfig?.llm?.primary !== undefined) {
+        await ensureClawPrimaryEntryId({ fsFactory }, getClawConfigPath(clawId));
+      }
+      const freshGlobal = configuration.loadSnapshot();
+      const freshClaw = isMotion
+        ? undefined
+        : loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
       const snapshot = snapshotLLMConfig(
-        globalConfig,
-        isMotion ? undefined : clawConfig!,
+        freshGlobal,
+        freshClaw,
         {
           clawId,
           credentials: createAuthenticationCapability({ fsFactory }),

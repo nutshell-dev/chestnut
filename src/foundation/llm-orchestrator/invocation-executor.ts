@@ -83,12 +83,13 @@ export interface InvocationExecutor {
     legacyEstimate: () => number,
     generation: number,
     updateSelection?: boolean,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider' | 'providerIds'>,
   ): Promise<LLMResponse>;
   minimalProbe(
     provider: LLMProvider,
     timeoutMs: number,
     userSignal?: AbortSignal,
+    candidateIndex?: number,
   ): Promise<{ ok: true } | { ok: false; reason: 'network_timeout' | 'auth_or_model'; error: Error }>;
   computeAttemptDelayMs(attempt: number): number;
   snapshot(): LLMInstanceSnapshot;
@@ -135,8 +136,10 @@ interface CallPathAudit {
   winnerProviderId?: string;
   failures: LLMProviderFailure[];
   nextAttemptIndex: number;
-  /** 调用入口捕获的配置代次；旧代次完成不得写回 last-success。 */
+  /** 调用入口捕获的配置代次与候选身份；旧代次不得重推导到新 entry。 */
   generation: number;
+  providerIds: readonly string[];
+  providerNames: readonly string[];
   /** 已在候选失败发生处提交的失败条目；最终聚合只补交尚未记录的候选失败。 */
   recordedFailures: Set<LLMProviderFailure>;
   /** 每个候选实际产生的 requestId；重试保留多个，prepared/terminal 去重。 */
@@ -196,10 +199,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     _isFallback: boolean,
     generation: number,
     updateSelection = true,
+    providerIds: readonly string[] = this.providerIds,
   ): void {
     if (generation !== this.configGeneration) return;
     this.recoveryController.noteProviderSuccess(
-      this.identityAt(providerIndex, adapter.name),
+      this.identityAt(providerIndex, adapter.name, providerIds),
       Date.now(),
       updateSelection,
     );
@@ -213,8 +217,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     this.failureObservedAtMs.set(error, Date.now());
   }
 
-  private withCandidateDefaults(adapter: LLMProvider, options: LLMCallOptions): LLMCallOptions {
-    const callDefaults = this.runtime.callDefaults?.(adapter) ?? {};
+  private withCandidateDefaults(adapter: LLMProvider, candidateIndex: number, options: LLMCallOptions): LLMCallOptions {
+    const callDefaults = this.runtime.callDefaults?.(adapter, candidateIndex) ?? {};
     return Object.keys(callDefaults).length === 0 ? options : { ...options, callDefaults };
   }
 
@@ -230,12 +234,12 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private inputMeasurementObserver(
     adapter: LLMProvider,
     options: LLMCallOptions,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
+    correlation: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider' | 'providerIds'> | undefined,
+    candidateIndex: number,
   ) {
     return (observation: llmProviderModelMeasurement.InputMeasurementObservation): void => {
       if (correlation?.requestIdsByProvider !== undefined) {
-        const providerIndex = [this.primary, ...this.fallbacks].findIndex(candidate => candidate === adapter);
-        const providerId = this.identityAt(providerIndex, adapter.name);
+        const providerId = this.identityAt(candidateIndex, adapter.name, correlation.providerIds);
         const requestIds = correlation.requestIdsByProvider.get(providerId) ?? [];
         if (!requestIds.includes(observation.requestId)) requestIds.push(observation.requestId);
         correlation.requestIdsByProvider.set(providerId, requestIds);
@@ -279,7 +283,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
   async prepareInputBudget(_request: InputBudgetRequest): Promise<InputBudgetResult> {
     try {
-      const callDefaults = this.runtime.callDefaults?.(this.primary) ?? {};
+      const callDefaults = this.runtime.callDefaults?.(this.primary, 0) ?? {};
       return {
         kind: 'available',
         meter: await this.primary.prepareInputMeter(
@@ -294,19 +298,21 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
   private toRecoveryFailures(
     failures: ReadonlyArray<LLMProviderFailure>,
-    invocationId?: string,
-    attemptId?: string,
+    inv: CallPathAudit,
   ): RecoveryFailureInput[] {
+    // A stable entry ID survives credential/connection changes. Do not let a
+    // late failure from the previous adapter generation poison the new version.
+    if (inv.generation !== this.configGeneration) return [];
     return failures.map(failure => {
       const retryAfterSec = getRetryAfterSec(failure.error);
       const resetAtMs = getQuotaResetAtMs(failure.error);
       const localSkip = failure.localSkip === true || failure.error instanceof LLMCircuitBreakerOpenError;
       return {
-        providerId: failure.providerId ?? this.providerIdOf(failure.provider),
+        providerId: failure.providerId ?? this.providerIdOf(failure.provider, inv),
         providerLabel: failure.provider,
-        configRevision: this.configGeneration,
-        ...(invocationId !== undefined ? { invocationId } : {}),
-        ...(attemptId !== undefined ? { attemptId } : {}),
+        configRevision: inv.generation,
+        ...(inv.invocationId !== undefined ? { invocationId: inv.invocationId } : {}),
+        ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
         ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
         errorClass: failure.errorClass ?? classifyLLMError(failure.error),
         message: failure.error.message,
@@ -318,10 +324,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     });
   }
 
-  private providerIdOf(providerName: string): string {
-    const adapters = [this.primary, ...this.fallbacks];
-    const index = adapters.findIndex(provider => provider.name === providerName);
-    return index >= 0 ? this.identityAt(index, providerName) : `unknown:${providerName}`;
+  private providerIdOf(providerName: string, inv: CallPathAudit): string {
+    const index = inv.providerNames.indexOf(providerName);
+    return index >= 0 ? this.identityAt(index, providerName, inv.providerIds) : `unknown:${providerName}`;
   }
 
   /**
@@ -382,13 +387,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       const index = this.providerIds.indexOf(latest.providerId);
       const adapter = index >= 0 ? [this.primary, ...this.fallbacks][index] : undefined;
       return {
-        name: adapter ? this.runtime.displayName?.(adapter) ?? latest.name : latest.name,
+        name: adapter ? this.runtime.displayName?.(adapter, index) ?? latest.name : latest.name,
         model: latest.model,
         isFallback: latest.isFallback,
       };
     }
     return {
-      name: this.runtime.displayName?.(this.primary) ?? this.primary.name,
+      name: this.runtime.displayName?.(this.primary, 0) ?? this.primary.name,
       model: this.primary.model,
       isFallback: false,
     };
@@ -424,8 +429,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   }
 
   async healthCheck(): Promise<boolean> {
-    for (const adapter of [this.primary, ...this.fallbacks]) {
-      const result = await this.minimalProbe(adapter, 10_000);
+    const adapters = [this.primary, ...this.fallbacks];
+    for (const [candidateIndex, adapter] of adapters.entries()) {
+      const result = await this.minimalProbe(adapter, 10_000, undefined, candidateIndex);
       if (result.ok) return true;
       this.events.emit({
         type: 'healthcheck_failed',
@@ -441,10 +447,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     options: LLMCallOptions,
     adapter: LLMProvider,
     isFallback: boolean,
+    candidateIndex: number,
   ): void {
     observeInvocationProvider(
       inv.invocationId,
-      { name: this.runtime.displayName?.(adapter) ?? adapter.name, model: adapter.model, isFallback },
+      { name: this.runtime.displayName?.(adapter, candidateIndex) ?? adapter.name, model: adapter.model, isFallback },
       options.onProviderObservation,
       error => console.error( // console: request observer failure must not change provider delivery
         `[LLM PROVIDER OBSERVATION CRITICAL] observer failed: invocation=${inv.invocationId} provider=${adapter.name} reason=${formatErr(error)}`,
@@ -466,10 +473,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     legacyEstimate: () => number,
     generation: number,
     updateSelection = true,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider' | 'providerIds'>,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
-    const candidateOptions = this.withCandidateDefaults(adapter, options);
+    const candidateOptions = this.withCandidateDefaults(adapter, breakerIndex, options);
     const candidateInputTokens = await this.inputTokensFor(adapter, candidateOptions, legacyEstimate);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -478,7 +485,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // Phase 1955 Step E：timeout 按输入规模动态计算（基础配置 + token 余量，封顶 10min）；
       // caller 的 hardTimeoutMs 仍是显式上限。
       const dynamicTimeoutMs = computeDynamicCallTimeoutMs(
-        options.timeoutMs ?? this.baseTimeoutFor(adapter, isFallback),
+        options.timeoutMs ?? this.baseTimeoutFor(adapter, breakerIndex),
         candidateInputTokens,
       );
       const hardTimeoutMs = options.hardTimeoutMs ?? dynamicTimeoutMs;
@@ -499,15 +506,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         hardTimeoutMs: undefined,
         streamIdleTimeoutMs: undefined,
         timeoutMs: options.timeoutMs ?? dynamicTimeoutMs,
-        onInputMeasurement: this.inputMeasurementObserver(adapter, options, correlation),
+        onInputMeasurement: this.inputMeasurementObserver(adapter, options, correlation, breakerIndex),
       };
 
       try {
         const response = await adapter.call(providerOptions);
         cleanupSignal();
         // 普通 call 只观察成功返回的最终候选，不把 transport 开始误作成功。
-        if (updateSelection && correlation) this.observeProvider(correlation, options, adapter, isFallback);
-        if (updateSelection) this.recordProviderSuccess(breakerIndex, adapter, isFallback, generation);
+        if (updateSelection && correlation) this.observeProvider(correlation, options, adapter, isFallback, breakerIndex);
+        if (updateSelection) this.recordProviderSuccess(breakerIndex, adapter, isFallback, generation, updateSelection, correlation?.providerIds);
         return response;
       } catch (error) {
         cleanupSignal();
@@ -566,8 +573,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
    * 聚合错误的失败条目在产生处携带该指纹——显示名不是身份（同名不同
    * model/key/endpoint 是不同候选），记账/定位一律按指纹，不按显示名反查。
    */
-  private identityAt(index: number, providerName: string): string {
-    return this.providerIds[index] ?? `unknown:${providerName}`;
+  private identityAt(index: number, providerName: string, providerIds: readonly string[] = this.providerIds): string {
+    return providerIds[index] ?? `unknown:${providerName}`;
   }
 
   /** 一次 call/stream 调用的审计关联上下文（attemptIndex 单调递增）。 */
@@ -579,6 +586,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       failures: [],
       nextAttemptIndex: 0,
       generation: this.configGeneration,
+      providerIds: [...this.providerIds],
+      providerNames: adapters.map(adapter => adapter.name),
       recordedFailures: new Set<LLMProviderFailure>(),
       requestIdsByProvider: new Map(),
     };
@@ -592,7 +601,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       configRevision: inv.generation,
       candidates: adapters.map((a, i) => ({
         name: a.name,
-        providerId: this.providerIds[i] ?? `unknown:${a.name}`,
+        providerId: inv.providerIds[i] ?? `unknown:${a.name}`,
       })),
     });
     return inv;
@@ -649,7 +658,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     inv.failures.push(failure);
     if (recordImmediately && !inv.recordedFailures.has(failure)) {
       inv.recordedFailures.add(failure);
-      this.recordRecoveryFailures(this.toRecoveryFailures([failure], inv.invocationId, inv.attemptId));
+      this.recordRecoveryFailures(this.toRecoveryFailures([failure], inv));
     }
   }
 
@@ -746,7 +755,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       const response = await this._callCore(options, limits, inv);
       const unrecorded = inv.failures.filter(failure => !inv.recordedFailures.has(failure));
       if (unrecorded.length > 0) {
-        this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+        this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv));
       }
       if (inv.winnerProviderId === undefined) throw new Error('LLM call succeeded without a selected provider');
       this.recoveryController.noteSuccess(inv.invocationId, inv.winnerProviderId);
@@ -755,7 +764,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       if (error instanceof LLMAllProvidersFailedError) {
         const unrecorded = error.failures.filter(failure => !inv.recordedFailures.has(failure));
         if (unrecorded.length > 0) {
-            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv));
         }
       }
       throw error;
@@ -772,10 +781,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   }
 
   /** provider 配置的基础 timeout（动态 timeout 的起点）。 */
-  private baseTimeoutFor(adapter: LLMProvider, _isFallback: boolean): number {
-    const index = [this.primary, ...this.fallbacks].findIndex(candidate => candidate === adapter);
-    return (this.runtime.callDefaults?.(adapter) ?? {}).timeoutMs
-      ?? this.runtime.descriptors()[index]?.timeoutMs
+  private baseTimeoutFor(adapter: LLMProvider, candidateIndex: number): number {
+    return (this.runtime.callDefaults?.(adapter, candidateIndex) ?? {}).timeoutMs
+      ?? this.runtime.descriptors()[candidateIndex]?.timeoutMs
       ?? DEFAULT_LLM_TIMEOUT_MS;
   }
 
@@ -802,18 +810,18 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         if (stickyFb && stickyIdx >= 0) {
           if (this.isRecoveryBlocking(stickyIdx + 1, allowBreakerProbe)) {
             skippedCount++;
-            this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'provider_recovery_floor');
+            this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name, inv.providerIds), 'provider_recovery_floor');
           } else {
-            attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name));
+            attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name, inv.providerIds));
             try {
               const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, legacyEstimate, inv.generation, true, inv);
-              this.noteCandidateSuccess(inv, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name));
+              this.noteCandidateSuccess(inv, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name, inv.providerIds));
               return response;
             } catch (err) {
               // User abort is not a provider failure — propagate immediately
               if (options.signal?.aborted || isAbortError(err)) throw err;
               // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
-              this.noteCandidateFailure(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), err as Error);
+              this.noteCandidateFailure(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name, inv.providerIds), err as Error);
             }
           }
         }
@@ -823,19 +831,19 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       let primaryFailed = false;
       if (this.isRecoveryBlocking(0, allowBreakerProbe)) {
         skippedCount++;
-        this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'provider_recovery_floor');
+        this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), 'provider_recovery_floor');
       } else {
-        attemptedProviderIds.add(this.identityAt(0, this.primary.name));
+        attemptedProviderIds.add(this.identityAt(0, this.primary.name, inv.providerIds));
         try {
           const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, legacyEstimate, inv.generation, true, inv);
-          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
+          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds));
           return response;
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
           // silent: collect primary failure for aggregate LLMAllProvidersFailedError
           primaryFailed = true;
-          this.noteCandidateFailure(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), err as Error);
+          this.noteCandidateFailure(inv, failures, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), err as Error);
         }
       }
 
@@ -844,7 +852,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // the forensic payload point at a provider that never ran.
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
-        const providerId = this.identityAt(i + 1, this.fallbacks[i].name);
+        const providerId = this.identityAt(i + 1, this.fallbacks[i].name, inv.providerIds);
         if (attemptedProviderIds.has(providerId)) {
           // Phase 2064 Step B：sticky/前序候选已实际尝试过——重复身份只记跳过事实，不进聚合失败。
           this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, providerId, 'already_attempted');
@@ -888,14 +896,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       if (error instanceof LLMAllProvidersFailedError) {
         const unrecorded = error.failures.filter(failure => !inv.recordedFailures.has(failure));
         if (unrecorded.length > 0) {
-            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv));
         }
       }
       throw error;
     }
     const unrecorded = inv.failures.filter(failure => !inv.recordedFailures.has(failure));
     if (unrecorded.length > 0) {
-      this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+      this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv));
     }
     if (inv.winnerProviderId === undefined) throw new Error('LLM stream succeeded without a selected provider');
     this.recoveryController.noteSuccess(inv.invocationId, inv.winnerProviderId);
@@ -948,10 +956,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
-      const { adapter, breakerIndex, isFallback } = providers[pi];
+      const { adapter, breakerIndex } = providers[pi];
 
       if (!adapter.stream) {
-        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), new Error('Provider does not support streaming'));
+        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), new Error('Provider does not support streaming'));
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'stream capability missing' };
         lastFailedProviderName = adapter.name;
         continue;
@@ -959,7 +967,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
       if (this.isRecoveryBlocking(breakerIndex, limits.allowBreakerProbe)) {
         skippedCount++;
-        this.noteCandidateSkipped(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), 'provider_recovery_floor');
+        this.noteCandidateSkipped(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), 'provider_recovery_floor');
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Provider recovery floor not reached' };
         lastFailedProviderName = adapter.name;
         continue;
@@ -968,7 +976,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       let firstChunkAnnounced = false;  // phase 686: 本 provider 内 fallback_switched 只首 chunk 一次
       let providerObservationSent = false;
 
-      const candidateOptions = this.withCandidateDefaults(adapter, options);
+      const candidateOptions = this.withCandidateDefaults(adapter, breakerIndex, options);
       const candidateInputTokens = await this.inputTokensFor(adapter, candidateOptions, legacyEstimate);
 
 
@@ -1008,10 +1016,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
             timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
-              this.baseTimeoutFor(adapter, isFallback),
+              this.baseTimeoutFor(adapter, breakerIndex),
               candidateInputTokens,
             ),
-            onInputMeasurement: this.inputMeasurementObserver(adapter, options, inv),
+            onInputMeasurement: this.inputMeasurementObserver(adapter, options, inv, breakerIndex),
           };
 
           let pendingDone: ProviderStreamChunk | null = null;
@@ -1036,7 +1044,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
               hasContent = true;
               if (!providerObservationSent) {
                 providerObservationSent = true;
-                this.observeProvider(inv, options, adapter, providers[pi].isFallback);
+                this.observeProvider(inv, options, adapter, providers[pi].isFallback, breakerIndex);
               }
             }
             if (chunk.type === 'done') {
@@ -1063,7 +1071,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
               inv,
               failures,
               adapter.name,
-              this.identityAt(breakerIndex, adapter.name),
+              this.identityAt(breakerIndex, adapter.name, inv.providerIds),
               contextExceededError,
             );
             lastFailedProviderName = adapter.name;  // phase 686
@@ -1096,7 +1104,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
               provider: adapter.name,
               timeoutMs: probeTimeoutMs,
             });
-            const probe = await this.minimalProbe(adapter, probeTimeoutMs, options.signal);
+            const probe = await this.minimalProbe(adapter, probeTimeoutMs, options.signal, breakerIndex);
             if (options.signal?.aborted) {
               // user abort overrides probe result — stop immediately instead of failover/retry
               throw makeExternalAbortError(options.signal.reason);
@@ -1215,9 +1223,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
       if (success && receivedDone && hasContent) {
         // breaker 与 lastSuccess 在同一候选中提交。
-        this.recordProviderSuccess(breakerIndex, adapter, providers[pi].isFallback, inv.generation);
+        this.recordProviderSuccess(breakerIndex, adapter, providers[pi].isFallback, inv.generation, true, inv.providerIds);
         // Phase 1968 Step B：selection 先于成功返回上层（本 return 即 generator 成功出口）。
-        this.noteCandidateSuccess(inv, adapter.name, this.identityAt(breakerIndex, adapter.name));
+        this.noteCandidateSuccess(inv, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds));
         return; // Success, exit generator
       }
 
@@ -1241,7 +1249,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           errorClass: 'unknown',
           userActionHint: null,
         });
-        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err, 'unknown');
+        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), err, 'unknown');
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
       }
@@ -1264,7 +1272,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           errorClass: classifyLLMError(err),
           userActionHint: getUserActionHint(err),
         });
-        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err);
+        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), err);
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
       }
@@ -1286,7 +1294,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           errorClass: 'unknown',
           userActionHint: null,
         });
-        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err, 'unknown');
+        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), err, 'unknown');
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
@@ -1296,7 +1304,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
         // provider_failed stream chunk 保留为对调用方的不同语义信号。
         const err = lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured');
-        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err);
+        this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name, inv.providerIds), err);
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
@@ -1314,7 +1322,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     provider: LLMProvider,
     timeoutMs: number,
     userSignal?: AbortSignal,
+    candidateIndex?: number,
   ): Promise<{ ok: true } | { ok: false; reason: 'network_timeout' | 'auth_or_model'; error: Error }> {
+    const callDefaults = candidateIndex === undefined
+      ? {}
+      : this.runtime.callDefaults?.(provider, candidateIndex) ?? {};
     const probeCtrl = new AbortController();
     const probeTimer = setTimeout(() => probeCtrl.abort(), timeoutMs);
     const merged = mergeSignals(userSignal, probeCtrl.signal);
@@ -1323,9 +1335,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       await provider.call({
         messages: [{ role: 'user', content: 'Hi' }],
         maxTokens: LLM_PROBE_MAX_TOKENS,
-        ...(Object.keys(this.runtime.callDefaults?.(provider) ?? {}).length > 0
-          ? { callDefaults: this.runtime.callDefaults?.(provider) ?? {} }
-          : {}),
+        ...(Object.keys(callDefaults).length > 0 ? { callDefaults } : {}),
         signal,
       });
       return { ok: true };
@@ -1367,13 +1377,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     }
     const error = contextError ?? this.contextDoneError(this.primary.name, stopReason ?? 'context_exceeded');
     const aFailures: LLMProviderFailure[] = [];
-    this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), error);
+    this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), error);
     yield { type: 'reset', provider: this.primary.name };
 
     const bResult = await trackBPromise;
     if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
     if (bResult.winner === 'B') {
-      this.observeProvider(inv, options, bResult.provider, true);
+      this.observeProvider(inv, options, bResult.provider, true, bResult.providerIndex + 1);
       this.events.emit({
         type: 'hedge_fallback_committed',
         winnerProvider: bResult.provider.name,
@@ -1382,7 +1392,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         primaryErrorClass: 'context_exceeded',
         usage: bResult.response.usage,
       });
-      this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
+      this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name, inv.providerIds));
       yield* wrapResponseAsStream(bResult.response);
       return;
     }
@@ -1417,7 +1427,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
     // Track A: primary.stream() iter, wait for first content chunk. The estimate
     // stays local to this candidate's timeout; request observations remain L1-owned.
-    const primaryOptions = this.withCandidateDefaults(this.primary, options);
+    const primaryOptions = this.withCandidateDefaults(this.primary, 0, options);
     const primaryInputTokens = typeof this.primary.prepareInputMeter === 'function'
       ? await this.inputTokensFor(this.primary, primaryOptions, legacyEstimate)
       : legacyEstimate();
@@ -1427,10 +1437,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       hardTimeoutMs: undefined,
       streamIdleTimeoutMs: undefined,
       timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
-        this.baseTimeoutFor(this.primary, false),
+        this.baseTimeoutFor(this.primary, 0),
         primaryInputTokens,
       ),
-      onInputMeasurement: this.inputMeasurementObserver(this.primary, options, inv),
+      onInputMeasurement: this.inputMeasurementObserver(this.primary, options, inv, 0),
     };
     const primaryIter = this.primary.stream!(primaryProviderOpts);
     let primaryClosed = false;
@@ -1474,10 +1484,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           const fb = this.fallbacks[i];
           if (this.isRecoveryBlocking(i + 1, false)) {
             skippedCount++;
-            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'provider_recovery_floor');
+            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name, inv.providerIds), 'provider_recovery_floor');
             continue;
           }
-          const fallbackOptions = this.withCandidateDefaults(fb, options);
+          const fallbackOptions = this.withCandidateDefaults(fb, i + 1, options);
           const fallbackInputTokens = typeof fb.prepareInputMeter === 'function'
             ? await this.inputTokensFor(fb, fallbackOptions, legacyEstimate)
             : legacyEstimate();
@@ -1488,15 +1498,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
             timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
-              this.baseTimeoutFor(fb, true),
+              this.baseTimeoutFor(fb, i + 1),
               fallbackInputTokens,
             ),
-            onInputMeasurement: this.inputMeasurementObserver(fb, options, inv),
+            onInputMeasurement: this.inputMeasurementObserver(fb, options, inv, i + 1),
           };
           try {
             const response = await fb.call(fbOpts);
             fbMerged.cleanup();
-            this.recordProviderSuccess(i + 1, fb, true, inv.generation);
+            this.recordProviderSuccess(i + 1, fb, true, inv.generation, true, inv.providerIds);
             return { winner: 'B', provider: fb, providerIndex: i, response };
           } catch (err) {
             fbMerged.cleanup();
@@ -1520,7 +1530,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             });
             // Hedge 旁路失败先共享同一 failure 对象到 B 结果与 invocation；由最终
             // 成功/聚合失败统一提交，避免 A 的请求局部终态把已放弃旁路写成共享故障。
-            this.noteCandidateFailure(inv, failures, fb.name, this.identityAt(i + 1, fb.name), e, errClass, false);
+            this.noteCandidateFailure(inv, failures, fb.name, this.identityAt(i + 1, fb.name, inv.providerIds), e, errClass, false);
           }
         }
         return { winner: 'B-error', failures, skippedCount };
@@ -1532,7 +1542,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // A 胜（first content chunk）
       if (winner.winner === 'A') {
         // A 只有完整成功才获胜；context-done 时仍需要同一个 B 链接管。
-        this.observeProvider(inv, options, this.primary, false);
+        this.observeProvider(inv, options, this.primary, false, 0);
         yield winner.chunk;
         let receivedDone = false;
         let primaryUsage: ProviderStreamChunk['usage'];
@@ -1565,7 +1575,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             drainContextError = err as Error;
           } else {
             // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
+            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), err as Error);
             this.events.emit({
               type: 'hedge_primary_post_first_chunk_failure',
               provider: this.primary.name,
@@ -1595,21 +1605,21 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
           this.noteFailureObserved(error);
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), error, 'transient');
+          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), error, 'transient');
           yield { type: 'reset', provider: this.primary.name };
           yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
           throw error;
         }
         if (drainError) throw drainError;
         if (receivedDone) {
-          this.recordProviderSuccess(0, this.primary, false, inv.generation);
+          this.recordProviderSuccess(0, this.primary, false, inv.generation, true, inv.providerIds);
           this.events.emit({
             type: 'hedge_primary_recovered',
             provider: this.primary.name,
             usage: primaryUsage,
           });
           // Phase 1968 Step B：selection 先于成功返回（hedge A 轨恢复成功）。
-          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
+          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds));
         }
         return;
       }
@@ -1623,7 +1633,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // 3 态 race outcome: A 实际 produced content chunk 但 B race 先 settled (rare race window)
           // NEW event explicit observability、不合成假 'primary stream cancelled' Error
           // Phase 1968 Step B：A 已产出内容但未成为最终选择——记 discarded，不伪造成功/失败。
-          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'discarded', {
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), 'discarded', {
             reason: 'race_lost_after_first_chunk',
           });
           this.events.emit({
@@ -1646,7 +1656,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           }
           const primaryErr = aResult.error;
           const primaryErrClass = classifyLLMError(primaryErr);
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), primaryErr, primaryErrClass);
+          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), primaryErr, primaryErrClass);
           this.events.emit({
             type: 'hedge_fallback_committed',
             winnerProvider: winner.provider.name,
@@ -1658,8 +1668,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         }
 
         // Phase 1968 Step B：B 轨成功被 commit——selection 先于 yield* 响应。
-        this.observeProvider(inv, options, winner.provider, true);
-        this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
+        this.observeProvider(inv, options, winner.provider, true, winner.providerIndex + 1);
+        this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name, inv.providerIds));
         // NEW: drain primary generator (mirror L821 double-fail template)
         await closePrimary();
         this.events.emit({
@@ -1680,9 +1690,9 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         }
         if (bResult.winner === 'B') {
           primaryCtrl.abort();
-          this.observeProvider(inv, options, bResult.provider, true);
+          this.observeProvider(inv, options, bResult.provider, true, bResult.providerIndex + 1);
           // Phase 1968 Step B：A 早失败终态 + B 成功 selection 均先于响应返回。
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), winner.error);
+          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), winner.error);
           this.events.emit({
             type: 'hedge_fallback_committed',
             winnerProvider: bResult.provider.name,
@@ -1691,7 +1701,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             primaryErrorClass: classifyLLMError(winner.error),
             usage: bResult.response.usage,
           });
-          this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
+          this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name, inv.providerIds));
           cleanupSignals();
           yield* wrapResponseAsStream(bResult.response);
           return;
@@ -1705,7 +1715,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         cleanupSignals();
         // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
         const aFailures: LLMProviderFailure[] = [];
-        this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), winner.error);
+        this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), winner.error);
         this.throwAllProvidersFailed(inv, [...aFailures, ...bResult.failures], bResult.skippedCount);
       }
 
@@ -1713,7 +1723,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       const aResult = await trackAPromise;
       if (aResult.winner === 'A') {
         trackBCtrl.abort();
-        this.observeProvider(inv, options, this.primary, false);
+        this.observeProvider(inv, options, this.primary, false, 0);
         yield aResult.chunk;
         let receivedDone = false;
         let primaryUsage: ProviderStreamChunk['usage'];
@@ -1746,7 +1756,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             drainContextError = err as Error;
           } else {
             // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
+            this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), err as Error);
             this.events.emit({
               type: 'hedge_primary_post_first_chunk_failure',
               provider: this.primary.name,
@@ -1772,21 +1782,21 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
           this.noteFailureObserved(error);
-          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), error, 'transient');
+          this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), error, 'transient');
           yield { type: 'reset', provider: this.primary.name };
           yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
           throw error;
         }
         if (drainError) throw drainError;
         if (receivedDone) {
-          this.recordProviderSuccess(0, this.primary, false, inv.generation);
+          this.recordProviderSuccess(0, this.primary, false, inv.generation, true, inv.providerIds);
           this.events.emit({
             type: 'hedge_primary_recovered',
             provider: this.primary.name,
             usage: primaryUsage,
           });
           // Phase 1968 Step B：selection 先于成功返回（B 全败后 A 恢复成功）。
-          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
+          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds));
         }
         return;
       }
@@ -1799,7 +1809,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       cleanupSignals();
       // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
       const aFailures: LLMProviderFailure[] = [];
-      this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name), aResult.error);
+      this.noteCandidateFailure(inv, aFailures, this.primary.name, this.identityAt(0, this.primary.name, inv.providerIds), aResult.error);
       this.throwAllProvidersFailed(inv, [...aFailures, ...winner.failures], winner.skippedCount);
     } finally {
       // A 首 chunk 只是暂时领先；最终返回/提前退出时才取消仍在运行的 B。

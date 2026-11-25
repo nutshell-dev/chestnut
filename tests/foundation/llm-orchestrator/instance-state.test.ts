@@ -13,6 +13,7 @@ import {
   type LLMInstanceStateV1,
   type LLMInstanceStateV2,
   type LLMInstanceStateV3,
+  type LLMInstanceStateV4,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
@@ -27,7 +28,7 @@ async function fixture() {
   return { dir, fs: new NodeFileSystem({ baseDir: dir }) };
 }
 
-function validState(): LLMInstanceStateV3 {
+function validState(): LLMInstanceStateV4 {
   return {
     ...createEmptyLLMInstanceState('instance-a'),
     revision: 2,
@@ -35,6 +36,7 @@ function validState(): LLMInstanceStateV3 {
     providers: [
       {
         providerId: 'provider-a',
+        operationalIdentity: 'op-a',
         status: 'waiting',
         retryAt: 30_000,
         lastError: {
@@ -50,7 +52,7 @@ function validState(): LLMInstanceStateV3 {
         cacheValidUntil: 6_000,
         consecutiveFailures: 2,
       },
-      { providerId: 'provider-b', status: 'available' },
+      { providerId: 'provider-b', operationalIdentity: 'op-b', status: 'available' },
     ],
   };
 }
@@ -124,11 +126,11 @@ function validV2State(): LLMInstanceStateV2 {
   };
 }
 
-describe('LLM instance state V3', () => {
+describe('LLM instance state V4', () => {
   it('treats a missing file as empty and round-trips valid state', async () => {
     const { dir, fs } = await fixture();
     expect(loadLLMInstanceState(fs)).toEqual({ kind: 'missing' });
-    expect(createEmptyLLMInstanceState()).toMatchObject({ schema_version: 3, revision: 0, providers: [], recovery: { invocations: [] } });
+    expect(createEmptyLLMInstanceState()).toMatchObject({ schema_version: 4, revision: 0, providers: [], recovery: { invocations: [] } });
     expect(createEmptyLLMInstanceState()).not.toHaveProperty('lastSuccess');
     expect(saveLLMInstanceState(fs, validState()).kind).toBe('durable');
     expect(loadLLMInstanceState(fs)).toEqual({ kind: 'ok', state: validState() });
@@ -167,7 +169,7 @@ describe('LLM instance state V3', () => {
     fsNative.mkdirSync(path.dirname(file), { recursive: true });
     for (const [raw, reason] of [
       ['{bad json', 'parse_failed'],
-      [JSON.stringify({ ...validState(), schema_version: 4 }), 'schema_invalid'],
+      [JSON.stringify({ ...validState(), schema_version: 5 }), 'schema_invalid'],
     ] as const) {
       fsNative.writeFileSync(file, raw);
       expect(loadLLMInstanceState(fs)).toMatchObject({ kind: 'unusable', reason });
@@ -175,7 +177,7 @@ describe('LLM instance state V3', () => {
     }
   });
 
-  it('strictly rejects invalid V3 numbers, identities and cross-field constraints', async () => {
+  it('strictly rejects invalid V4 numbers, identities and cross-field constraints', async () => {
     const { dir, fs } = await fixture();
     const file = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
     fsNative.mkdirSync(path.dirname(file), { recursive: true });
@@ -184,6 +186,7 @@ describe('LLM instance state V3', () => {
       { ...validState(), updatedAt: 'not-a-time' },
       { ...validState(), lastSuccess: null },
       { ...validState(), providers: [validState().providers[0], validState().providers[0]] },
+      { ...validState(), providers: [{ ...validState().providers[0], operationalIdentity: undefined }] },
       { ...validState(), providers: [{ ...validState().providers[0], retryAt: undefined }] },
       { ...validState(), providers: [{ ...validState().providers[1], retryAt: 1 }] },
       { ...validState(), providers: [{ ...validState().providers[1], lastSuccessAt: 10 }] },
@@ -210,6 +213,19 @@ describe('LLM instance state V3', () => {
       expect(loadLLMInstanceState(fs)).toMatchObject({ kind: 'unusable', reason: 'schema_invalid' });
       expect(fsNative.readFileSync(file, 'utf8')).toBe(raw);
     }
+  });
+
+  it('keeps V3 on the legacy intake instead of treating it as converted', async () => {
+    const { dir, fs } = await fixture();
+    const legacy: LLMInstanceStateV3 = {
+      schema_version: 3, instanceId: 'instance-v3', revision: 2, updatedAt: new Date(0).toISOString(),
+      providers: [{ providerId: 'provider-a', status: 'available' }],
+      recovery: createEmptyLLMInstanceRecoveryState(),
+    };
+    const file = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
+    fsNative.mkdirSync(path.dirname(file), { recursive: true });
+    fsNative.writeFileSync(file, JSON.stringify(legacy));
+    expect(loadLLMInstanceState(fs)).toEqual({ kind: 'legacy', state: legacy });
   });
 
   it('loads V2 as legacy and merges breaker, shared failure and recovery facts once per provider', async () => {

@@ -428,6 +428,7 @@ vi.mock('../../src/core/llm-configuration/index.js', async (importOriginal) => {
     snapshotLLMConfig: vi.fn((...args: any[]) => ({ config: llmConfigFn(...args) })),
     createAuthenticationCapability: vi.fn(function () { return { describe: vi.fn() }; }),
     createLLMConfiguration: vi.fn(() => ({
+      ensureEntryIds: vi.fn().mockResolvedValue(undefined),
       loadGlobal: vi.fn(),
       loadSnapshot: vi.fn(),
       readRevision: vi.fn(() => ({ id: '1', revision: 1 })),
@@ -443,7 +444,7 @@ vi.mock('../../src/core/llm-configuration/index.js', async (importOriginal) => {
 // did, without paying the per-invocation resolution cost.
 import { createStreamWriter } from '../../src/foundation/stream/index.js';
 import { CronRunner } from '../../src/foundation/cron/runner.js';
-import { resolveLLMConfig } from '../../src/core/llm-configuration/index.js';
+import { createLLMConfiguration, resolveLLMConfig } from '../../src/core/llm-configuration/index.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime } from '../../src/core/runtime/index.js';
@@ -517,6 +518,12 @@ describe('assemble', () => {
     expect(createLLMOrchestrator).toHaveBeenCalledWith(expect.objectContaining({
       lifecycle: { mode: 'durable', fs: expect.anything(), stateDir: STATUS_SUBDIR },
     }));
+    const configuration = vi.mocked(createLLMConfiguration).mock.results
+      .map(result => result.value as { ensureEntryIds: ReturnType<typeof vi.fn> })
+      .find(candidate => candidate.ensureEntryIds.mock.calls.length > 0);
+    expect(configuration?.ensureEntryIds).toHaveBeenCalledTimes(1);
+    expect(configuration!.ensureEntryIds.mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(createLLMOrchestrator).mock.invocationCallOrder[0]!);
     const owner = capturedLlmInstances.at(-1);
     const runtimeOptions = (createRuntime as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as {
       dependencies: { llm: unknown; llmOrchestrator: unknown };

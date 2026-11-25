@@ -9,10 +9,12 @@ type ProviderCallDefaults = llmProviderCall.ProviderCallDefaults;
 import type {
   ConfiguredProviderCandidate,
   LLMEventSink,
+  LLMInstanceLifecycle,
   LLMOrchestratorConfig,
   ProviderCandidateConfig,
 } from './types.js';
 import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
+import { sha256Hex } from '../node-utils/index.js';
 
 function candidateInput(candidate: ProviderCandidateConfig): ProviderInput {
   return 'input' in candidate ? candidate.input : candidate;
@@ -24,12 +26,56 @@ function candidateCallDefaults(candidate: ProviderCandidateConfig): ProviderCall
 
 function normalizeCandidate(candidate: ProviderCandidateConfig): ConfiguredProviderCandidate {
   return {
+    ...('input' in candidate && candidate.entryId !== undefined ? { entryId: candidate.entryId } : {}),
     input: candidateInput(candidate),
     callDefaults: candidateCallDefaults(candidate),
     ...('input' in candidate && candidate.displayName !== undefined
       ? { displayName: candidate.displayName }
       : {}),
   };
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+    .join(',')}}`;
+}
+
+/**
+ * Per-entry execution version. Authentication is already represented by L1's
+ * opaque operational identity; entry IDs, labels and document revisions are not.
+ */
+function providerCandidateOperationalIdentity(
+  candidate: ConfiguredProviderCandidate,
+  descriptor: ProviderDescriptor,
+): string {
+  return sha256Hex(stableStringify({
+    input: providerCacheKey(descriptor),
+    callDefaults: candidate.callDefaults,
+  }));
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function providerIdsFor(
+  candidates: readonly ConfiguredProviderCandidate[],
+  mode: LLMInstanceLifecycle['mode'],
+): string[] {
+  const seen = new Set<string>();
+  return candidates.map((candidate, index) => {
+    const entryId = candidate.entryId;
+    if (mode === 'durable' && entryId === undefined) throw new Error('Missing persisted LLM entry ID');
+    if (entryId !== undefined && !UUID_PATTERN.test(entryId)) throw new Error('Invalid persisted LLM entry ID');
+    const id = entryId !== undefined ? `entry:${entryId}` : `ephemeral:${index}`;
+    if (seen.has(id)) throw new Error(`Duplicate LLM entry ID: ${entryId ?? id}`);
+    seen.add(id);
+    return id;
+  });
 }
 
 export interface PreparedProviderReload {
@@ -39,6 +85,8 @@ export interface PreparedProviderReload {
   readonly descriptors: readonly ProviderDescriptor[];
   readonly candidates: readonly ConfiguredProviderCandidate[];
   readonly providerIds: readonly string[];
+  readonly operationalIdentities: readonly string[];
+  readonly connectionProviderIds: readonly string[];
   readonly legacyProviderIds: readonly string[];
   readonly oldKeys: ReadonlySet<string>;
 }
@@ -47,10 +95,14 @@ export interface ProviderRuntime {
   primary(): LLMProvider;
   fallbacks(): readonly LLMProvider[];
   descriptors(): readonly ProviderDescriptor[];
-  callDefaults?(adapter: LLMProvider): ProviderCallDefaults;
-  displayName?(adapter: LLMProvider): string;
+  /** Candidate position disambiguates multiple entries sharing one SDK adapter. */
+  callDefaults?(adapter: LLMProvider, candidateIndex: number): ProviderCallDefaults;
+  displayName?(adapter: LLMProvider, candidateIndex: number): string;
   config(): LLMOrchestratorConfig;
   providerIds(): readonly string[];
+  operationalIdentities(): readonly string[];
+  /** Previous descriptor.identity values; only legacy state conversion/diagnostics may consume them. */
+  connectionProviderIds(): readonly string[];
   legacyProviderIds(): readonly string[];
   configGeneration(): number;
   prepareReload(config: LLMOrchestratorConfig): PreparedProviderReload;
@@ -61,6 +113,7 @@ export interface ProviderRuntime {
 export class LLMProviderRuntime implements ProviderRuntime {
   private readonly events: LLMEventSink;
   private readonly providerFactory: ProviderFactory;
+  private readonly lifecycleMode: LLMInstanceLifecycle['mode'];
   private readonly sdkClientCache = new Map<string, ProviderHandle>();
   private pendingClose: LLMProvider[] = [];
   private activeConfig: LLMOrchestratorConfig;
@@ -69,6 +122,8 @@ export class LLMProviderRuntime implements ProviderRuntime {
   private activeDescriptors: readonly ProviderDescriptor[];
   private activeCandidates: readonly ConfiguredProviderCandidate[];
   private activeProviderIds: readonly string[];
+  private activeOperationalIdentities: readonly string[];
+  private activeConnectionProviderIds: readonly string[];
   private activeLegacyProviderIds: readonly string[];
   private activeConfigGeneration = 0;
   private closed = false;
@@ -76,59 +131,43 @@ export class LLMProviderRuntime implements ProviderRuntime {
   constructor(config: LLMOrchestratorConfig) {
     this.events = config.events;
     this.providerFactory = config.providerFactory;
+    this.lifecycleMode = config.lifecycle?.mode ?? 'ephemeral';
     this.activeConfig = config;
     this.activeCandidates = [config.primary, ...(config.fallbacks ?? [])].map(normalizeCandidate);
-    const primary = this.getSdkClient(config.primary);
-    const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
+    this.activeProviderIds = providerIdsFor(this.activeCandidates, this.lifecycleMode);
+    const handles = this.activeCandidates.map(candidate => this.getSdkClient(candidate));
+    this.activeOperationalIdentities = this.activeCandidates.map((candidate, index) =>
+      providerCandidateOperationalIdentity(candidate, handles[index]!.descriptor));
+    const primary = handles[0]!;
+    const fallbacks = handles.slice(1);
     this.activePrimary = primary.provider;
     this.activeFallbacks = fallbacks.map(handle => handle.provider);
-    this.activeDescriptors = [primary.descriptor, ...fallbacks.map(handle => handle.descriptor)];
-    this.activeProviderIds = this.activeDescriptors.map(providerIdentity);
+    this.activeDescriptors = handles.map(handle => handle.descriptor);
+    this.activeConnectionProviderIds = this.activeDescriptors.map(providerIdentity);
     this.activeLegacyProviderIds = this.activeDescriptors.map(legacyProviderIdentity);
   }
 
-  primary(): LLMProvider {
-    return this.activePrimary;
+  primary(): LLMProvider { return this.activePrimary; }
+  fallbacks(): readonly LLMProvider[] { return this.activeFallbacks; }
+  descriptors(): readonly ProviderDescriptor[] { return this.activeDescriptors; }
+
+  callDefaults(_adapter: LLMProvider, candidateIndex: number): ProviderCallDefaults {
+    return this.activeCandidates[candidateIndex]?.callDefaults ?? {};
   }
 
-  fallbacks(): readonly LLMProvider[] {
-    return this.activeFallbacks;
+  displayName(adapter: LLMProvider, candidateIndex: number): string {
+    return this.activeCandidates[candidateIndex]?.displayName ?? adapter.name;
   }
 
-  descriptors(): readonly ProviderDescriptor[] {
-    return this.activeDescriptors;
-  }
-
-  callDefaults(adapter: LLMProvider): ProviderCallDefaults {
-    const index = [this.activePrimary, ...this.activeFallbacks].findIndex(candidate => candidate === adapter);
-    return this.activeCandidates[index]?.callDefaults ?? {};
-  }
-
-  displayName(adapter: LLMProvider): string {
-    const index = [this.activePrimary, ...this.activeFallbacks].findIndex(candidate => candidate === adapter);
-    return this.activeCandidates[index]?.displayName ?? adapter.name;
-  }
-
-  config(): LLMOrchestratorConfig {
-    return this.activeConfig;
-  }
-
-  providerIds(): readonly string[] {
-    return this.activeProviderIds;
-  }
-
-  legacyProviderIds(): readonly string[] {
-    return this.activeLegacyProviderIds;
-  }
-
-  configGeneration(): number {
-    return this.activeConfigGeneration;
-  }
+  config(): LLMOrchestratorConfig { return this.activeConfig; }
+  providerIds(): readonly string[] { return this.activeProviderIds; }
+  operationalIdentities(): readonly string[] { return this.activeOperationalIdentities; }
+  connectionProviderIds(): readonly string[] { return this.activeConnectionProviderIds; }
+  legacyProviderIds(): readonly string[] { return this.activeLegacyProviderIds; }
+  configGeneration(): number { return this.activeConfigGeneration; }
 
   /** Actual cache reference for runtime lifecycle tests. */
-  get clientCache(): Map<string, ProviderHandle> {
-    return this.sdkClientCache;
-  }
+  get clientCache(): Map<string, ProviderHandle> { return this.sdkClientCache; }
 
   private retireUnused(provider: LLMProvider): void {
     try {
@@ -143,6 +182,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
   }
 
   private getSdkClient(candidateConfig: ProviderCandidateConfig): ProviderHandle {
+    // Only the L1 input reaches the factory; entryId is scheduler metadata.
     const input = candidateInput(candidateConfig);
     const created = this.providerFactory.create(input);
     const key = providerCacheKey(created.descriptor);
@@ -165,32 +205,41 @@ export class LLMProviderRuntime implements ProviderRuntime {
     return created;
   }
 
-  /** Create the next handle view before the Facade attempts its V3 commit. */
+  /** Validate entry keys before creating handles; activation waits for the V4 state commit. */
   prepareReload(config: LLMOrchestratorConfig): PreparedProviderReload {
+    const candidates = [config.primary, ...(config.fallbacks ?? [])].map(normalizeCandidate);
+    const providerIds = providerIdsFor(candidates, this.lifecycleMode);
     const oldKeys = new Set(this.sdkClientCache.keys());
-    const primary = this.getSdkClient(config.primary);
-    const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
-    const handles = [primary, ...fallbacks];
+    const handles = candidates.map(candidate => this.getSdkClient(candidate));
+    const operationalIdentities = candidates.map((candidate, index) =>
+      providerCandidateOperationalIdentity(candidate, handles[index]!.descriptor));
+    const primary = handles[0]!;
+    const fallbacks = handles.slice(1);
     const descriptors = handles.map(handle => handle.descriptor);
     return {
       config,
       primary: primary.provider,
       fallbacks: fallbacks.map(handle => handle.provider),
       descriptors,
-      providerIds: descriptors.map(providerIdentity),
+      candidates,
+      providerIds,
+      operationalIdentities,
+      connectionProviderIds: descriptors.map(providerIdentity),
       legacyProviderIds: descriptors.map(legacyProviderIdentity),
-      candidates: [config.primary, ...(config.fallbacks ?? [])].map(normalizeCandidate),
       oldKeys,
     };
   }
 
-  /** Activate only after V3 commit; superseded adapters remain open until close. */
+  /** Activate only after V4 commit; superseded adapters remain open until close. */
   commitReload(prepared: PreparedProviderReload): void {
     this.activeConfig = prepared.config;
     this.activePrimary = prepared.primary;
     this.activeFallbacks = [...prepared.fallbacks];
     this.activeDescriptors = [...prepared.descriptors];
+    this.activeCandidates = [...prepared.candidates];
     this.activeProviderIds = [...prepared.providerIds];
+    this.activeOperationalIdentities = [...prepared.operationalIdentities];
+    this.activeConnectionProviderIds = [...prepared.connectionProviderIds];
     this.activeLegacyProviderIds = [...prepared.legacyProviderIds];
     this.activeConfigGeneration += 1;
     const newProviders = new Set([prepared.primary, ...prepared.fallbacks]);

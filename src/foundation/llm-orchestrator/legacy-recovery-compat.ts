@@ -1,7 +1,8 @@
 /**
  * 旧 recovery.providers 的显式离线兼容解释。当前恢复安排只读统一 provider states；
- * 本模块不写文件、不调用 provider，也不产生另一份 retryAt 权威。
- * 实例 Store 的自动迁移只映射并保留原始 facts，不调用这里的释放转换。
+ * Phase 2245：V1/V2/V3 只由 Instance Store 做一次有证据的 V4 过渡；
+ * recovery.providers 与 failures 始终保留旧 providerId，不推测回填 entry ID。
+ * 本模块不写文件、不调用 provider，也不产生另一份 retryAt 权威；现役 begin 不调用 release。
  */
 import type {
   LLMInstanceRecoveryProviderFact,

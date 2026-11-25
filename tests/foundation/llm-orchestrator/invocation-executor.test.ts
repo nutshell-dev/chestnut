@@ -63,6 +63,8 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], ids?: stri
       descriptors: () => [config.primary, ...(config.fallbacks ?? [])].map(input => mockProviderFactory.create(input).descriptor),
       config: () => config,
       providerIds: () => providerIds,
+      operationalIdentities: () => providerIds.map(providerId => `op-${providerId}`),
+      connectionProviderIds: () => providerIds,
       legacyProviderIds: () => providerIds,
       configGeneration: () => 0,
       prepareReload: () => { throw new Error('not used'); },

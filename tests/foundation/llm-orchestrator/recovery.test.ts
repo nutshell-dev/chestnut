@@ -1,4 +1,4 @@
-import { descriptorFor, legacyProviderFactory } from './provider-test-fixtures.js';
+import { descriptorFor, durableProviderCandidate, legacyProviderFactory, providerEntryId } from './provider-test-fixtures.js';
 /**
  * Phase 2058：恢复策略与持久化统一到 LLMRecoveryControllerImpl / llm-instance-state.json V3。
  * 公共业务入口只有 owner.call/stream；controller 深导入仅用于内部策略与崩溃屏障白盒测试。
@@ -19,7 +19,7 @@ import { createInitialRecoveryState } from '../../../src/foundation/llm-orchestr
 import {
   LLM_INSTANCE_STATE_FILE,
   saveLLMInstanceState,
-  type LLMInstanceStateV3,
+  type LLMInstanceStateV4,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError, LLMOrchestratorClosedError } from '../../../src/foundation/llm-orchestrator/errors.js';
@@ -112,26 +112,34 @@ async function makeFixture(opts: FixtureOpts = {}) {
   const adapters = new Map([primary, ...fallbackAdapters].map(adapter => [adapter.name, adapter]));
   const config: LLMOrchestratorConfig = {
     lifecycle: { mode: 'durable', fs },
-    primary: providerConfig('primary'),
-    fallbacks: fallbackAdapters.map(fallback => providerConfig(fallback.name)),
+    primary: durableProviderCandidate(providerConfig('primary')),
+    fallbacks: fallbackAdapters.map(fallback => durableProviderCandidate(providerConfig(fallback.name))),
     maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     providerFactory: legacyProviderFactory(provider => adapters.get(provider.providerId ?? '') ?? primary),
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
-  const makeOwner = (primaryConfig = config.primary) => {
-    const owner = createLLMOrchestrator({ ...config, primary: primaryConfig });
+  const makeOwner = (primaryConfig: LLMOrchestratorConfig['primary'] = config.primary) => {
+    const owner = createLLMOrchestrator({
+      ...config,
+      primary: 'input' in primaryConfig
+        ? primaryConfig
+        : durableProviderCandidate(primaryConfig as ProviderConnection),
+    });
     owners.push(owner);
     return owner;
   };
   const statePath = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
-  const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8')) as LLMInstanceStateV3;
+  const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8')) as LLMInstanceStateV4;
   const owner = makeOwner();
   return {
     dir, fs, sink, emitted, config, owner, controller: controllerOf(owner), makeOwner, readState, statePath,
     advance: (ms: number) => { vi.setSystemTime(Date.now() + ms); },
-    reload: (nextPrimary: ProviderConnection) => owner.reloadConfig({ ...config, primary: nextPrimary }),
+    reload: (nextPrimary: ProviderConnection) => owner.reloadConfig({
+      ...config,
+      primary: durableProviderCandidate(nextPrimary),
+    }),
   };
 }
 
@@ -266,7 +274,7 @@ describe('recovery invocation admission and restart', () => {
   });
 });
 
-describe('recovery failure policy on unified V3 provider states', () => {
+describe('recovery failure policy on unified V4 provider states', () => {
   it('quota uses a per-provider 120s curve capped at 480s without a global budget', async () => {
     const f = await makeFixture();
     const schedule = await failOnce(f, 'quota');
@@ -616,12 +624,16 @@ describe('current recovery schedule input', () => {
     const f = await makeFixture({ fallbacks: [{ name: 'fallback' }] });
     const [primaryId, fallbackId] = f.owner.getProviderIdentities();
     const verify = async (
-      providers: LLMInstanceStateV3['providers'],
+      providers: LLMInstanceStateV4['providers'],
       schedule: Record<string, unknown>,
       decision: Record<string, unknown>,
     ) => {
       const state = f.readState();
-      state.providers = providers;
+      const operational = internalsOf(f.owner).providerRuntime.operationalIdentities();
+      state.providers = providers.map(provider => ({
+        ...provider,
+        operationalIdentity: operational[f.owner.getProviderIdentities().indexOf(provider.providerId)] ?? 'retired-op',
+      }));
       saveLLMInstanceState(f.fs, state);
       await restart(f);
 
@@ -648,7 +660,7 @@ describe('current recovery schedule input', () => {
   });
 });
 
-describe('legacy read-only migration into instance state V3', () => {
+describe('legacy read-only migration into instance state V4', () => {
   it('imports known EventLoop retry state without modifying it or writing old recovery files', async () => {
     const f = await makeFixture();
     await f.owner.close();
@@ -664,7 +676,7 @@ describe('legacy read-only migration into instance state V3', () => {
     f.owner = f.makeOwner();
     f.controller = controllerOf(f.owner);
     expect(f.readState()).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       recovery: {
         budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
@@ -684,8 +696,9 @@ describe('legacy read-only migration into instance state V3', () => {
       retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     }, T0);
     legacy.schedule = { kind: 'at', revision: 1, resumeAt };
+    const legacyId = legacyProviderIdentity(descriptorFor(providerConfig('primary')));
     legacy.providers = [{
-      providerId: f.config.primary ? f.owner.getProviderIdentities()[0]! : '', errorClass: 'transient',
+      providerId: legacyId, errorClass: 'transient',
       at: new Date(T0).toISOString(), consecutiveFailures: 2, detail: 'offline',
     }];
     const legacyPath = path.join(f.dir, 'status', 'llm-recovery-state.json');
@@ -698,13 +711,11 @@ describe('legacy read-only migration into instance state V3', () => {
     expect(migrated.recovery.providers).toEqual([
       expect.objectContaining({ blocking: true, retryAt: resumeAt }),
     ]);
-    expect(migrated.providers).toEqual([
-      expect.objectContaining({
-        status: 'waiting', retryAt: Date.parse(resumeAt), consecutiveFailures: 2,
-        lastError: expect.objectContaining({ class: 'transient', at: T0, message: 'offline' }),
-      }),
-    ]);
-    expect(await f.controller.inspect()).toMatchObject({ kind: 'at', resumeAt });
+    expect(migrated.providers).toEqual([]);
+    expect(migrated.migration?.transitions).toEqual([{
+      sourceProviderId: legacyId, classification: 'missing_execution_identity',
+    }]);
+    expect(await f.controller.inspect()).toMatchObject({ kind: 'ready' });
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
   });
 
@@ -726,7 +737,7 @@ describe('legacy read-only migration into instance state V3', () => {
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
   });
 
-  it('rekeys a matching legacy provider identity once and keeps unrelated facts untouched', async () => {
+  it('does not inherit legacy health without execution evidence and keeps old history IDs', async () => {
     const f = await makeFixture();
     await f.owner.close();
     fsNative.rmSync(f.statePath);
@@ -754,15 +765,15 @@ describe('legacy read-only migration into instance state V3', () => {
     f.owner = f.makeOwner(currentConfig);
     f.controller = controllerOf(f.owner);
     const migrated = f.readState();
-    expect(migrated.providers[0]).toMatchObject({
-      providerId: f.owner.getProviderIdentities()[0], status: 'waiting', retryAt: T0 + 300_000,
-      consecutiveFailures: 10, lastError: { class: 'rate_limit', at: T0, message: 'blocked' },
-    });
-    expect(migrated.providers[0]).not.toHaveProperty('identityMigrationPending');
+    expect(migrated.providers).toEqual([]);
+    expect(migrated.migration?.transitions).toEqual(expect.arrayContaining([
+      { sourceProviderId: legacyId, classification: 'missing_execution_identity' },
+      { sourceProviderId: 'unrelated-legacy-id', classification: 'unmatched' },
+    ]));
     expect(migrated.recovery.providers[0]).toMatchObject({
-      providerId: f.owner.getProviderIdentities()[0], identityMigrationPending: true,
-      rateLimitBlocked: true, rateLimitFailures: 10,
+      providerId: legacyId, rateLimitBlocked: true, rateLimitFailures: 10,
     });
+    expect(migrated.recovery.providers[0]).not.toHaveProperty('identityMigrationPending');
     expect(migrated.recovery.providers[1]).toMatchObject({ providerId: 'unrelated-legacy-id' });
     expect(migrated.recovery.providers[1].identityMigrationPending).toBeUndefined();
   });
@@ -776,7 +787,10 @@ describe('legacy read-only migration into instance state V3', () => {
       { providerId: currentId, errorClass: 'permanent', at: new Date(T0).toISOString(), consecutiveFailures: 3, detail: 'current', blocking: true },
     ];
     state.providers = ['old-a', currentId].map(providerId => ({
-      providerId, status: 'waiting' as const, retryAt: T0 + 300_000, consecutiveFailures: 3,
+      providerId, operationalIdentity: providerId === currentId
+        ? internalsOf(f.owner).providerRuntime.operationalIdentities()[0]!
+        : 'old-op',
+      status: 'waiting' as const, retryAt: T0 + 300_000, consecutiveFailures: 3,
       lastError: { class: 'permanent' as const, at: T0, message: providerId === currentId ? 'current' : 'old' },
     }));
     saveLLMInstanceState(f.fs, state);
@@ -804,7 +818,8 @@ describe('legacy read-only migration into instance state V3', () => {
       consecutiveFailures: 3, detail: 'old', blocking: true,
     }));
     state.providers = ['old-a', 'old-b'].map(providerId => ({
-      providerId, status: 'waiting' as const, retryAt: T0 + 300_000, consecutiveFailures: 3,
+      providerId, operationalIdentity: 'old-op', status: 'waiting' as const,
+      retryAt: T0 + 300_000, consecutiveFailures: 3,
       lastError: { class: 'permanent' as const, at: T0, message: 'old' },
     }));
     saveLLMInstanceState(f.fs, state);
@@ -1035,7 +1050,7 @@ describe('public invocation finish barrier', () => {
         get(target, prop, receiver) {
           if (prop === 'writeAtomicSync') {
             return (...args: Parameters<FileSystem['writeAtomicSync']>) => {
-              const candidate = JSON.parse(String(args[1])) as LLMInstanceStateV3;
+              const candidate = JSON.parse(String(args[1])) as LLMInstanceStateV4;
               if (failFinish && candidate.recovery.invocations.length === 0) {
                 throw new Error('finish write failed');
               }
@@ -1062,5 +1077,96 @@ describe('public invocation finish barrier', () => {
     expect(f.emitted.some(event => event.type === 'instance_state_write_failed'
       && event.context === 'finish' && event.reason.includes('finish write failed'))).toBe(true);
     expect(f.readState().recovery.invocations).toHaveLength(1);
+  });
+});
+
+
+describe('Phase 2245 entry-keyed scheduling', () => {
+  it('keeps equal connections independent across quota failover, disk and restart', async () => {
+    const dir = await createTrackedTempDir('recovery-equal-entries-');
+    cleanupDirs.push(dir);
+    const fs = new NodeFileSystem({ baseDir: dir });
+    const input = providerConfig('shared');
+    const calls: unknown[] = [];
+    const sharedAdapter = makeAdapter('shared', async options => {
+      calls.push(options?.callDefaults?.temperature);
+      return OK_RESPONSE;
+    });
+    const entryA = providerEntryId('same-connection-a');
+    const entryB = providerEntryId('same-connection-b');
+    const config: LLMOrchestratorConfig = {
+      lifecycle: { mode: 'durable', fs },
+      primary: { entryId: entryA, input, callDefaults: { temperature: 0 }, displayName: 'primary-entry' },
+      fallbacks: [{ entryId: entryB, input, callDefaults: { temperature: 1 }, displayName: 'fallback-entry' }],
+      maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
+      events: { emit: () => {} },
+      providerFactory: legacyProviderFactory(() => sharedAdapter),
+    };
+    const makeOwner = () => {
+      const owner = createLLMOrchestrator(config);
+      owners.push(owner);
+      return owner;
+    };
+    let owner = makeOwner();
+    expect(owner.getProviderIdentities()).toEqual([`entry:${entryA}`, `entry:${entryB}`]);
+    controllerOf(owner).noteFailure([{
+      providerId: `entry:${entryA}`, errorClass: 'quota', message: 'primary quota', occurredAtMs: Date.now(),
+    }]);
+
+    await expect(owner.call(CALL)).resolves.toBe(OK_RESPONSE);
+    expect(calls).toEqual([1]);
+    const statePath = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
+    const saved = JSON.parse(fsNative.readFileSync(statePath, 'utf8')) as LLMInstanceStateV4;
+    expect(saved.providers).toEqual([
+      expect.objectContaining({ providerId: `entry:${entryA}`, status: 'waiting', consecutiveFailures: 1 }),
+      expect.objectContaining({ providerId: `entry:${entryB}`, status: 'available', consecutiveFailures: 0 }),
+    ]);
+
+    await owner.close();
+    owner = makeOwner();
+    expect(JSON.parse(fsNative.readFileSync(statePath, 'utf8'))).toEqual(saved);
+    expect(controllerOf(owner).currentSchedule().kind).toBe('ready');
+    await expect(owner.call(CALL)).resolves.toBe(OK_RESPONSE);
+    expect(calls).toEqual([1, 1]);
+  });
+
+  it('preserves reordered unchanged entries and resets only an authentication version change', async () => {
+    const f = await makeFixture({ fallbacks: [{ name: 'fallback' }] });
+    const [primaryId, fallbackId] = f.owner.getProviderIdentities();
+    f.controller.noteFailure([
+      { providerId: primaryId!, errorClass: 'transient', message: 'primary-down' },
+      { providerId: fallbackId!, errorClass: 'transient', message: 'fallback-down' },
+    ]);
+    const before = f.readState().providers;
+    const oldPrimary = f.config.primary as Extract<LLMOrchestratorConfig['primary'], { input: unknown }>;
+    const oldFallback = f.config.fallbacks![0] as typeof oldPrimary;
+    const operational = internalsOf(f.owner).providerRuntime.operationalIdentities();
+
+    f.owner.reloadConfig({ ...f.config, primary: oldFallback, fallbacks: [oldPrimary] });
+    const reordered = f.readState().providers;
+    expect(reordered.find(provider => provider.providerId === primaryId)).toEqual(before.find(provider => provider.providerId === primaryId));
+    expect(reordered.find(provider => provider.providerId === fallbackId)).toEqual(before.find(provider => provider.providerId === fallbackId));
+    expect(internalsOf(f.owner).providerRuntime.displayName(internalsOf(f.owner).providerRuntime.primary(), 0)).toBe('fallback');
+
+    f.owner.reloadConfig({
+      ...f.config,
+      primary: {
+        ...oldFallback,
+        input: {
+          ...oldFallback.input,
+          authentication: { kind: 'api_key', value: 'new-auth', identity: 'new-auth' },
+        },
+      },
+      fallbacks: [oldPrimary],
+    });
+    const changed = f.readState().providers;
+    expect(changed.find(provider => provider.providerId === fallbackId)).toMatchObject({
+      providerId: fallbackId,
+      operationalIdentity: expect.not.stringMatching(operational[1]!),
+      previousOperationalIdentity: operational[1],
+      operationalChangeReason: 'operational_identity_changed',
+      status: 'available',
+    });
+    expect(changed.find(provider => provider.providerId === primaryId)).toEqual(before.find(provider => provider.providerId === primaryId));
   });
 });

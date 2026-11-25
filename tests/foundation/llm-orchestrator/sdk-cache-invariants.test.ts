@@ -276,6 +276,7 @@ describe('Phase 2027 extended provider identity cache', () => {
     });
     const before = internalsOf(orchestrator).providerRuntime.primary();
     const beforeId = internalsOf(orchestrator).providerRuntime.providerIds()[0];
+    const beforeOperationalId = internalsOf(orchestrator).providerRuntime.operationalIdentities()[0];
 
     orchestrator.reloadConfig({
       primary: { ...base, ...patch },
@@ -289,7 +290,10 @@ describe('Phase 2027 extended provider identity cache', () => {
     });
 
     expect(internalsOf(orchestrator).providerRuntime.primary()).not.toBe(before);
-    expect(internalsOf(orchestrator).providerRuntime.providerIds()[0]).not.toBe(beforeId);
+    // Ephemeral entry identity is positional; the execution version and SDK
+    // adapter still change for every operational input change above.
+    expect(internalsOf(orchestrator).providerRuntime.providerIds()[0]).toBe(beforeId);
+    expect(internalsOf(orchestrator).providerRuntime.operationalIdentities()[0]).not.toBe(beforeOperationalId);
     expect(created).toHaveLength(2);
     expect(created[1]).toMatchObject(patch);
     expect(emitted.filter(event => event.type === 'sdk_client_cache_miss')).toHaveLength(2);

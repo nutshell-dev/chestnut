@@ -39,6 +39,8 @@ function fixture(
   const store = new LLMInstanceStateStore({
     mode: 'ephemeral',
     providerIds: runtime.providerIds(),
+    operationalIdentities: runtime.operationalIdentities(),
+    connectionProviderIds: runtime.connectionProviderIds(),
     legacyProviderIds: runtime.legacyProviderIds(),
     events: { emit: event => { events.push(event); } },
   });
@@ -46,7 +48,7 @@ function fixture(
   const ledger = new LLMRecoveryControllerImpl({
     store,
     providerIds: runtime.providerIds(),
-    legacyProviderIds: runtime.legacyProviderIds(),
+    operationalIdentities: runtime.operationalIdentities(),
     admission: new LLMProviderAdmission(),
     emit: event => { events.push(event); },
   });
@@ -326,7 +328,7 @@ describe('ProbeController close, reload and late results', () => {
       primary: { ...f.config.primary, model: 'next-model' },
     };
     const prepared = f.runtime.prepareReload(nextConfig);
-    f.ledger.reloadProviderIdentities(prepared.providerIds, prepared.legacyProviderIds);
+    f.ledger.reloadProviderIdentities(prepared.providerIds, prepared.operationalIdentities);
     f.runtime.commitReload(prepared);
     f.controller.reload();
     release();

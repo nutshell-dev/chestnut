@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory } from './provider-test-fixtures.js';
 /**
  * Phase 1826 Z1–Z4 回归，Phase 2055 迁移到 owner 公共 call/stream 与内部 invocation controller。
  * 不再构造 session，也不调用旧 callWithinRecovery/streamWithinRecovery。
@@ -82,8 +82,8 @@ async function makeFixture(opts: FixtureOpts = {}) {
   const makeOwner = () => {
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs },
-      primary: providerConfig('primary'),
-      ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
+      primary: durableProviderCandidate(providerConfig('primary')),
+      ...(opts.fallbackResponse ? { fallbacks: [durableProviderCandidate(providerConfig('fallback'))] } : {}),
       maxAttempts: opts.maxAttempts ?? 3,
       retryDelayMs: 0, // 禁用调用内重试等待；恢复窗口由 fake clock 推进。
       events,

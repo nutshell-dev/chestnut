@@ -38,6 +38,7 @@ import type {
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 import type { ProviderConnection } from '../../helpers/llm-provider.js';
+import { durableProviderCandidate } from '../../foundation/llm-orchestrator/provider-test-fixtures.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -163,9 +164,11 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
   const sink: LLMEventSink = { emit: (e) => { eventSignal.emit(e); } };
   const owner = createLLMOrchestrator({
     lifecycle: opts?.dualProvider ? { mode: 'durable', fs } : { mode: 'ephemeral' },
-    primary: providerConfig(),
+    primary: opts?.dualProvider ? durableProviderCandidate(providerConfig()) : providerConfig(),
     ...(opts?.dualProvider ? {
-      fallbacks: [providerConfig({ name: 'fallback', apiKey: 'key-fallback', model: 'model-fallback' })],
+      fallbacks: [durableProviderCandidate(
+        providerConfig({ name: 'fallback', apiKey: 'key-fallback', model: 'model-fallback' }),
+      )],
     } : {}),
     maxAttempts: 1,
     retryDelayMs: 1,
@@ -834,10 +837,9 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
       .toBe(acceptedAfterFirst);
   });
 
-  it('Phase 2027：仅 temperature 变化产生新修订，但同身份 permanent 阻断保持', async () => {
-    // 与初始 llmConfig 同一 provider 元组（providerId/authentication/model/timeoutMs 不变），
-    // 仅 temperature 漂移：identity 投影变化会 apply + 产生新 revision，
-    // 但 provider 故障身份不变，不得解除 permanent 阻断。
+  it('Phase 2245：temperature 属于条目执行版本，变化后重新评估 permanent 阻断', async () => {
+    // 与初始 llmConfig 同一 provider 元组，仅 callDefaults 漂移也会产生新修订；
+    // 该变化必须清除此条目的旧健康/选择事实，并允许一次新执行尝试。
     let currentTemperature = 0;
     const h = await makeRuntimeHarness({
       configIdentityOf: (config) => {
@@ -857,7 +859,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     expect(h.providerCalls.length).toBe(1);
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
 
-    // 用户只改 temperature → reload 落盘并接受新修订，但不发起第二次请求。
+    // 用户只改 temperature → reload 落盘、接受新修订并重新评估旧 permanent 故障。
     currentTemperature = 0.5;
     h.writeReload();
     const running = runEventLoop(h.eventLoop);
@@ -867,8 +869,8 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     await running;
 
     expect(h.reloadCalls()).toBe(1);
-    expect(h.providerCalls.length).toBe(1);
-    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
+    expect(h.providerCalls.length).toBe(2);
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('ready');
     const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
     const batch = accepted.at(-1);
     if (batch?.type === 'recovery_facts_accepted') {
@@ -878,6 +880,6 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
       throw new Error('expected recovery_facts_accepted event');
     }
     const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
-    expect(admittedEvents.at(-1)).not.toMatchObject({ trigger: 'configuration' });
+    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
   });
 });

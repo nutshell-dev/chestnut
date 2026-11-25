@@ -130,7 +130,10 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
   const sink: LLMEventSink = { emit: () => { /* events not under test */ } };
   const makeOwner = () => createLLMOrchestrator({
     lifecycle: { mode: 'durable', fs },
-    primary: providerConfig(),
+    primary: {
+      entryId: 'f45e77ca-216f-4d5a-8f14-a63c0fc2c451',
+      input: providerConfig(), callDefaults: {},
+    },
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,

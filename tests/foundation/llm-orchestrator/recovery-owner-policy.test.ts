@@ -1,4 +1,4 @@
-import { legacyProviderFactory } from './provider-test-fixtures.js';
+import { durableProviderCandidate, legacyProviderFactory, providerEntryId } from './provider-test-fixtures.js';
 /**
  * Phase 1934 Step C：LLM owner 收回共享恢复判据（F-11/F-02）。
  *
@@ -137,8 +137,12 @@ function createOwner(
   );
   const config = {
     lifecycle,
-    primary: providerConfig(primary.name, configExtra),
-    fallbacks: fallbacks.map(f => providerConfig(f.name)),
+    primary: lifecycle.mode === 'durable'
+      ? durableProviderCandidate(providerConfig(primary.name, configExtra))
+      : providerConfig(primary.name, configExtra),
+    fallbacks: fallbacks.map(f => lifecycle.mode === 'durable'
+      ? durableProviderCandidate(providerConfig(f.name))
+      : providerConfig(f.name)),
     maxAttempts: 1,
     retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
     events: sink,
@@ -580,8 +584,14 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const dir = await createTrackedTempDir('recovery-owner-durable-');
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: new NodeFileSystem({ baseDir: dir }) },
-      primary: providerConfig('same-provider', { model: 'model-a', authentication: { kind: 'api_key' as const, value: 'key-a', identity: 'key-a' } }),
-      fallbacks: [providerConfig('same-provider', { model: 'model-b', authentication: { kind: 'api_key' as const, value: 'key-b', identity: 'key-b' } })],
+      primary: durableProviderCandidate(
+        providerConfig('same-provider', { model: 'model-a', authentication: { kind: 'api_key' as const, value: 'key-a', identity: 'key-a' } }),
+        providerEntryId('model-a'),
+      ),
+      fallbacks: [durableProviderCandidate(
+        providerConfig('same-provider', { model: 'model-b', authentication: { kind: 'api_key' as const, value: 'key-b', identity: 'key-b' } }),
+        providerEntryId('model-b'),
+      )],
       maxAttempts: 1,
       retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,

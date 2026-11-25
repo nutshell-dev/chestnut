@@ -531,6 +531,7 @@ vi.mock('../../src/core/llm-configuration/index.js', async (importOriginal) => {
     snapshotLLMConfig: vi.fn((...args: any[]) => ({ config: llmConfigFn(...args) })),
     createAuthenticationCapability: vi.fn(function () { return { describe: vi.fn() }; }),
     createLLMConfiguration: vi.fn(() => ({
+      ensureEntryIds: vi.fn().mockResolvedValue(undefined),
       loadGlobal: vi.fn(),
       loadSnapshot: vi.fn(),
       readRevision: vi.fn(() => ({ id: '1', revision: 1 })),

@@ -246,7 +246,7 @@ export class LLMProbeController {
     const probeInvocationId = `probe:${snapshot.instanceId}:${probedAtMs}:${target.breakerIndex}`;
     const failureObservedAt = this.providerState(snapshot, target.identity)?.lastError?.at;
     const descriptor = this.runtime.descriptors()[target.breakerIndex];
-    const callDefaults = this.runtime.callDefaults?.(target.adapter) ?? {};
+    const callDefaults = this.runtime.callDefaults?.(target.adapter, target.breakerIndex) ?? {};
     const configuredTimeoutMs = callDefaults.timeoutMs ?? descriptor?.timeoutMs;
     const abort = new AbortController();
     this.probeAbort = abort;
