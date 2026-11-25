@@ -34,6 +34,31 @@ export type {
   TaskExecutor,
   TaskExecutionRuntime,
   TaskExecutionOutcome,
+  TaskExecutionPort,
+  TaskExecutionRef,
+  TaskExecutionObserver,
+  TaskExecutionObservation,
+  TaskExecutionView,
+  TaskExecutionIdentity,
+  TaskExecutionQuery,
+  TaskExecutionLocation,
+  TaskExecutionStartRequest,
+  TaskExecutionResumeRequest,
+  TaskExecutionLink,
+  TaskExecutionState,
+  TaskSourceOutcome,
+  TaskSourceOutcomeKind,
+  TaskRecoveryFact,
+  TaskStopReceipt,
+  TaskSharedRecovery,
+  TaskSharedRecoveryDecision,
+  TaskExecutionInputEnvelope,
+  TaskExecutionInputStore,
+  LegacyExecutionInputDeclaration,
+  LegacyExecutionInputPreparation,
+  UnpreparedExecutionInput,
+  CommitPreparedExecutionInput,
+  PreparedExecutionInputRecord,
   DeliverySink,
   TaskDeliveryRuntime,
 } from './types.js';
@@ -96,4 +121,13 @@ export { STREAM_TASK_EVENTS } from './stream-events.js';
 
 // Phase 1933 Step E：ATS 持久等待事实面（共享 LLM 故障等待的持久化/恢复契约）
 export { LLM_WAIT_FILE, persistLLMWait, loadLLMWait, clearLLMWait } from './llm-wait-state.js';
-export type { LLMWaitFact, LLMWaitGate, LLMWaitLoadResult } from './llm-wait-state.js';
+export type { LLMWaitFact, LLMWaitGate, LLMWaitLoadResult, LLMWaitExecutionIdentity } from './llm-wait-state.js';
+
+// Phase 2248 F: owner-bound immutable input migration and deterministic link path.
+export {
+  EXECUTION_INPUT_FILE,
+  ExecutionInputStoreError,
+  createExecutionInputStore,
+} from './execution-input-store.js';
+export type { ExecutionInputStoreErrorCode } from './execution-input-store.js';
+export { EXECUTION_LINK_FILE } from './execution-consumer.js';

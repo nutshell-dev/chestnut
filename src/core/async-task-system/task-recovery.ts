@@ -1,7 +1,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId, TaskExecutionPort } from './types.js';
 import { taskShortId } from './types.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
@@ -48,6 +48,7 @@ import {
   MAX_POST_PROCESSOR_DEFERS,
 } from './subagent-executor.js';
 import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
+import { persistTaskExecutionLink } from './execution-consumer.js';
 import {
   createRecoveryFallbackPass,
   queueRecoveryFallback,
@@ -91,6 +92,10 @@ export interface RecoverTasksDeps {
    * 结论）。缺席时等待任务保持 waiting——orchestrator 未就绪不静默转 failed/completed。
    */
   waitGate?: LLMWaitGate;
+  /** Phase 2248 F: reconnect an existing owner before any pending requeue. */
+  execution?: TaskExecutionPort;
+  /** Running legacy/unknown input is held rather than silently executed. */
+  isExecutionInputPrepared?: (taskId: FullTaskId) => Promise<boolean>;
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
@@ -1016,6 +1021,53 @@ async function _recoverSubAgentTask(
   }
   if (migration === 'indeterminate') {
     return 0; // audited in _migrateStepJIntermediate; keep running
+  }
+
+  if (deps.execution) {
+    if (deps.isExecutionInputPrepared && !(await deps.isExecutionInputPrepared(task.id as FullTaskId))) {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'execution_input_not_prepared',
+        error: 'task remains running pending owner input preparation',
+      });
+      return 0;
+    }
+    // open is the only startup admission: never infer not-started from missing new
+    // files and never create a successor without an explicit LLM resume intent.
+    const observation = await deps.execution.open({
+      runId: task.id,
+      resultDir,
+    });
+    if (observation.kind !== 'found') {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'execution_open_not_attachable',
+        error: `${observation.kind}${'reason' in observation ? `: ${observation.reason}` : ''}`,
+      });
+      return 0;
+    }
+    if (observation.view.outcome?.recovery === 'uncertain_side_effect') {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'execution_uncertain_side_effect_held',
+        error: observation.view.outcome.content,
+      });
+      return 0;
+    }
+    if (observation.view.outcome === undefined && observation.owner !== 'alive') {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'execution_owner_gone_without_outcome',
+        error: `attempt=${observation.identity.attemptId}`,
+      });
+      return 0;
+    }
+    // Publish the observed identity before pending requeue. Dispatch can therefore
+    // attach with open even after a start→link crash; it never needs a second start.
+    await persistTaskExecutionLink(deps.fs, task, observation.identity);
+    // A settled outcome or live observation is re-attached by dispatch through open;
+    // start/resume are not called by this recovery branch.
+    return await _recoverWithoutResult(deps, filePath, task);
   }
 
   return await _recoverWithoutResult(deps, filePath, task);

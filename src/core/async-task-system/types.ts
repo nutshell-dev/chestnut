@@ -157,7 +157,14 @@ export interface AsyncTaskSystemOptions {
   /**
    * phase 1863 (AT-D5)：最小执行面（装配期注入；LLM/registry/runSubagent 归实现方 adapter）。
    */
-  taskExecutor: TaskExecutor;
+  /** Legacy execution surface. Exactly one of taskExecutor/execution must be supplied. */
+  taskExecutor?: TaskExecutor;
+  /** Phase 2248 F: reference-based execution surface; production wiring remains Step I. */
+  execution?: TaskExecutionPort;
+  /** LLM-owned recovery decision; ATS calls this only for shared_dependency failures. */
+  sharedRecovery?: TaskSharedRecovery;
+  /** Lower-owner preparation for ordinary legacy declarations; no Shadow callback is retained. */
+  prepareLegacyInput?: LegacyExecutionInputPreparation;
   /**
    * phase 1863 (AT-D5)：最小交付面（装配期注入；标准实现见 result-delivery.createStandardDeliverySink）。
    */
@@ -218,6 +225,8 @@ interface CommonSubAgentTaskFields {
    * ShadowExecutorPayload）；ATS 不枚举/解释其语义，经装配注入的 {@link ExecutorPayloadAdapter} 消费。
    */
   executorPayload?: unknown;
+  /** Versioned outer envelope; the nested execution input remains owner-validated JSON. */
+  executionInput?: TaskExecutionInputEnvelope;
   /**
    * Legacy v1/v2 Summon recovery input; active writers must not populate.
    * Phase 1402 Step B: 当前 summon task 由 canonical postProcessor identity 识别，
@@ -273,6 +282,172 @@ export interface TaskExecutionOutcome {
  */
 export interface TaskExecutor {
   execute(task: SubAgentTask, signal: AbortSignal, runtime: TaskExecutionRuntime): Promise<TaskExecutionOutcome>;
+}
+
+// ─── Phase 2248 F: ATS-owned structural execution reference surface ──────────
+// SubAgent has richer owner-specific records; it does not import these ATS types.
+
+export interface TaskExecutionLocation {
+  readonly runId: string;
+  readonly resultDir: string;
+}
+
+export interface TaskExecutionIdentity extends TaskExecutionLocation {
+  readonly attemptId: string;
+}
+
+export interface TaskExecutionQuery extends TaskExecutionLocation {
+  /** Omit only for deterministic latest-attempt recovery after a start/link crash. */
+  readonly attemptId?: string;
+}
+
+export type TaskExecutionState =
+  | 'prepared' | 'running' | 'stopping' | 'settling' | 'settled' | 'recovery_required';
+
+export type TaskSourceOutcomeKind = 'completed' | 'interrupted' | 'failed';
+export type TaskRecoveryFact = 'none' | 'shared_dependency' | 'uncertain_side_effect';
+
+export interface TaskSourceOutcome {
+  readonly identity: TaskExecutionIdentity;
+  readonly kind: TaskSourceOutcomeKind;
+  readonly content: string;
+  readonly evidenceRef?: string;
+  readonly cause?: unknown;
+  readonly recovery: TaskRecoveryFact;
+  /** Owner-defined persistence evidence; ATS carries it without interpreting private records. */
+  readonly persistence?: unknown;
+}
+
+export interface TaskExecutionView {
+  readonly identity: TaskExecutionIdentity;
+  readonly sequence: number;
+  readonly state: TaskExecutionState;
+  readonly reason?: unknown;
+  readonly outcome?: TaskSourceOutcome;
+}
+
+export interface TaskExecutionObserver {
+  readonly identity: TaskExecutionIdentity;
+  read(): Promise<TaskExecutionView>;
+  observe(listener: (view: TaskExecutionView) => void): () => void;
+}
+
+export interface TaskStopReceipt {
+  readonly accepted: boolean;
+  readonly state: TaskExecutionState;
+  readonly persisted: boolean;
+  readonly durable: boolean;
+}
+
+export interface TaskExecutionRef extends TaskExecutionObserver {
+  readonly completion: Promise<TaskSourceOutcome>;
+  requestStop(reason: unknown): Promise<TaskStopReceipt>;
+}
+
+interface TaskExecutionObservationBase extends TaskExecutionLocation {
+  readonly runId: string;
+  readonly resultDir: string;
+}
+
+export type TaskExecutionObservation =
+  | (TaskExecutionObservationBase & {
+      readonly kind: 'found';
+      readonly identity: TaskExecutionIdentity;
+      readonly view: TaskExecutionView;
+      readonly ref: TaskExecutionObserver;
+      readonly owner: 'alive' | 'gone' | 'settled';
+    })
+  | (TaskExecutionObservationBase & {
+      readonly kind: 'owner_unavailable';
+      readonly identity: TaskExecutionIdentity;
+      readonly view: TaskExecutionView;
+      readonly ref: TaskExecutionObserver;
+      readonly reason: string;
+    })
+  | (TaskExecutionObservationBase & { readonly kind: 'legacy'; readonly artifacts: readonly string[] })
+  | (TaskExecutionObservationBase & { readonly kind: 'not_found' })
+  | (TaskExecutionObservationBase & { readonly kind: 'corrupt'; readonly path?: string; readonly reason: string });
+
+export interface TaskExecutionStartRequest extends TaskExecutionLocation {
+  readonly input: unknown;
+  readonly signal?: AbortSignal;
+  /** Original absolute task budget; open/resume never replenishes it. */
+  readonly deadlineAtMs?: number;
+}
+
+export interface TaskExecutionResumeRequest extends TaskExecutionStartRequest {
+  readonly previousAttemptId: string;
+}
+
+export interface TaskExecutionPort {
+  start(request: TaskExecutionStartRequest): Promise<TaskExecutionRef>;
+  open(identity: TaskExecutionQuery): Promise<TaskExecutionObservation>;
+  resume(request: TaskExecutionResumeRequest): Promise<TaskExecutionRef>;
+}
+
+export interface TaskExecutionLink extends TaskExecutionIdentity {
+  readonly schema_version: 1;
+}
+
+export interface TaskExecutionInputEnvelope {
+  readonly schema_version: 1;
+  readonly input: unknown;
+}
+
+export type TaskSharedRecoveryDecision =
+  | { readonly kind: 'ready' }
+  | { readonly kind: 'at'; readonly nextProbeAt: number }
+  | { readonly kind: 'on_change' };
+
+export interface TaskSharedRecovery {
+  getSharedRecoveryDecision(): TaskSharedRecoveryDecision;
+}
+
+/** Neutral fields ATS can extract without interpreting an upper owner's payload. */
+export interface LegacyExecutionInputDeclaration {
+  readonly prompt: string;
+  readonly systemPrompt?: string;
+  readonly toolProfile?: string;
+  readonly budget: { readonly timeoutMs: number; readonly maxSteps?: number };
+}
+
+export type LegacyExecutionInputPreparation = (
+  declaration: LegacyExecutionInputDeclaration,
+) => unknown | Promise<unknown>;
+
+interface UnpreparedExecutionInputBase {
+  readonly taskId: FullTaskId;
+  readonly sourcePath: string;
+  readonly sourceHash: string;
+  readonly payload: unknown;
+}
+
+export type UnpreparedExecutionInput =
+  | (UnpreparedExecutionInputBase & {
+      readonly kind: 'ordinary_legacy';
+      readonly declaration: LegacyExecutionInputDeclaration;
+    })
+  | (UnpreparedExecutionInputBase & { readonly kind: 'needs_owner_migration' });
+
+export interface PreparedExecutionInputRecord {
+  readonly schema_version: 1;
+  readonly taskId: FullTaskId;
+  readonly sourcePath: string;
+  readonly sourceHash: string;
+  readonly migrationSource: string;
+  readonly input: unknown;
+}
+
+export interface CommitPreparedExecutionInput {
+  readonly taskId: FullTaskId;
+  readonly sourceHash: string;
+  readonly migrationSource: string;
+  readonly input: unknown;
+}
+
+export interface TaskExecutionInputStore {
+  listUnpreparedInputs(): Promise<readonly UnpreparedExecutionInput[]>;
+  commitPreparedInput(request: CommitPreparedExecutionInput): Promise<PreparedExecutionInputRecord>;
 }
 
 /** phase 1863 (AT-D5)：交付 runtime 上下文（核心基础设施；writeInboxAsync 绑在 sink 构造）。 */

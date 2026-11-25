@@ -25,6 +25,7 @@ import {
   getDisplayResult,
   TASKS_SUBAGENTS_DIR,
   RecoveryUncertainSideEffectError,
+  type SubagentRunner,
 } from '../core/subagent/index.js';
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../templates/prompts/index.js';
 import { TASKS_SYNC_DIR } from '../foundation/claw-identity/index.js';
@@ -40,6 +41,7 @@ import type {
   TaskExecutor,
   TaskExecutionRuntime,
   TaskExecutionOutcome,
+  TaskExecutionPort,
   ExecutorPayloadAdapter,
   FullTaskId,
 } from '../core/async-task-system/index.js';
@@ -82,6 +84,11 @@ function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): stri
  * opaque 关联标识（不是恢复管理范围；ATS 不解析，仅作证据关联）。
  */
 const LLM_WAIT_ORCHESTRATOR_INSTANCE = 'claw-process' as const;
+
+/** Phase 2248 F: structural handoff only; production selection remains Step I. */
+export function bindSubagentTaskExecutionPort(runner: SubagentRunner): TaskExecutionPort {
+  return runner;
+}
 
 export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): TaskExecutor {
   return {

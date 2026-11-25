@@ -49,6 +49,13 @@ export interface LLMWaitResumeIntent {
   decidedAt: number;
 }
 
+/** Structural copy avoided here to keep this persistence owner out of the types cycle. */
+export interface LLMWaitExecutionIdentity {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly resultDir: string;
+}
+
 /** 持久等待事实（tasks/queues/results/<id>/llm-wait.json）。 */
 export interface LLMWaitFact {
   /** 进程内 orchestrator 实例的 opaque 关联；不是恢复管理范围，ATS 不解析。 */
@@ -61,6 +68,8 @@ export interface LLMWaitFact {
   expiresAt: number;
   /** 显示摘要。 */
   reason: string;
+  /** Phase 2248 F：产生本次等待的 settled attempt；显式 resume 的身份依据。 */
+  execution?: LLMWaitExecutionIdentity;
   /** 可恢复迁移意图（缺席 = 未开始迁移；旧记录兼容读取）。 */
   resumeIntent?: LLMWaitResumeIntent;
 }
@@ -96,6 +105,7 @@ export async function persistLLMWait(
     recordedAt: fact.recordedAt,
     expiresAt: fact.expiresAt,
     reason: fact.reason,
+    ...(fact.execution ? { execution: fact.execution } : {}),
     // 意图字段仅 resume 处置携带（executor 首次落盘无意图）
     ...(fact.resumeIntent ? { resumeIntent: fact.resumeIntent } : {}),
   }));
@@ -137,6 +147,17 @@ function validateLLMWaitFact(parsed: unknown): string | null {
   // Phase 1934 Z-D1：expiresAt < recordedAt 合法（预算帽钳制到过去 = 立即到期），
   // 不再是 corrupt 条件；expiresAt 只需是有限数（上方已检）。
   if (typeof rec.reason !== 'string') return 'reason_not_string';
+  if (rec.execution !== undefined) {
+    if (typeof rec.execution !== 'object' || rec.execution === null || Array.isArray(rec.execution)) {
+      return 'execution_not_object';
+    }
+    const identity = rec.execution as Record<string, unknown>;
+    if (typeof identity.runId !== 'string' || identity.runId.length === 0
+      || typeof identity.attemptId !== 'string' || identity.attemptId.length === 0
+      || typeof identity.resultDir !== 'string' || identity.resultDir.length === 0) {
+      return 'execution_identity_invalid';
+    }
+  }
   // 意图字段严格 schema（Phase 1934 Step D）：缺席 = 旧记录兼容；在场非法 = corrupt
   if (rec.resumeIntent !== undefined) {
     const intent = rec.resumeIntent;
@@ -176,6 +197,7 @@ export async function loadLLMWait(
   if (invalid !== null) return { kind: 'corrupt', detail: invalid };
   const rec = parsed as Record<string, unknown>;
   const intent = rec.resumeIntent as { target: 'pending'; decidedAt: number } | undefined;
+  const execution = rec.execution as LLMWaitExecutionIdentity | undefined;
   return {
     kind: 'ok',
     fact: {
@@ -184,6 +206,11 @@ export async function loadLLMWait(
       recordedAt: rec.recordedAt as number,
       expiresAt: rec.expiresAt as number,
       reason: rec.reason as string,
+      ...(execution ? { execution: {
+        runId: execution.runId,
+        attemptId: execution.attemptId,
+        resultDir: execution.resultDir,
+      } } : {}),
       ...(intent ? { resumeIntent: { target: intent.target, decidedAt: intent.decidedAt } } : {}),
     },
   };

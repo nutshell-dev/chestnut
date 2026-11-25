@@ -16,6 +16,21 @@ const TaskCorrelationSchema = z.object({
   ref: z.string().optional(),
 });
 
+/** JSON-only nested payload guard; no schema stripping or lossy JSON.stringify coercion. */
+export function isExecutionInputJsonValue(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object') return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  const valid = Array.isArray(value)
+    ? value.every(item => isExecutionInputJsonValue(item, seen))
+    : (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+      && Object.values(value).every(item => isExecutionInputJsonValue(item, seen));
+  seen.delete(value);
+  return valid;
+}
+
 /**
  * Phase 1396 Step K: SummonDecision 版本化 metadata。
  * Phase 1402 Step B: 降级 legacy read-only —— active writer 已停写本字段，
@@ -68,6 +83,11 @@ const commonSubAgentFields = {
   systemPrompt: z.string().optional(),
   // phase 1863 (AT-D7)：执行 owner 的 opaque payload（JSON 可序列化；ATS 不枚举/解释语义）
   executorPayload: z.unknown().optional(),
+  // Phase 2248 F：只校验版本化外壳；内部 PreparedSubagentInput 归执行 owner 校验。
+  executionInput: z.object({
+    schema_version: z.literal(1),
+    input: z.unknown().refine(isExecutionInputJsonValue, { message: 'executionInput.input must be JSON' }),
+  }).strict().refine(value => Object.hasOwn(value, 'input'), { message: 'executionInput.input is required' }).optional(),
   intent: z.string(),
   // Phase 1402 Step B: legacy v1/v2 Summon recovery input（read-only）；active writers 不得写入
   summonDecision: SummonDecisionMetadataSchema.optional(),

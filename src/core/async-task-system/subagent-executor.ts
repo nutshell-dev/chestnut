@@ -22,11 +22,13 @@ import {
 } from './dirs.js';
 import { createProcessedResultStore } from './processed-result-store.js';
 import { persistLLMWait, readOrInitWaitDeadline, type LLMWaitFact } from './llm-wait-state.js';
+import { consumeTaskExecution } from './execution-consumer.js';
+import type { OwnedExecutionInputStore } from './execution-input-store.js';
 
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask, FullTaskId, TaskExecutor, DeliverySink } from './types.js';
+import type { SubAgentTask, FullTaskId, TaskExecutor, DeliverySink, TaskExecutionPort, TaskExecutionRef, TaskSharedRecovery } from './types.js';
 import { taskShortId } from './types.js';
 import type { TaskId } from './types.js';
 
@@ -48,8 +50,13 @@ interface ExecuteSubAgentTaskDeps {
   postProcessors: Map<string, PostProcessor>;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
-  /** phase 1863 (AT-D5)：最小执行面（装配注入；owner 提供）。 */
-  taskExecutor: TaskExecutor;
+  /** Legacy execution surface (constructor-time alternative to execution). */
+  taskExecutor?: TaskExecutor;
+  /** Phase 2248 F: true completion/reference consumption. */
+  execution?: TaskExecutionPort;
+  inputStore?: OwnedExecutionInputStore;
+  sharedRecovery?: TaskSharedRecovery;
+  onExecutionReference?: (ref: TaskExecutionRef) => void;
   /** phase 1863 (AT-D5)：最小交付面（装配注入）。 */
   deliverySink: DeliverySink;
   /**
@@ -220,12 +227,29 @@ export async function executeSubAgentTask(
     // 执行失败在 executor 实现方留痕（handler_failed）并成为 processor input，
     // 不经本层投递、不被后续阶段的失败重新分类。
     // phase 1863 (AT-D5)：LLM/registry/runSubagent/payload 解释装配归 executor 实现方。
-    const execution = await deps.taskExecutor.execute(task, signal, {
-      fs,
-      fsFactory,
-      auditWriter,
-      clawDir,
-    });
+    const execution = deps.execution
+      ? await consumeTaskExecution(task, signal, {
+          fs,
+          execution: deps.execution,
+          inputStore: deps.inputStore ?? (() => { throw new Error('execution inputStore is required with execution'); })(),
+          sharedRecovery: deps.sharedRecovery,
+          onReference: deps.onExecutionReference,
+        })
+      : await deps.taskExecutor!.execute(task, signal, {
+          fs,
+          fsFactory,
+          auditWriter,
+          clawDir,
+        });
+    if (deps.execution && execution.sourceIsError) {
+      // Failure facts now arrive from SubAgent; ATS owns this task audit emission.
+      emitHandlerFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        parent: task.parentClawId,
+        error: execution.content,
+      });
+    }
     const source: { content: string; sourceIsError: boolean } = {
       content: execution.content,
       sourceIsError: execution.sourceIsError,
