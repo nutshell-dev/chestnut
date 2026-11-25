@@ -14,6 +14,8 @@ import {
   LLMConfigurationAlreadyExistsError,
   LLMConfigurationRevisionConflictError,
   LLMProviderLabelAlreadyExistsError,
+  LLMProviderEntryIdAlreadyExistsError,
+  LLMProviderEntryIdInvalidError,
   llmConfigurationSourceDigest,
   migrateLegacyLLMConfig,
   LegacyPresetMigrationError,
@@ -26,6 +28,7 @@ import { cleanupTempDirSync, createTrackedTempDirSync } from '../../utils/temp.j
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = { fsFactory };
+const ENTRY_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 let projectDir: string;
 
@@ -85,6 +88,22 @@ describe('LLM configuration document reads', () => {
     expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
   });
 
+  it('旧文档 read/readResolved 只读兼容，不生成 entry_id 或写盘', () => {
+    const source = referencedSource();
+    const configPath = getLLMConfigurationPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, yaml.dump({ ...source, schema_version: 1, revision: 4 }));
+    const before = fs.readFileSync(configPath, 'utf8');
+    const store = makeStore();
+
+    expect(store.read()).toEqual({ ...source, schema_version: 1, revision: 4 });
+    const resolved = store.readResolved();
+    expect(resolved.primary.entry_id).toBeUndefined();
+    expect(resolved.fallbacks?.[0]?.entry_id).toBeUndefined();
+    expect(store.readRevision()).toEqual({ id: '4', revision: 4 });
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
   it('loadGlobal/loadSnapshot 同源保留 raw ref、revision 与 scope，重建后身份一致', () => {
     makeStore().createFromSource(referencedSource(), 'test-seed');
     const firstAdmin = createLLMConfiguration(deps);
@@ -100,6 +119,9 @@ describe('LLM configuration document reads', () => {
     ]));
     const explicit = firstAdmin.loadSnapshot();
     expect(explicit.raw.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
+    expect(explicit.raw.primary.entry_id).toBeUndefined();
+    expect(first.config.primary.entryId).toBeUndefined();
+    expect(first.auth[0]?.entryId).toBeUndefined();
     expect(explicit.revision.revision).toBe(1);
     expect(explicit.credentialFacts.LLM_DOCUMENT_TEST_KEY).toMatchObject({
       source: 'env', identityRef: 'LLM_DOCUMENT_TEST_KEY',
@@ -231,7 +253,127 @@ describe('LLM configuration document mutations', () => {
       model: 'claude-document-test',
       max_tokens: 4096,
     });
-    expect(document.fallbacks).toEqual(referencedSource().fallbacks);
+    expect(document.fallbacks?.[0]).toMatchObject(referencedSource().fallbacks![0]!);
+    expect(document.fallbacks?.[0]?.entry_id).toMatch(ENTRY_ID_PATTERN);
+  });
+
+  it('首次业务写在同一 revision 补全所有 ID，后续写保持稳定', async () => {
+    const source = referencedSource();
+    const configPath = getLLMConfigurationPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, yaml.dump({ ...source, schema_version: 1, revision: 4 }));
+    const store = makeStore();
+
+    await store.mutate(fresh => ({
+      ...fresh,
+      primary: { ...fresh.primary, model: 'backfill-write' },
+    }));
+    const backfilled = store.read();
+    expect(backfilled.revision).toBe(5);
+    expect(backfilled.primary.entry_id).toMatch(ENTRY_ID_PATTERN);
+    expect(backfilled.fallbacks?.[0]?.entry_id).toMatch(ENTRY_ID_PATTERN);
+    const ids = [backfilled.primary.entry_id, backfilled.fallbacks?.[0]?.entry_id];
+    const loaded = createLLMConfiguration(deps).loadSnapshot();
+    expect(loaded.raw.primary.entry_id).toBe(backfilled.primary.entry_id);
+    expect(loaded.llm.primary.entry_id).toBe(backfilled.primary.entry_id);
+    expect(loaded.llm.fallbacks?.[0]?.entry_id).toBe(backfilled.fallbacks?.[0]?.entry_id);
+    const reloaded = createLLMConfiguration(deps).loadSnapshot();
+    expect(reloaded.raw.primary.entry_id).toBe(backfilled.primary.entry_id);
+    expect(reloaded.llm.primary.entry_id).toBe(backfilled.primary.entry_id);
+
+    await store.patchPrimary({
+      label: 'stable-primary', entry_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    });
+    await store.mutate(fresh => ({ ...fresh, retry_delay_ms: 1234 }));
+    const rewritten = store.read();
+    expect(rewritten.revision).toBe(7);
+    expect([rewritten.primary.entry_id, rewritten.fallbacks?.[0]?.entry_id]).toEqual(ids);
+  });
+
+  it('普通 mutator 新增分配 ID，move/set-primary 随原对象保留', async () => {
+    const store = makeStore();
+    store.createFromSource(referencedSource(), 'entry-id-reordering');
+    await store.mutate(fresh => ({
+      ...fresh,
+      fallbacks: [
+        ...(fresh.fallbacks ?? []),
+        { ...referencedSource().fallbacks![0]!, label: 'second-fallback', model: 'second-model' },
+      ],
+    }));
+    const added = store.read();
+    const primaryId = added.primary.entry_id!;
+    const firstFallbackId = added.fallbacks?.[0]?.entry_id!;
+    const secondFallbackId = added.fallbacks?.[1]?.entry_id!;
+    expect(new Set([primaryId, firstFallbackId, secondFallbackId]).size).toBe(3);
+    expect(secondFallbackId).toMatch(ENTRY_ID_PATTERN);
+
+    await store.mutate(fresh => ({
+      ...fresh,
+      fallbacks: [...(fresh.fallbacks ?? [])].reverse(),
+    }));
+    expect(store.read().fallbacks?.map(entry => entry.entry_id))
+      .toEqual([secondFallbackId, firstFallbackId]);
+
+    await store.mutate(fresh => {
+      const fallbacks = [...(fresh.fallbacks ?? [])];
+      const target = fallbacks.splice(1, 1)[0]!;
+      return { ...fresh, primary: target, fallbacks: [fresh.primary, ...fallbacks] };
+    });
+    const promoted = store.read();
+    expect(promoted.primary.entry_id).toBe(firstFallbackId);
+    expect(promoted.fallbacks?.map(entry => entry.entry_id)).toEqual([primaryId, secondFallbackId]);
+
+    await store.mutate(fresh => ({ ...fresh, fallbacks: (fresh.fallbacks ?? []).slice(0, 1) }));
+    await store.mutate(fresh => ({
+      ...fresh,
+      fallbacks: [
+        ...(fresh.fallbacks ?? []),
+        { ...referencedSource().fallbacks![0]!, label: 'second-fallback', model: 'second-model' },
+      ],
+    }));
+    const readdedId = store.read().fallbacks?.[1]?.entry_id;
+    expect(readdedId).toMatch(ENTRY_ID_PATTERN);
+    expect(readdedId).not.toBe(secondFallbackId);
+  });
+
+  it('人为重复 entry_id 明确拒绝且不写，legacy fallback 不吞掉重复检查', async () => {
+    const duplicateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const store = makeStore();
+    store.createFromSource(referencedSource(), 'entry-id-duplicate-write');
+    const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+
+    await expect(store.mutate(fresh => ({
+      ...fresh,
+      primary: { ...fresh.primary, entry_id: duplicateId },
+      fallbacks: [{ ...fresh.fallbacks![0]!, entry_id: duplicateId }],
+    }))).rejects.toBeInstanceOf(LLMProviderEntryIdAlreadyExistsError);
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+    expect(store.readRevision().revision).toBe(1);
+
+    const legacy = referencedSource();
+    fs.writeFileSync(getLLMConfigurationPath(), yaml.dump({
+      ...legacy,
+      primary: { ...legacy.primary, preset: 'anthropic', entry_id: duplicateId },
+      fallbacks: [{ ...legacy.fallbacks![0]!, entry_id: duplicateId }],
+      schema_version: 1,
+      revision: 8,
+    }));
+    expect(() => store.read()).toThrow(LLMProviderEntryIdAlreadyExistsError);
+  });
+
+  it('非法 entry_id 在 legacy raw fallback 读取同样明确拒绝', () => {
+    const store = makeStore();
+    const source = referencedSource();
+    fs.mkdirSync(path.dirname(getLLMConfigurationPath()), { recursive: true });
+    fs.writeFileSync(getLLMConfigurationPath(), yaml.dump({
+      ...source,
+      primary: { ...source.primary, preset: 'anthropic', entry_id: 'not-a-uuid' },
+      schema_version: 1,
+      revision: 3,
+    }));
+
+    expect(() => store.read()).toThrow(LLMProviderEntryIdInvalidError);
+    expect(() => store.readRevision()).toThrow(LLMProviderEntryIdInvalidError);
   });
 
   it('正常 mutate/commit 拒绝空标签，raw 历史读取仍可用', async () => {
@@ -250,15 +392,28 @@ describe('LLM configuration document mutations', () => {
   it('历史双无名条目按 revision/slot/fingerprint 逐条补名，冲突零写入', async () => {
     const store = makeStore();
     const source = referencedSource();
-    store.createFromSource({
-      ...source,
+    fs.mkdirSync(path.dirname(getLLMConfigurationPath()), { recursive: true });
+    fs.writeFileSync(getLLMConfigurationPath(), yaml.dump({
       primary: { ...source.primary, label: undefined, provider_id: 'custom:shared' },
       fallbacks: [{ ...source.fallbacks![0]!, label: undefined, provider_id: 'custom:shared' }],
-    }, 'historical-labels');
+      schema_version: 1,
+      revision: 1,
+    }));
     const initial = store.read();
     expect(initial.primary.label).toBeUndefined();
     expect(initial.fallbacks?.[0]?.label).toBeUndefined();
+    expect(initial.primary.entry_id).toBeUndefined();
+    expect(initial.fallbacks?.[0]?.entry_id).toBeUndefined();
     expect(() => store.readSnapshot()).toThrow(LLMConfigurationLabelRequiredError);
+
+    const beforeFailedGuard = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
+    await expect(store.assignMissingLabel({
+      slot: { role: 'primary' },
+      expectedRevisionId: '1',
+      expectedFingerprint: 'stale-target',
+      label: 'named-primary',
+    })).rejects.toBeInstanceOf(LLMProviderTargetChangedError);
+    expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(beforeFailedGuard);
 
     const primary = await store.assignMissingLabel({
       slot: { role: 'primary' },
@@ -271,6 +426,8 @@ describe('LLM configuration document mutations', () => {
       label: 'named-primary', api_key: '${LLM_DOCUMENT_TEST_KEY}',
     });
     expect(primary.document.fallbacks?.[0]?.label).toBeUndefined();
+    expect(primary.document.primary.entry_id).toMatch(ENTRY_ID_PATTERN);
+    expect(primary.document.fallbacks?.[0]?.entry_id).toMatch(ENTRY_ID_PATTERN);
     expect(() => store.readSnapshot()).toThrow(LLMConfigurationLabelRequiredError);
 
     const beforeConflict = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
@@ -566,6 +723,8 @@ describe('commitExplicitProvider', () => {
       revision: 1,
       primary: { label: 'first', api_key: '${LLM_DOCUMENT_TEST_KEY}' },
     });
+    const initialEntryId = initialized.document.primary.entry_id!;
+    expect(initialEntryId).toMatch(ENTRY_ID_PATTERN);
 
     await expect(store.commitExplicitProvider({ kind: 'initialize' }, explicitProvider('loser')))
       .rejects.toBeInstanceOf(LLMConfigurationAlreadyExistsError);
@@ -573,7 +732,11 @@ describe('commitExplicitProvider', () => {
 
     const primary = await store.commitExplicitProvider({ kind: 'primary' }, explicitProvider('new-primary'), 1);
     expect(primary.revision.revision).toBe(2);
+    expect(primary.document.primary.entry_id).toMatch(ENTRY_ID_PATTERN);
+    expect(primary.document.primary.entry_id).not.toBe(initialEntryId);
     expect(primary.document.fallbacks?.[0]?.label).toBe('first');
+    expect(primary.document.fallbacks?.[0]?.entry_id).toBe(initialEntryId);
+    const primaryEntryId = primary.document.primary.entry_id;
 
     const fallback = await store.commitExplicitProvider(
       { kind: 'fallback', position: 1 },
@@ -582,7 +745,32 @@ describe('commitExplicitProvider', () => {
     );
     expect(fallback.revision.revision).toBe(3);
     expect(fallback.document.fallbacks?.map(entry => entry.label)).toEqual(['first', 'between']);
+    expect(fallback.document.fallbacks?.map(entry => entry.entry_id)).toEqual([
+      initialEntryId, expect.stringMatching(ENTRY_ID_PATTERN),
+    ]);
+    expect(fallback.document.fallbacks?.[1]?.entry_id).not.toBe(primaryEntryId);
     expect(store.read().primary.label).toBe('new-primary');
+  });
+
+  it('replace/repair 强制保留被替换目标 ID，即使 caller 传其他 ID', async () => {
+    const store = makeStore();
+    const initialized = await store.commitExplicitProvider(
+      { kind: 'initialize' }, explicitProvider('original'),
+    );
+    const entryId = initialized.document.primary.entry_id;
+
+    const replaced = await store.commitExplicitProvider(
+      { kind: 'replace', slot: { role: 'primary' } },
+      {
+        ...explicitProvider('repaired'),
+        entry_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      1,
+    );
+
+    expect(replaced.document.primary.entry_id).toBe(entryId);
+    expect(replaced.document.primary.entry_id).not.toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    expect(replaced.revision.revision).toBe(2);
   });
 
   it.each(['.initialize.target', '.initialize.llm-dir'])(

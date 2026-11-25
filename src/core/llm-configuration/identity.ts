@@ -46,6 +46,7 @@ export interface CredentialProvenance {
 
 export interface LLMAuthIdentity {
   role: string;
+  entryId?: string;
   provider: string;
   credentialRef: string;
   authProfile: string;
@@ -169,6 +170,7 @@ function credentialForProvider(
   raw: RawProvider,
   effective: RawProvider,
   resolved: ProviderInput,
+  entryId: string | undefined,
   credentials: ProviderAuthenticationCapability | undefined,
   credentialSources: Readonly<Record<string, CredentialSource>>,
   credentialFacts: Readonly<Record<string, CredentialFact>>,
@@ -231,6 +233,7 @@ function credentialForProvider(
     },
     auth: {
       role,
+      ...(entryId !== undefined ? { entryId } : {}),
       provider,
       credentialRef: described.identityRef,
       authProfile,
@@ -292,12 +295,14 @@ export function snapshotLLMConfig(
     raw: RawProvider;
     effective: RawProvider;
     resolved: ProviderInput;
+    entryId?: string;
   }> = [
     {
       role: 'primary',
       raw: hasOverride ? clawConfig!.raw?.primary ?? clawConfig!.llm!.primary! : rawGlobal.primary,
       effective: hasOverride ? clawConfig!.llm!.primary! : globalConfig.llm.primary,
       resolved: config.primary.input,
+      entryId: config.primary.entryId,
     },
     ...config.fallbacks.map((resolved, index) => {
       const raw = rawGlobal.fallbacks?.[index];
@@ -307,6 +312,7 @@ export function snapshotLLMConfig(
         raw,
         effective: globalConfig.llm.fallbacks![index]!,
         resolved: resolved.input,
+        entryId: resolved.entryId,
       };
     }),
   ];
@@ -318,8 +324,8 @@ export function snapshotLLMConfig(
     ...globalConfig.credentialFacts,
     ...clawConfig?.credentialFacts,
   };
-  const projected = rawProviders.map(({ role, raw, effective, resolved }) =>
-    credentialForProvider(role, raw, effective, resolved, options.credentials, credentialSources, credentialFacts));
+  const projected = rawProviders.map(({ role, raw, effective, resolved, entryId }) =>
+    credentialForProvider(role, raw, effective, resolved, entryId, options.credentials, credentialSources, credentialFacts));
   const headerCredentials = rawProviders.flatMap(({ role, raw, effective }) =>
     headerCredentialProvenance(role, raw, effective, options.credentials, credentialSources, credentialFacts));
   const credentials = [...projected.map(entry => entry.provenance), ...headerCredentials];
@@ -343,7 +349,8 @@ export function snapshotLLMConfig(
     maxAttempts: config.retry.maxAttempts,
     retryDelayMs: config.retry.delayMs,
     circuitBreaker: config.legacyCircuitBreaker,
-    auth: auth.map(({ fingerprint: _fingerprint, ...entry }) => entry),
+    // Entry identity is scheduler metadata, not a connection/auth identity input.
+    auth: auth.map(({ fingerprint: _fingerprint, entryId: _entryId, ...entry }) => entry),
     credentialRefs: credentials.map(entry => ({
       role: entry.role,
       identityRef: entry.identityRef,

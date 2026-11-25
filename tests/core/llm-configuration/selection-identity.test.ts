@@ -17,8 +17,8 @@ const DEFAULT_CIRCUIT_RESET_FIXTURE_MS = 60_000;
 
 const input = {
   llm: {
-    primary: { provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test' },
-    fallbacks: [{ provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${FALLBACK_KEY}', model: 'gpt-fixed', base_url: 'https://provider.example.test/v1' }],
+    primary: { entry_id: '11111111-1111-4111-8111-111111111111', provider_id: 'custom:anthropic', api_format: 'anthropic', auth_profile: 'api_key', api_key: '${PRIMARY_KEY}', model: 'claude-fixed', base_url: 'https://provider.example.test' },
+    fallbacks: [{ entry_id: '22222222-2222-4222-8222-222222222222', provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${FALLBACK_KEY}', model: 'gpt-fixed', base_url: 'https://provider.example.test/v1' }],
     retry_attempts: 4,
     retry_delay_ms: RETRY_DELAY_FIXTURE_MS,
     circuit_breaker: { failure_threshold: 5, reset_timeout_ms: CIRCUIT_RESET_FIXTURE_MS },
@@ -26,7 +26,7 @@ const input = {
 } as const;
 
 const override = {
-  llm: { primary: { provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${OVERRIDE_KEY}', model: 'gpt-override', base_url: 'https://provider.example.test/v1' } },
+  llm: { primary: { entry_id: '33333333-3333-4333-8333-333333333333', provider_id: 'custom:openai', api_format: 'openai', auth_profile: 'api_key', api_key: '${OVERRIDE_KEY}', model: 'gpt-override', base_url: 'https://provider.example.test/v1' } },
 } as const;
 
 function snapshotWithPrimary(primary: SharedLLMInput['primary']) {
@@ -90,12 +90,38 @@ describe('LLMConfiguration selection / identity', () => {
     const global = createGlobalConfigSchema().parse(input);
     const snapshot = snapshotLLMConfig(global, override, { clawId: 'claw-a' });
     expect(snapshot.config.primary.input.model).toBe('gpt-override');
+    expect(snapshot.config.primary.entryId).toBe(override.llm.primary.entry_id);
     expect(snapshot.config.fallbacks.map(provider => provider.input.model)).toEqual(['gpt-fixed']);
+    expect(snapshot.config.fallbacks[0]?.entryId).toBe(input.llm.fallbacks[0].entry_id);
+    expect(snapshot.auth.map(entry => entry.entryId)).toEqual([
+      override.llm.primary.entry_id, input.llm.fallbacks[0].entry_id,
+    ]);
+    expect(snapshot.config.primary.input).not.toHaveProperty('entryId');
+    expect(snapshot.config.primary.input).not.toHaveProperty('entry_id');
     expect(snapshot.config.retry).toEqual({ maxAttempts: 4, delayMs: RETRY_DELAY_FIXTURE_MS });
     expect(snapshot.config.legacyCircuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: CIRCUIT_RESET_FIXTURE_MS });
     expect(snapshot.scope).toMatchObject({ primarySource: 'claw_override', clawId: 'claw-a' });
     expect(snapshot.auth[0]).toMatchObject({ credentialRef: 'OVERRIDE_KEY', authProfile: 'api_key' });
     expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(resolveLLMConfig(global, override)));
+  });
+
+  it('entryId 透出候选与 auth，但不改变既有 stable/operational identity 或 auth hash', () => {
+    const { entry_id: _primaryId, ...primaryWithoutId } = input.llm.primary;
+    const { entry_id: _fallbackId, ...fallbackWithoutId } = input.llm.fallbacks[0];
+    const withoutIds = snapshotLLMConfigInput({
+      llm: { ...input.llm, primary: primaryWithoutId, fallbacks: [fallbackWithoutId] },
+    });
+    const withIds = snapshotLLMConfigInput(input);
+
+    expect(withIds.config.primary.entryId).toBe(input.llm.primary.entry_id);
+    expect(withIds.auth.map(entry => entry.entryId)).toEqual([
+      input.llm.primary.entry_id, input.llm.fallbacks[0].entry_id,
+    ]);
+    expect(withoutIds.auth.map(entry => entry.entryId)).toEqual([undefined, undefined]);
+    expect(withIds.identity).toBe(withoutIds.identity);
+    expect(withIds.operationalIdentity).toBe(withoutIds.operationalIdentity);
+    expect(withIds.auth.map(entry => entry.fingerprint))
+      .toEqual(withoutIds.auth.map(entry => entry.fingerprint));
   });
 
   it('revision 不造成稳定身份抖动，但会推进有效 snapshot 的 operational identity', () => {

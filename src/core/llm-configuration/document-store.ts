@@ -20,7 +20,7 @@ import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js
 import { llmOrchestratorConfigSchema, llmOrchestratorRuntimeConfigSchema } from './config-schema.js';
 import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
 const { strictLLMProviderConfigSchema, PROVIDER_NO_LABEL_SENTINEL } = llmProviderConfigContract;
-import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
+import { formatErr, newShortUuid, newUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import {
   createLocalCredentials,
   type CredentialFact,
@@ -204,6 +204,20 @@ export class LLMProviderLabelInvalidError extends Error {
   }
 }
 
+export class LLMProviderEntryIdInvalidError extends Error {
+  constructor() {
+    super('LLM provider entry_id must be a valid UUID');
+    this.name = 'LLMProviderEntryIdInvalidError';
+  }
+}
+
+export class LLMProviderEntryIdAlreadyExistsError extends Error {
+  constructor(readonly entryId: string) {
+    super(`An LLM provider with entry_id "${entryId}" already exists`);
+    this.name = 'LLMProviderEntryIdAlreadyExistsError';
+  }
+}
+
 export class LLMConfigurationLabelRequiredError extends Error {
   readonly code = 'provider_label_required';
 
@@ -359,6 +373,42 @@ function missingLabelTargets(document: LLMConfigDocument): LLMProviderSlot[] {
   ];
 }
 
+function providerEntries(document: SharedLLMInput): readonly SharedLLMInput['primary'][] {
+  return [document.primary, ...(document.fallbacks ?? [])];
+}
+
+function assertUniqueProviderEntryIds(document: SharedLLMInput): void {
+  const seen = new Set<string>();
+  for (const provider of providerEntries(document)) {
+    if (provider.entry_id === undefined) continue;
+    // The legacy raw fallback deliberately accepts unsupported connection fields,
+    // but persistent identity still has one strict validation rule.
+    if (!z.string().uuid().safeParse(provider.entry_id).success) {
+      throw new LLMProviderEntryIdInvalidError();
+    }
+    if (seen.has(provider.entry_id)) throw new LLMProviderEntryIdAlreadyExistsError(provider.entry_id);
+    seen.add(provider.entry_id);
+  }
+}
+
+function backfillMissingEntryIds<T extends SharedLLMInput>(document: T): T {
+  // Reject caller-introduced duplicates before allocating anything or writing.
+  assertUniqueProviderEntryIds(document);
+  return {
+    ...document,
+    primary: {
+      ...document.primary,
+      entry_id: document.primary.entry_id ?? newUuid(),
+    },
+    ...(document.fallbacks !== undefined ? {
+      fallbacks: document.fallbacks.map(provider => ({
+        ...provider,
+        entry_id: provider.entry_id ?? newUuid(),
+      })),
+    } : {}),
+  };
+}
+
 function assertNormalDocumentLabels(document: LLMConfigDocument): void {
   const missing = missingLabelTargets(document);
   if (missing.length > 0) {
@@ -392,7 +442,11 @@ function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument
     // slots even when their connection behavior is no longer runtime-supported.
     legacyRawDocumentSchema.parse(config);
   }
-  return { ...config, ...metadata } as LLMConfigDocument;
+  const document = { ...config, ...metadata } as LLMConfigDocument;
+  // Keep this outside the legacy fallback: duplicate persistent identities are
+  // never made acceptable merely because another legacy field needs repair.
+  assertUniqueProviderEntryIds(document);
+  return document;
 }
 
 export function getLLMConfigurationPath(): string {
@@ -820,13 +874,15 @@ export function createLLMConfigurationDocumentStore(deps: {
       const metadata = documentMetadataSchema.parse(changed);
       const nextConfig = documentConfig(changed);
       llmOrchestratorConfigSchema.parse(nextConfig);
+      // The mutator has completed before legacy entries receive stable IDs.
+      const committedConfig = backfillMissingEntryIds(nextConfig);
       assertNormalDocumentLabels({
-        ...nextConfig,
+        ...committedConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision: fresh.revision,
       } as LLMConfigDocument);
       result = writeYamlConfig(deps, configPath, {
-        ...nextConfig,
+        ...committedConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision: fresh.revision + 1,
         // metadata 输入只允许当前版本；revision 永远由 fresh 推进。
@@ -872,9 +928,11 @@ export function createLLMConfigurationDocumentStore(deps: {
       // Keep this compatibility transaction narrow: other historical missing labels remain readable.
       const nextConfig = documentConfig(next as LLMConfigDocument);
       llmOrchestratorConfigSchema.parse(nextConfig);
+      // Fingerprint/revision guards above still describe the pre-backfill target.
+      const committedConfig = backfillMissingEntryIds(nextConfig);
       const revision = fresh.revision + 1;
       const write = writeYamlConfig(deps, configPath, {
-        ...nextConfig,
+        ...committedConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision,
       });
@@ -894,7 +952,12 @@ export function createLLMConfigurationDocumentStore(deps: {
     const primary = fresh.primary;
     if (!isRecord(primary)) throw new Error('Invalid LLM config: missing primary section');
     const nextPrimary: Record<string, unknown> = { ...primary };
+    if (patch.entry_id !== undefined && !z.string().uuid().safeParse(patch.entry_id).success) {
+      throw new LLMProviderEntryIdInvalidError();
+    }
     for (const [key, value] of Object.entries(patch)) {
+      // A field patch never replaces or deletes persistent resource identity.
+      if (key === 'entry_id') continue;
       if (value === undefined) delete nextPrimary[key];
       else nextPrimary[key] = value;
     }
@@ -918,9 +981,12 @@ export function createLLMConfigurationDocumentStore(deps: {
   ): Promise<LLMConfigurationCommitResult> => {
     // Normal setup accepts only the explicit schema. Legacy presets must have
     // already crossed the explicit migration boundary; never resolve them here.
-    const provider = strictLLMProviderConfigSchema.parse(explicitConfig);
-    // Replacement validates defaults but persists the explicit raw fields only.
-    const rawProvider = target.kind === 'replace' ? explicitConfig : provider;
+    // Persistent identity is allocated only by this store. New entries never
+    // trust a copied caller ID; replacement reapplies the locked target ID below.
+    const { entry_id: _explicitEntryId, ...explicitProviderFields } = explicitConfig;
+    const provider = strictLLMProviderConfigSchema.parse(explicitProviderFields);
+    // Replacement validates defaults but persists explicit raw fields.
+    const rawProvider = target.kind === 'replace' ? explicitProviderFields : provider;
     if (target.kind === 'initialize') {
       if (expectedRevision !== undefined && expectedRevision !== 0) {
         throw new LLMConfigurationRevisionConflictError(expectedRevision, 0);
@@ -935,8 +1001,9 @@ export function createLLMConfigurationDocumentStore(deps: {
       let initialized: LLMConfigurationCommitResult | undefined;
       await withYamlConfigLock(deps, configPath, () => {
         try {
+          const committedInitial = backfillMissingEntryIds(initial);
           writeYamlConfigExclusive(deps, configPath, {
-            ...initial,
+            ...committedInitial,
             schema_version: DOCUMENT_SCHEMA_VERSION,
             revision: 1,
           });
@@ -944,7 +1011,7 @@ export function createLLMConfigurationDocumentStore(deps: {
           // target/parent barriers before claiming the initialize is durable.
           const write = confirmTargetDurability(
             'initialize',
-            llmConfigurationSourceDigest(initial),
+            llmConfigurationSourceDigest(committedInitial),
           );
           initialized = {
             target,
@@ -985,11 +1052,17 @@ export function createLLMConfigurationDocumentStore(deps: {
         throw new LLMProviderLabelAlreadyExistsError(label);
       }
       const current = documentConfig(fresh);
+      const replacedProvider = target.kind === 'replace'
+        ? providerAtSlot(fresh, target.slot)
+        : undefined;
+      const persistedProvider = replacedProvider?.entry_id !== undefined
+        ? { ...rawProvider, entry_id: replacedProvider.entry_id }
+        : rawProvider;
       let next: SharedLLMInput;
       if (target.kind === 'primary') {
         next = {
           ...current,
-          primary: rawProvider,
+          primary: persistedProvider,
           fallbacks: [fresh.primary, ...(fresh.fallbacks ?? [])],
         };
       } else if (target.kind === 'fallback') {
@@ -998,28 +1071,29 @@ export function createLLMConfigurationDocumentStore(deps: {
           throw new Error(`Invalid fallback position: ${String(position)}`);
         }
         const fallbacks = [...(fresh.fallbacks ?? [])];
-        fallbacks.splice(Math.min(position, fallbacks.length), 0, rawProvider);
+        fallbacks.splice(Math.min(position, fallbacks.length), 0, persistedProvider);
         next = { ...current, fallbacks };
       } else if (target.slot.role === 'primary') {
-        next = { ...current, primary: rawProvider };
+        next = { ...current, primary: persistedProvider };
       } else {
         if (!Number.isInteger(target.slot.index) || target.slot.index < 0
           || target.slot.index >= (fresh.fallbacks?.length ?? 0)) {
           throw new Error(`LLM provider target is unavailable: fallback[${target.slot.index}]`);
         }
         const fallbacks = [...(fresh.fallbacks ?? [])];
-        fallbacks[target.slot.index] = rawProvider;
+        fallbacks[target.slot.index] = persistedProvider;
         next = { ...current, fallbacks };
       }
       const validated = llmOrchestratorConfigSchema.parse(next);
+      const committedConfig = backfillMissingEntryIds(target.kind === 'replace' ? next : validated);
       assertNormalDocumentLabels({
-        ...(target.kind === 'replace' ? next : validated),
+        ...committedConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision: fresh.revision,
       } as LLMConfigDocument);
       const revision = fresh.revision + 1;
       const write = writeYamlConfig(deps, configPath, {
-        ...(target.kind === 'replace' ? next : validated),
+        ...committedConfig,
         schema_version: DOCUMENT_SCHEMA_VERSION,
         revision,
       });

@@ -11,6 +11,7 @@ import { API_FORMATS } from './api-format.js';
 export const PROVIDER_NO_LABEL_SENTINEL = '(no label)';
 
 const providerConfigFields = {
+  entry_id: z.string().uuid().optional(),
   provider_id: z.string().min(1),
   api_format: z.enum(API_FORMATS),
   auth_profile: z.enum(['api_key', 'ambient', 'oauth']),

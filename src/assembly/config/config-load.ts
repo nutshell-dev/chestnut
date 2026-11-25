@@ -59,7 +59,7 @@ import {
   publishWatchdogLayout,
 } from '../../watchdog/index.js';
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
-import { sha256Hex } from '../../foundation/node-utils/index.js';
+import { newUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 
 /**
  * Phase 2206 Step B：`${VAR}` 解析注入 —— workspace Credentials owner 分层解析
@@ -493,11 +493,22 @@ export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: stri
   return createLLMConfiguration(deps).patchPrimary(patch);
 }
 
+function withClawPrimaryEntryId(config: ClawConfig): ClawConfig {
+  // Assembly owns claw files and assigns identity only on these explicit writes;
+  // loadClawConfig never backfills. An existing override keeps its own ID.
+  const primary = config.llm?.primary;
+  if (primary === undefined || primary.entry_id !== undefined) return config;
+  return {
+    ...config,
+    llm: { ...config.llm, primary: { ...primary, entry_id: newUuid() } },
+  };
+}
+
 export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): AtomicWriteResult {
   return writeYamlConfig(
     { fsFactory: deps.fsFactory },
     configPath,
-    config,
+    withClawPrimaryEntryId(config),
   );
 }
 
@@ -519,7 +530,7 @@ export function saveClawConfigExclusive(deps: { fsFactory: (baseDir: string) => 
     writeYamlConfigExclusive(
       { fsFactory: deps.fsFactory },
       configPath,
-      config,
+      withClawPrimaryEntryId(config),
     );
   } catch (err) {
     if (isConfigStoreError(err) && err.code === 'already_exists') {

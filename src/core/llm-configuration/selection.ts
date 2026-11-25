@@ -13,6 +13,8 @@ type ProviderInput = llmProviderConfigContract.ProviderInput;
 type ProviderCallDefaults = llmProviderConfigContract.ProviderCallDefaults;
 
 export interface LLMResolvedProviderCandidate {
+  /** Persistent configuration-entry identity; absent for legacy reads and drafts. */
+  readonly entryId?: string;
   readonly input: ProviderInput;
   readonly callDefaults: ProviderCallDefaults;
   /** Display-only; never participates in connection cache or recovery identity. */
@@ -21,6 +23,7 @@ export interface LLMResolvedProviderCandidate {
 
 function resolveCandidate(config: LLMProviderConfig): LLMResolvedProviderCandidate {
   return Object.freeze({
+    ...(config.entry_id !== undefined ? { entryId: config.entry_id } : {}),
     input: toProviderInput(config),
     callDefaults: providerCallDefaultsFromConfig(config),
     displayName: config.label ?? config.provider_id,

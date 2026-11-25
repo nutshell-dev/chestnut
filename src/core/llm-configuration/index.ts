@@ -76,6 +76,8 @@ export {
   LLMConfigurationLabelRequiredError,
   LLMProviderLabelAlreadyExistsError,
   LLMProviderLabelInvalidError,
+  LLMProviderEntryIdInvalidError,
+  LLMProviderEntryIdAlreadyExistsError,
   LLMProviderTargetChangedError,
 } from './document-store.js';
 export {

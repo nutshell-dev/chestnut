@@ -160,6 +160,37 @@ describe('RootConfigReader/Admin: claw load/save', () => {
     const claw = admin.loadClaw(clawPath);
     expect(claw?.name).toBe('testclaw');
     expect(claw?.llm?.primary?.model).toBe('gpt-test');
+    expect(claw?.llm?.primary?.entry_id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('claw save 缺 ID 时分配且已有保留，load 只读不写盘', () => {
+    const clawPath = getClawConfigPath('entry-id-claw');
+    const config = makeClawConfig('entry-id-claw');
+    admin.saveClaw(clawPath, config);
+    const afterSave = fs.readFileSync(clawPath, 'utf8');
+    const first = admin.loadClaw(clawPath);
+    const entryId = first?.llm?.primary?.entry_id;
+    expect(entryId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(config.llm?.primary?.entry_id).toBeUndefined();
+
+    admin.loadClaw(clawPath);
+    expect(fs.readFileSync(clawPath, 'utf8')).toBe(afterSave);
+    admin.saveClaw(clawPath, {
+      ...config,
+      llm: { primary: { ...config.llm!.primary!, entry_id: entryId } },
+    });
+    expect(admin.loadClaw(clawPath)?.llm?.primary?.entry_id).toBe(entryId);
+
+    const legacyBytes = fs.readFileSync(clawPath, 'utf8')
+      .split('\n').filter(line => !line.trimStart().startsWith('entry_id:')).join('\n');
+    fs.writeFileSync(clawPath, legacyBytes);
+    const legacy = admin.loadClaw(clawPath);
+    expect(legacy?.llm?.primary?.entry_id).toBeUndefined();
+    expect(fs.readFileSync(clawPath, 'utf8')).toBe(legacyBytes);
+    admin.saveClaw(clawPath, config);
+    const assigned = admin.loadClaw(clawPath)?.llm?.primary?.entry_id;
+    expect(assigned).toMatch(/^[0-9a-f-]{36}$/);
+    expect(assigned).not.toBe(entryId);
   });
 });
 
@@ -211,6 +242,7 @@ describe('Assembly config write results (Phase 2154 Step B3)', () => {
     const clawPath = getClawConfigPath('exclusiveclaw');
     const winner = makeClawConfig('exclusiveclaw');
     expect(admin.saveClawExclusive(clawPath, winner)).toBeUndefined();
+    expect(admin.loadClaw(clawPath)?.llm?.primary?.entry_id).toMatch(/^[0-9a-f-]{36}$/);
 
     expect(() => admin.saveClawExclusive(clawPath, { ...winner, max_concurrent_tasks: 99 }))
       .toThrow(ClawConfigAlreadyExistsError);
@@ -278,6 +310,9 @@ describe('resolveLLMConfig resolver', () => {
     const clawCfg = admin.loadClaw(clawPath);
     const withClaw = resolveLLMConfig(globalCfg, clawCfg);
     expect(withClaw.primary.input.model).toBe('gpt-ovr');
+    expect(withClaw.primary.entryId).toBe(clawCfg?.llm?.primary?.entry_id);
+    expect(withClaw.primary.entryId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(withClaw.primary.entryId).not.toBe(globalOnly.primary.entryId);
     // claw 只覆盖 primary，fallback/retry/breaker 仍取 global。
     expect(withClaw.retry).toEqual(globalOnly.retry);
     expect(withClaw.legacyCircuitBreaker).toEqual(globalOnly.legacyCircuitBreaker);
