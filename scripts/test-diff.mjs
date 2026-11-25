@@ -266,7 +266,7 @@ function executeLane(lane, { cwd, env, spawn, tempDir, index }) {
   const outputFile = path.join(tempDir, `reporter-${index}.json`);
   let args;
   if (lane.kind === 'full') {
-    args = ['run', 'test:preflight', '--', '--reporter=json', `--outputFile=${outputFile}`];
+    args = ['run', 'test:preflight', '--reporter=json', `--outputFile=${outputFile}`];
   } else {
     args = ['exec', 'vitest', 'run', '--config', CONFIG, `--project=${lane.projectName}`];
     if (lane.kind === 'files') args.push(...lane.files.map(file => `./${file}`));

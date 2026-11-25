@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 // The production runner is plain ESM so Node can execute it without a TS loader.
 // @ts-expect-error No declaration file is intentionally emitted for this CLI module.
 import { parseNameStatus, resolveMergeScope, runDiff } from '../../scripts/test-diff.mjs';
@@ -11,6 +12,8 @@ import { cleanupTempDirSync, createTrackedTempDirSync } from '../utils/temp.js';
 
 const INVARIANTS = 'tests/design/invariants.test.ts';
 const INTEGRATION_PROJECTS = ['integration-process', 'integration-io'];
+const VITEST_MODULE = fileURLToPath(import.meta.resolve('vitest'));
+const VITEST_CLI = path.resolve(path.dirname(VITEST_MODULE), '../vitest.mjs');
 const tempDirs: string[] = [];
 const GIT_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -192,6 +195,39 @@ function testCommands(commands: string[]): string[] {
   return commands.filter(command => (
     command.startsWith('pnpm exec vitest run') || command.startsWith('pnpm run test:preflight')
   ));
+}
+
+function createRealFullLaneFixture(): string {
+  const cwd = realpathSync(createRepository());
+  commitFile(cwd, 'package.json', `${JSON.stringify({
+    private: true,
+    type: 'module',
+    scripts: { 'test:preflight': `node ${JSON.stringify(VITEST_CLI)} run` },
+  }, null, 2)}\n`, 'fixture package');
+  commitFile(cwd, INVARIANTS, [
+    `import { expect, it } from ${JSON.stringify(VITEST_MODULE)};`,
+    "it('runs through the real pnpm and Vitest path', () => { expect(1).toBe(1); });",
+    '',
+  ].join('\n'), 'fixture test');
+  createFeatureCommit(cwd, '.config/vitest.config.ts', [
+    "export default { test: { include: ['tests/**/*.test.ts'] } };",
+    '',
+  ].join('\n'));
+  return cwd;
+}
+
+function executeRealFullLane(cwd: string, injectOldSeparator = false) {
+  const harness = createProcessHarness(cwd, {
+    graph: [{ file: INVARIANTS, projectName: 'fast' }],
+  });
+  const spawn: Spawn = (command, args, options) => {
+    if (command === 'pnpm' && args[0] === 'run' && args[1] === 'test:preflight') {
+      const invoked = injectOldSeparator ? [...args.slice(0, 2), '--', ...args.slice(2)] : args;
+      return spawnSync(command, invoked, { ...options, timeout: 15_000 });
+    }
+    return harness.spawn(command, args, options);
+  };
+  return executeDiff(cwd, spawn);
 }
 
 describe('supplemental differential-test selection', () => {
@@ -565,4 +601,34 @@ describe('differential runner with real Git and fake pnpm processes', () => {
       harness.commands.findIndex(command => command.startsWith('pnpm exec vitest run')),
     );
   });
+});
+
+describe('full-lane reporter arguments with real pnpm and Vitest', () => {
+  it('creates and consumes a JSON receipt through the forwarded reporter arguments', () => {
+    const cwd = createRealFullLaneFixture();
+    const receipt = executeRealFullLane(cwd);
+
+    expect(receipt).toMatchObject({
+      outcome: 'passed',
+      executions: [{
+        outcome: 'passed',
+        execution: {
+          exitCode: 0,
+          report: { passed: 1, total: 1, files: [path.resolve(cwd, INVARIANTS)] },
+        },
+      }],
+    });
+    expect(receipt.executions[0].execution.command).not.toContain('--');
+  }, 20_000);
+
+  it('rejects a zero-exit full lane when the old separator suppresses the JSON receipt', () => {
+    const cwd = createRealFullLaneFixture();
+    const receipt = executeRealFullLane(cwd, true);
+
+    expect(receipt).toMatchObject({
+      outcome: 'failed',
+      reason: 'Vitest JSON reporter did not create an output file',
+      executions: [{ outcome: 'failed', execution: { exitCode: 0 } }],
+    });
+  }, 20_000);
 });
