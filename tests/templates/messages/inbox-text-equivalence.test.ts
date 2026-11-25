@@ -42,6 +42,7 @@ import { renderCliGuidanceDocument, createCliSafeToken } from '../../../src/cli-
 import type { CliGuidanceDocument } from '../../../src/cli-protocol/guidance.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { prepareRandomDreamInputFixture } from '../../core/memory/random-dream-prepare-fixture.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.join(HERE, '__fixtures__', 'inbox-text-golden.json');
@@ -597,6 +598,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       clawTopology: createClawTopology({ fs: fileSystem, chestnutRoot, motionDir }),
       motionDir: motionDir as never,
       taskSystem,
+      prepareSubagentInput: prepareRandomDreamInputFixture,
       fs: fileSystem,
       motionFs: new NodeFileSystem({ baseDir: motionDir }),
       audit: { write: () => {}, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as never,
@@ -671,6 +673,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       registry: {} as never,
       selfInbox: mockInbox,
       pendingQueueMax: 3,
+      taskExecutor: { execute: async () => { throw new Error('not used by overflow test'); } },
     } as never);
     const writePending = (id: string) => {
       fsNative.writeFileSync(path.join(baseDir, 'tasks', 'queues', 'pending', `${id}.json`), JSON.stringify({

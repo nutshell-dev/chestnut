@@ -36,6 +36,7 @@ import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from '../../../src/assembly/guidance/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { prepareRandomDreamInputFixture } from '../../core/memory/random-dream-prepare-fixture.js';
 
 // ─── 工具 ────────────────────────────────────────────────────
 
@@ -164,6 +165,7 @@ describe('phase 1835: random_dream_completed 保存通知新语义真实生产�
       clawTopology: createClawTopology({ fs: fileSystem, chestnutRoot, motionDir }),
       motionDir: motionDir as never,
       taskSystem: makeMockTaskSystem(),
+      prepareSubagentInput: prepareRandomDreamInputFixture,
       fs: fileSystem,
       motionFs: new NodeFileSystem({ baseDir: motionDir }),
       audit: audit as never,

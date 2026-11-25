@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as fsSync from 'fs';
 import { promises as fs } from 'fs';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
+import { prepareRandomDreamInputFixture } from './random-dream-prepare-fixture.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createClawTopology, makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
@@ -46,6 +47,7 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
     clawTopology: createClawTopology({ fs, chestnutRoot, motionDir }),
     motionDir: motionDir as any,
     taskSystem,
+    prepareSubagentInput: prepareRandomDreamInputFixture,
     fs,
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,

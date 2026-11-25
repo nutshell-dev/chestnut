@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemorySystem, createMemorySystem } from '../../../src/core/memory/system.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
+import { prepareRandomDreamInputFixture } from './random-dream-prepare-fixture.js';
 
 describe('MemorySystem', () => {
   const mockTopology = {
@@ -18,6 +19,7 @@ describe('MemorySystem', () => {
     motionFs: {} as any,
     audit: {} as any,
     taskSystem: {} as any,
+    prepareSubagentInput: prepareRandomDreamInputFixture,
     llmService: {} as any,
     llmConfig: { providers: [] } as any,
     maxCompressionTokens: 100,
@@ -83,6 +85,7 @@ describe('MemorySystem', () => {
       expect(runRandomDream).toHaveBeenCalledWith(expect.objectContaining({
         motionDir: '/tmp/motion',
         taskSystem: mockOpts.taskSystem,
+        prepareSubagentInput: mockOpts.prepareSubagentInput,
         fs: mockOpts.fs,
         motionFs: mockOpts.motionFs,
         audit: mockOpts.audit,

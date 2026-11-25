@@ -18,6 +18,10 @@ import * as path from 'path';
 import * as fsSync from 'fs';
 import { promises as fs } from 'fs';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
+import { decodeSubagentInput, TASKS_SUBAGENTS_DIR } from '../../../src/core/subagent/index.js';
+import { RANDOM_DREAM_SYSTEM_PROMPT } from '../../../src/core/memory/prompts/random-dream.js';
+import { SUBAGENT_WORKSPACE_PROMPT_TEMPLATE } from '../../../src/templates/prompts/subagent.js';
+import { prepareRandomDreamInputFixture } from './random-dream-prepare-fixture.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createClawTopology, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
@@ -57,6 +61,7 @@ function makeOpts(chestnutRoot: string, motionDir: string, notifyMotion?: Random
     clawTopology: createClawTopology({ fs: fileSystem, chestnutRoot, motionDir }),
     motionDir: motionDir as any,
     taskSystem: makeMockTaskSystem(),
+    prepareSubagentInput: prepareRandomDreamInputFixture,
     fs: fileSystem,
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,
@@ -115,6 +120,37 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
     await writeTaskCompletion(motionDir, taskId, `[DREAM_OUTPUT contract_id="contract-001"]insight[/DREAM_OUTPUT]`);
     await runRandomDream({ ...makeOpts(chestnutRoot, motionDir, notifyMotion), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
 
+    expect(mockWritePendingSubAgentTask).toHaveBeenCalledOnce();
+    const [taskKind, scheduled] = mockWritePendingSubAgentTask.mock.calls[0];
+    expect(taskKind).toBe('subagent');
+    expect(scheduled).toMatchObject({
+      kind: 'subagent',
+      mode: 'standard',
+      parentClawId: MOTION_CLAW_ID,
+      originClawId: MOTION_CLAW_ID,
+      timeoutMs: 1000,
+      maxSteps: 200,
+      executionInput: { schema_version: 1 },
+    });
+    expect(scheduled.systemPrompt).toBe(RANDOM_DREAM_SYSTEM_PROMPT);
+    expect(scheduled.toolProfile).toBe('subagent');
+    const executionInput = decodeSubagentInput(scheduled.executionInput.input);
+    expect(executionInput.prompt).toBe(scheduled.intent);
+    expect(executionInput.prompt).toContain('contract-001');
+    expect(executionInput.systemPrompt).toEqual({
+      kind: 'template',
+      template: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.name,
+      version: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.version,
+      parameters: {
+        callerClawId: MOTION_CLAW_ID,
+        subagentsDir: TASKS_SUBAGENTS_DIR,
+        systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
+      },
+    });
+    expect(executionInput.toolProfile).toBe('subagent');
+    expect(executionInput.budget).toEqual({ timeoutMs: 1000, maxSteps: 200 });
+    expect(decodeSubagentInput(JSON.parse(JSON.stringify(executionInput)))).toEqual(executionInput);
+
     // notification sent
     expect(notifyMotion).toHaveBeenCalledTimes(1);
     const msg = notifyMotion.mock.calls[0][0];
@@ -134,6 +170,21 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
     expect(state.pendingNotifications).toEqual([]);
     expect(state.pendingLateSettle).toEqual([]);
     expect(state.completedContractIds).toContain('contract-001');
+  });
+
+  it('prepare rejection is explicit and no legacy task is scheduled', async () => {
+    await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
+    const prepareSubagentInput = vi.fn(() => {
+      throw new TypeError('unsupported dream execution declaration');
+    });
+
+    await expect(runRandomDream({
+      ...makeOpts(chestnutRoot, motionDir),
+      prepareSubagentInput,
+    })).rejects.toThrow('unsupported dream execution declaration');
+
+    expect(prepareSubagentInput).toHaveBeenCalledOnce();
+    expect(mockWritePendingSubAgentTask).not.toHaveBeenCalled();
   });
 
   it('stage save fails: no send', async () => {

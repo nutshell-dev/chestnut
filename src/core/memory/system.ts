@@ -6,7 +6,7 @@ import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
 import type { DeepDreamOptions } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
-import type { RandomDreamOptions } from './random-dream.js';
+import type { PrepareRandomDreamInput, RandomDreamOptions } from './random-dream.js';
 import type { ContractId } from '../contract/index.js';
 import type { RandomDreamNotifyMotionFn } from './random-dream.js';
 import type { DeepDreamNotifyClawFn } from './deep-dream.js';
@@ -22,6 +22,8 @@ interface MemorySystemOptions {
   motionFs: FileSystem;               // baseDir = motionDir / NEW
   audit: AuditLog;
   taskSystem: SubAgentTaskScheduler;
+  /** Fixed SubAgent preparation capability, including its canonical tool binding. */
+  prepareSubagentInput: PrepareRandomDreamInput;
   llmService: LLMCallCapability;        // ← 注入 LLM（修 N1）
   llmConfig: LLMOrchestratorConfig;   // deep-dream 内部仍需 config（state file 路径等）
   maxCompressionTokens?: number;
@@ -65,6 +67,7 @@ export class MemorySystem {
       clawTopology: this.opts.clawTopology,
       motionDir: this.opts.motionDir,
       taskSystem: this.opts.taskSystem,
+      prepareSubagentInput: this.opts.prepareSubagentInput,
       fs: this.opts.fs,
       motionFs: this.opts.motionFs,
       audit: this.opts.audit,

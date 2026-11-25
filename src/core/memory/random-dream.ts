@@ -7,6 +7,12 @@ import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
+import {
+  TASKS_SUBAGENTS_DIR,
+  type PreparedSubagentInput,
+  type SubagentInputDeclaration,
+} from '../subagent/index.js';
+import { SUBAGENT_WORKSPACE_PROMPT_TEMPLATE } from '../../templates/prompts/subagent.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/index.js';
@@ -55,10 +61,17 @@ const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;
 /** phase 92 / phase 1159 Step C: DI callback - caller (L6 装配期) bind chestnutRoot + MOTION_CLAW_ID + notifyClaw + fs + audit */
 export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
 
+/** The fixed lower-owner capability binds canonical tools; Memory owns the dream declaration. */
+export type PrepareRandomDreamInput = (
+  declaration: Omit<SubagentInputDeclaration, 'tools'>,
+) => PreparedSubagentInput;
+
 export interface RandomDreamOptions {
   clawTopology: ClawTopology;
   motionDir: string;
   taskSystem: SubAgentTaskScheduler;
+  /** Constructor-bound SubAgent preparation; there is no legacy Assembly fallback. */
+  prepareSubagentInput: PrepareRandomDreamInput;
   fs: FileSystem;             // baseDir = chestnutRoot
   motionFs: FileSystem;       // baseDir = motionDir / NEW
   audit: AuditLog;
@@ -797,17 +810,35 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
   const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
 
-    // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId
-    const taskId = await opts.taskSystem.schedule('subagent', {
+  const dreamPrompt = buildRandomDreamPrompt(weightedContracts);
+  const preparedInput = opts.prepareSubagentInput({
+    prompt: dreamPrompt,
+    systemPrompt: {
+      kind: 'template',
+      template: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.name,
+      version: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.version,
+      parameters: {
+        callerClawId: MOTION_CLAW_ID,
+        subagentsDir: TASKS_SUBAGENTS_DIR,
+        systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
+      },
+    },
+    toolProfile: 'subagent',
+    budget: { timeoutMs: subagentTimeoutMs, maxSteps: subagentMaxSteps },
+  });
+
+  // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId
+  const taskId = await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'standard',
-    intent: buildRandomDreamPrompt(weightedContracts),
+    intent: dreamPrompt,
     timeoutMs: subagentTimeoutMs,
     maxSteps: subagentMaxSteps,
     parentClawId: MOTION_CLAW_ID,
     originClawId: MOTION_CLAW_ID,
     toolProfile: 'subagent',
-    systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
+    systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
+    executionInput: { schema_version: 1, input: preparedInput },
   });
   const fullTaskId = resolveFullTaskId(taskId, opts.shortIdIndex);
   const taskIdForPaths = fullTaskId ?? taskId;

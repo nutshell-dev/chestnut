@@ -24,6 +24,7 @@ import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { prepareRandomDreamInputFixture } from '../memory/random-dream-prepare-fixture.js';
 
 // ─── AsyncTaskSystem mock ──────────────────────────────────────────
 
@@ -49,6 +50,7 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
     clawTopology: createClawTopology({ fs, chestnutRoot, motionDir }),
     motionDir: motionDir as any,
     taskSystem: makeMockTaskSystem(),
+    prepareSubagentInput: prepareRandomDreamInputFixture,
     fs,
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,
@@ -222,8 +224,8 @@ Prompt: ...
       expect(outboxContents).toHaveLength(0);
     });
 
-    describe('Phase 546 — random-dream systemPrompt 透传', () => {
-    it('passes RANDOM_DREAM_SYSTEM_PROMPT to writePendingSubAgentTask', async () => {
+    describe('Phase 546 / Phase 2248 G2 — random-dream systemPrompt 执行声明', () => {
+    it('passes RANDOM_DREAM_SYSTEM_PROMPT through the prepared execution input', async () => {
       await fs.mkdir(
         path.join(chestnutRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
         { recursive: true }
@@ -232,12 +234,12 @@ Prompt: ...
 
       await runRandomDream(makeOpts(chestnutRoot, motionDir));
 
-      expect(mockWritePendingSubAgentTask).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
-        })
-      );
+      const scheduled = mockWritePendingSubAgentTask.mock.calls[0][1];
+      expect(scheduled.systemPrompt).toBe(RANDOM_DREAM_SYSTEM_PROMPT);
+      expect(scheduled.executionInput.input.systemPrompt).toMatchObject({
+        kind: 'template',
+        parameters: { systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT },
+      });
     });
   });
 
