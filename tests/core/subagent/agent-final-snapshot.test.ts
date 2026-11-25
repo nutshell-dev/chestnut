@@ -42,6 +42,7 @@ class CollectingStreamWriter {
 function makeHarness(overrides: {
   toolsForLLM?: ToolDefinition[];
   ensureDirRejects?: boolean;
+  timeoutMs?: number;
 } = {}) {
   const mockFs: FileSystem = {
     read: vi.fn().mockResolvedValue(''),
@@ -61,7 +62,7 @@ function makeHarness(overrides: {
   } as unknown as FileSystem;
 
   const mockToolExecutor = {
-    getExecContext: vi.fn().mockReturnValue({
+    getExecContext: vi.fn((_profile: string, overrides?: Record<string, unknown>) => ({
       clawId: 'test-agent',
       clawDir: '/tmp/test',
       workspaceDir: path.join('/tmp/test', 'clawspace'),
@@ -71,7 +72,8 @@ function makeHarness(overrides: {
       maxSteps: 20,
       getElapsedMs: () => 0,
       incrementStep: vi.fn(),
-    }),
+      ...(overrides ?? {}),
+    })),
   } as unknown as ToolExecutor;
 
   const savedSnapshots: DialogSaveSnapshot[] = [];
@@ -106,7 +108,7 @@ function makeHarness(overrides: {
     registry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
+    timeoutMs: overrides.timeoutMs ?? SUBAGENT_SHORT_TIMEOUT_MS,
     toolsForLLM: overrides.toolsForLLM,
     taskStreamWriter: new CollectingStreamWriter(),
     sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
@@ -174,5 +176,36 @@ describe('phase 1858 Step C: finally 单一快照（SA-D2）', () => {
 
     expect(savedSnapshots).toHaveLength(1);
     expect(savedSnapshots[0].toolsForLLM).toEqual([]);
+  });
+
+  it('timeout 后非合作 runReact 未收敛时不保存；release 后最终快照包含真实晚到响应', async () => {
+    const { agent, savedSnapshots, runReact } = makeHarness({ timeoutMs: 25 });
+    let release!: () => void;
+    let abortObservedResolve!: () => void;
+    const abortObserved = new Promise<void>(resolve => { abortObservedResolve = resolve; });
+    runReact.mockImplementation(async (opts: {
+      ctx: { signal: AbortSignal };
+      messages: Array<{ role: string; content: string }>;
+    }) => {
+      opts.ctx.signal.addEventListener('abort', () => { abortObservedResolve(); }, { once: true });
+      await new Promise<void>(resolve => { release = resolve; });
+      opts.messages.push({ role: 'assistant', content: 'late final snapshot' });
+      return { finalText: 'late final snapshot', stopReason: 'end_turn' };
+    });
+
+    let settled = false;
+    const running = agent.run();
+    void running.catch(() => { settled = true; });
+    await abortObserved;
+    expect(settled).toBe(false);
+    expect(savedSnapshots).toHaveLength(0);
+
+    release();
+    await expect(running).rejects.toThrow();
+    expect(savedSnapshots).toHaveLength(1);
+    expect(savedSnapshots[0].messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: 'late final snapshot',
+    });
   });
 });

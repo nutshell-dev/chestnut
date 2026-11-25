@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { makeSubagentRunFs } from '../../helpers/subagent-run-fs.js';
 
 const { dialogSaveMock } = vi.hoisted(() => ({ dialogSaveMock: vi.fn() }));
 
@@ -35,14 +36,7 @@ import { runReact } from '../../../src/core/agent-executor/loop.js';
 const runReactMock = vi.mocked(runReact);
 
 function makeFs() {
-  return {
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    append: vi.fn().mockResolvedValue(undefined),
-    appendSync: vi.fn(),
-    write: vi.fn().mockResolvedValue(undefined),
-    read: vi.fn().mockResolvedValue(''),
-    exists: vi.fn().mockResolvedValue(false),
-  } as any;
+  return makeSubagentRunFs();
 }
 
 function makeOpts() {
@@ -109,5 +103,57 @@ describe('phase 1858 Step G: degraded 并入 outcome（SA-D6）', () => {
 
     expect(result.text).toBe('ok');
     expect(result.degraded).toBeUndefined();
+  });
+
+  it('④ 当前 options 适配为 JSON 输入；不可序列化运行时依赖由固定能力重建', async () => {
+    dialogSaveMock.mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
+    runReactMock.mockResolvedValue({ finalText: 'json input', stopReason: 'end_turn' });
+    const fs = makeFs();
+    const onIdleTimeout = vi.fn();
+    const permissionChecker = vi.fn();
+    const result = await runSubagent({
+      ...makeOpts(),
+      fs,
+      onIdleTimeout,
+      permissionChecker,
+      execution: { callerKind: 'task', allowDone: undefined },
+    });
+
+    expect(result.text).toBe('json input');
+    const document = JSON.parse(await fs.read('result-degraded/execution/input.json'));
+    expect(document.input).toMatchObject({
+      kind: 'run_subagent_options',
+      agentId: 'degraded-agent',
+      prompt: 'do something',
+      execution: { callerKind: 'task' },
+    });
+    expect(document.input).not.toHaveProperty('fs');
+    expect(document.input).not.toHaveProperty('llm');
+    expect(document.input).not.toHaveProperty('registry');
+    expect(document.input).not.toHaveProperty('onIdleTimeout');
+    expect(document.input).not.toHaveProperty('permissionChecker');
+  });
+
+  it('⑤ 同身份/输入的便利调用连接同一活跃执行，自动 trace 不构成输入冲突', async () => {
+    dialogSaveMock.mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
+    let startedResolve!: () => void;
+    const started = new Promise<void>(resolve => { startedResolve = resolve; });
+    let release!: () => void;
+    runReactMock.mockImplementation(async () => {
+      startedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+      return { finalText: 'shared execution', stopReason: 'end_turn' };
+    });
+    const opts = makeOpts();
+    const first = runSubagent(opts);
+    const duplicate = runSubagent(opts);
+    await started;
+    expect(runReactMock).toHaveBeenCalledTimes(1);
+
+    release();
+    await expect(Promise.all([first, duplicate])).resolves.toEqual([
+      expect.objectContaining({ text: 'shared execution' }),
+      expect.objectContaining({ text: 'shared execution' }),
+    ]);
   });
 });

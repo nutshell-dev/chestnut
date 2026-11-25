@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
+import { makeSubagentRunFs } from '../../helpers/subagent-run-fs.js';
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -38,14 +39,7 @@ import { runReact } from '../../../src/core/agent-executor/loop.js';
 const runReactMock = vi.mocked(runReact);
 
 function makeFs() {
-  return {
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    append: vi.fn().mockResolvedValue(undefined),
-    appendSync: vi.fn(),
-    write: vi.fn().mockResolvedValue(undefined),
-    read: vi.fn().mockResolvedValue(''),
-    exists: vi.fn().mockResolvedValue(false),
-  } as any;
+  return makeSubagentRunFs();
 }
 
 function makeOpts(registry: ReturnType<typeof createToolRegistry>, prompt: string) {

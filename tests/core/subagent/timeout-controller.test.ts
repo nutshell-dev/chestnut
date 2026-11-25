@@ -112,6 +112,26 @@ describe('subagent timeout controller audit semantics', () => {
     handle.cleanup();
   });
 
+  it('absolute deadline survives a controller rebuild without renewing the total budget', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const sink = createSubAgentLifecycleSink({ auditWriter: { write: vi.fn() } as any, agentId: 'agent-deadline' });
+    const first = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink });
+    const firstSettled = first.timeoutPromise.catch(error => error);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(first.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await firstSettled).toMatchObject({ name: 'ToolTimeoutError' });
+    first.cleanup();
+
+    const resumed = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink });
+    const resumedSettled = resumed.timeoutPromise.catch(error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resumed.signal.aborted).toBe(true);
+    expect(await resumedSettled).toMatchObject({ name: 'ToolTimeoutError' });
+    resumed.cleanup();
+  });
+
   it('pre-aborted external signal rejects immediately with its reason', async () => {
     const external = new AbortController();
     external.abort({ type: 'external', original: 'already stopped' });

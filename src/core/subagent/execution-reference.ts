@@ -20,6 +20,7 @@ import {
 import type {
   SubagentExecutionIdentity,
   SubagentExecutionLocation,
+  SubagentJsonValue,
   SubagentExecutionObserver,
   SubagentExecutionOptions,
   SubagentExecutionQuery,
@@ -37,13 +38,35 @@ import type {
 
 type Listener = (view: SubagentExecutionView) => void;
 
-/** Concrete owner references expose record transition/settlement to the future runner. */
+/** Process-local capabilities owned by the Step D runner, never persisted with a reference. */
+interface SubagentExecutionRuntime {
+  stop(reason: unknown): void;
+  addSignal(signal: AbortSignal): void;
+  /** Called after outcome commit and before completion is released. Must be idempotent. */
+  close(): void;
+}
+
+export interface SubagentRunnerExecutionHooks {
+  start(
+    ref: SubagentExecutionReference,
+    request: {
+      readonly input: SubagentJsonValue;
+      readonly signal?: AbortSignal;
+      readonly deadlineAtMs?: number;
+      readonly resume: boolean;
+    },
+  ): void;
+}
+
+/** Concrete owner references expose record transition/settlement to the execution runner. */
 export class SubagentExecutionReference implements SubagentExecutionRef, SubagentExecutionObserver {
   readonly completion: Promise<SubagentFinalOutcome>;
 
   private resolveCompletion!: (outcome: SubagentFinalOutcome) => void;
   private current: SubagentExecutionView;
   private readonly listeners = new Map<Listener, number>();
+  private runtime?: SubagentExecutionRuntime;
+  private completionHeld = false;
 
   constructor(
     private readonly store: SubagentExecutionStore,
@@ -60,6 +83,18 @@ export class SubagentExecutionReference implements SubagentExecutionRef, Subagen
 
   get view(): SubagentExecutionView { return this.current; }
   get ownsClaim(): boolean { return this.writer !== undefined; }
+
+  /** @internal Bind the live owner immediately after claim admission. */
+  bindRuntime(runtime: SubagentExecutionRuntime): void {
+    if (this.runtime) throw new SubagentExecutionStoreError('conflict', 'execution runtime is already bound');
+    this.runtime = runtime;
+    this.completionHeld = true;
+  }
+
+  /** @internal Duplicate start/resume attaches another parent without replacing the owner. */
+  attachSignal(signal?: AbortSignal): void {
+    if (signal) this.runtime?.addSignal(signal);
+  }
 
   async read(): Promise<SubagentExecutionView> {
     const view = await this.store.readView(this.identity);
@@ -93,7 +128,11 @@ export class SubagentExecutionReference implements SubagentExecutionRef, Subagen
         },
       };
     }
-    return this.writer.requestStop(reason);
+    const receipt = await this.writer.requestStop(reason);
+    // A stop receipt is not a terminal outcome. Signal the original execution even
+    // when stop-intent persistence failed; only actual convergence may settle it.
+    if (receipt.accepted) this.runtime?.stop(reason);
+    return receipt;
   }
 
   /** @internal Owner capability used by Step D, never by open/read-only references. */
@@ -103,16 +142,33 @@ export class SubagentExecutionReference implements SubagentExecutionRef, Subagen
   }
 
   /** @internal Owner capability used by Step D, never by open/read-only references. */
-  settle(outcome: SubagentSettlementInput): Promise<SubagentFinalOutcome> {
+  async settle(outcome: SubagentSettlementInput): Promise<SubagentFinalOutcome> {
     if (!this.writer) throw new SubagentExecutionStoreError('conflict', 'read-only reference cannot settle an attempt');
-    return this.writer.settle(outcome);
+    const final = await this.writer.settle(outcome);
+    if (this.completionHeld) {
+      // Disk outcome is committed before the stream/owner writer is closed. The
+      // completion promise remains gated until both have actually happened.
+      try {
+        this.runtime?.close();
+      } finally {
+        this.completionHeld = false;
+        this.resolveCompletion(final);
+      }
+    }
+    return final;
   }
 
   private publish(view: SubagentExecutionView): void {
     if (view.sequence < this.current.sequence) return;
-    this.current = view;
-    for (const listener of [...this.listeners.keys()]) this.notify(listener, view);
-    if (view.outcome) this.resolveCompletion(view.outcome);
+    // If outcome publication failed, disk can only replay recovery_required. Keep
+    // the owner's already-delivered final evidence so resume can distinguish an
+    // actually settled attempt from a still-running process in this module.
+    const next = this.current.outcome && !view.outcome
+      ? { ...view, outcome: this.current.outcome }
+      : view;
+    this.current = next;
+    for (const listener of [...this.listeners.keys()]) this.notify(listener, next);
+    if (next.outcome && !this.completionHeld) this.resolveCompletion(next.outcome);
   }
 
   private notify(listener: Listener, view: SubagentExecutionView): void {
@@ -144,7 +200,10 @@ const active = new Map<string, CachedExecution>();
 const admissions = new Map<string, Promise<unknown>>();
 
 function cacheKey(location: SubagentExecutionLocation, fs: SubagentExecutionOptions['fs']): string {
-  return `${fs.resolve(location.resultDir)}\0${location.runId}`;
+  // Narrow legacy test doubles predating FileSystem.resolve remain usable; real
+  // stores always resolve to the canonical absolute execution location.
+  const resolved = typeof fs.resolve === 'function' ? fs.resolve(location.resultDir) : location.resultDir;
+  return `${resolved}\0${location.runId}`;
 }
 
 function normalizeQuery(query: SubagentExecutionQuery): { location: SubagentExecutionLocation; attemptId?: string } {
@@ -156,7 +215,10 @@ function normalizeQuery(query: SubagentExecutionQuery): { location: SubagentExec
 }
 
 export class SubagentRunnerImpl implements SubagentRunner {
-  constructor(private readonly options: SubagentExecutionOptions) {}
+  constructor(
+    private readonly options: SubagentExecutionOptions,
+    private readonly executionHooks?: SubagentRunnerExecutionHooks,
+  ) {}
 
   private store(location: SubagentExecutionLocation): SubagentExecutionStore {
     return new SubagentExecutionStore({ ...this.options, resultDir: location.resultDir });
@@ -187,13 +249,19 @@ export class SubagentRunnerImpl implements SubagentRunner {
           ordinal: 1,
           parentAttemptId: null,
           startBasis: 'start',
+          deadlineAtMs: request.deadlineAtMs,
         });
-        return this.admitClaimed(store, location, claimed);
+        return this.admitClaimed(store, location, claimed, {
+          input: prepared.document.input,
+          signal: request.signal,
+          deadlineAtMs: request.deadlineAtMs,
+          resume: false,
+        });
       }
       if (latest.inputDigest !== prepared.document.inputDigest) {
         throw new SubagentExecutionStoreError('conflict', `claim input digest differs from ${location.runId}`);
       }
-      return this.attachExisting(store, location, latest);
+      return this.attachExisting(store, location, latest, request.signal);
     });
   }
 
@@ -216,7 +284,7 @@ export class SubagentRunnerImpl implements SubagentRunner {
         if (latest.parentAttemptId === request.previousAttemptId
             && latest.startBasis.kind === 'resume'
             && latest.startBasis.previousAttemptId === request.previousAttemptId) {
-          return this.attachExisting(store, location, latest);
+          return this.attachExisting(store, location, latest, request.signal);
         }
         throw new SubagentExecutionStoreError('conflict', `previousAttemptId is not the latest attempt for ${location.runId}`);
       }
@@ -224,7 +292,9 @@ export class SubagentRunnerImpl implements SubagentRunner {
       if (previous.kind !== 'found') {
         throw new SubagentExecutionStoreError(previous.kind === 'not_found' ? 'not_found' : 'corrupt', `cannot resume unreadable attempt ${latest.attemptId}`);
       }
-      if (previous.view.state !== 'settled') {
+      const cached = active.get(cacheKey(location, this.options.fs));
+      const actualSettled = cached?.ref.identity.attemptId === latest.attemptId && cached.ref.view.outcome !== undefined;
+      if (previous.view.state !== 'settled' && !actualSettled) {
         let owner;
         try {
           owner = store.inspectOwner(latest);
@@ -244,8 +314,14 @@ export class SubagentRunnerImpl implements SubagentRunner {
         ordinal: latest.ordinal + 1,
         parentAttemptId: latest.attemptId,
         startBasis: 'resume',
+        deadlineAtMs: latest.deadlineAtMs,
       });
-      return this.admitClaimed(store, location, claimed);
+      return this.admitClaimed(store, location, claimed, {
+        input: prepared.document.input,
+        signal: request.signal,
+        deadlineAtMs: latest.deadlineAtMs,
+        resume: true,
+      });
     });
   }
 
@@ -253,8 +329,14 @@ export class SubagentRunnerImpl implements SubagentRunner {
     store: SubagentExecutionStore,
     location: SubagentExecutionLocation,
     result: SubagentClaimResult,
+    execution: {
+      readonly input: SubagentJsonValue;
+      readonly signal?: AbortSignal;
+      readonly deadlineAtMs?: number;
+      readonly resume: boolean;
+    },
   ): Promise<SubagentExecutionReference> {
-    if (result.kind === 'existing') return this.attachExisting(store, location, result.claim);
+    if (result.kind === 'existing') return this.attachExisting(store, location, result.claim, execution.signal);
     const prepared = await result.writer.transition({ state: 'prepared', reason: { kind: 'claim_acquired' } });
     if (!prepared.event.persisted) {
       throw new SubagentExecutionStoreError(
@@ -265,6 +347,7 @@ export class SubagentRunnerImpl implements SubagentRunner {
     }
     const ref = new SubagentExecutionReference(store, result.writer.claim, prepared.view, result.writer, this.options.onObserverError);
     active.set(cacheKey(location, this.options.fs), { ref });
+    this.executionHooks?.start(ref, execution);
     return ref;
   }
 
@@ -272,11 +355,13 @@ export class SubagentRunnerImpl implements SubagentRunner {
     store: SubagentExecutionStore,
     location: SubagentExecutionLocation,
     claim: SubagentAttemptClaim,
+    signal?: AbortSignal,
   ): Promise<SubagentExecutionReference> {
     const cached = active.get(cacheKey(location, this.options.fs));
     if (cached?.ref.identity.attemptId === claim.attemptId) {
       // Cache only the handle/subscription; every admission refreshes disk state.
       await cached.ref.read();
+      cached.ref.attachSignal(signal);
       return cached.ref;
     }
     const view = await store.readView(claim);

@@ -4,8 +4,7 @@
  */
 
 export { NoopAuditWriter } from './noop-writers.js';
-export { runSubagent, getDisplayResult, getSubagentStillRunning } from './run.js';
-export type { SubagentStillRunningEvidence } from './run.js';
+export { runSubagent, getDisplayResult } from './run.js';
 export type { DegradedArtifact } from './agent.js';
 // phase 1858 Step B (SA-D1): 命名输入与 typed outcome 显式导出、编译器检查唯一入口
 export type { RunSubagentOptions, RunSubagentResult } from './run.js';
@@ -17,9 +16,15 @@ export { resolveSubagentRunDir } from './result-dir-query.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
 
-// Phase 2248 Step C: persistent identity/admission and observation capability.
-// The existing run/agent loops remain unchanged until Step D.
+// Phase 2248 C/D: persistent admission, observation and self-owned execution.
 export { createSubagentRunner, SubagentExecutionReference, SubagentRunnerImpl } from './execution-reference.js';
+export { createSubagentExecutionRunner, SubagentExecutionRunner } from './execution-runner.js';
+export type {
+  SubagentAttempt,
+  SubagentAttemptResult,
+  SubagentExecutionDriver,
+  SubagentExecutionRunnerOptions,
+} from './execution-runner.js';
 export {
   createSubagentExecutionStore,
   normalizeSubagentLocation,

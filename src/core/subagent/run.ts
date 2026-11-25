@@ -1,10 +1,7 @@
 // src/core/subagent/run.ts
 /**
- * runSubagent — sync subagent lifecycle helper
- * phase 750 NEW、SubAgent 模块自治 sync subagent runtime + cleanup
- * mirror async path src/core/async-task-system/subagent-executor.ts 模板简化版
- *
- * Caller 接口面最小化（M#8）：传业务 params、不传 audit/stream/workspace 基础设施细节
+ * runSubagent — compatibility projection over the self-owned execution runner.
+ * Resource assembly lives in the fixed driver; this module has no second run loop.
  */
 
 import * as path from 'path';
@@ -13,236 +10,390 @@ import { createAuditWriter } from '../../foundation/audit/index.js';
 import { makeTraceId, type TraceId } from '../../foundation/audit/index.js';
 import { formatErr, randomHex } from '../../foundation/node-utils/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError, type LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolExecutionContext, type ToolRegistry } from '../../foundation/tools/index.js';
-// createToolRegistry removed — caller owns registry assembly (M#1 align)
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-// phase 691 Step C / phase 1488: removed import of TASKS_SYNC_DIR from async-task-system.
-// TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { SubAgent, type DegradedArtifact } from './agent.js';
 import { createSubAgentRecoveryStore } from './recovery-state.js';
 import { DONE_TOOL_NAME, createResultCaptureChannel, parseCapturedResult } from './tools/done.js';
 import { createSubAgentLifecycleSink } from './lifecycle-sink.js';
 import { bindRunCapture } from './registry-helper.js';
+import { createSubagentExecutionRunner, type SubagentAttemptResult } from './execution-runner.js';
+import type {
+  SubagentExecutionDegraded,
+  SubagentFinalOutcome,
+  SubagentJsonValue,
+} from './execution-types.js';
+import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 
 export interface RunSubagentOptions {
-  // 标识
   agentId: string;
-
-  // 权限注入（caller 计算后传入）
   toolProfile?: ToolProfile;
-  /** Caller-scoped gate facts; descriptors and provider tools stay canonical. */
   execution?: ToolExecutionContext;
-
-  // 基础设施依赖（caller 注入）
   clawDir: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
-
-  // 任务
   prompt: string;
   systemPrompt: string;
-
-  // 持久化位置（caller own resource path、如 'tasks/sync/subagent/<id>'）
   resultDir: string;
-
-  // phase 691 Step C / phase 1488: caller 计算 path.join(clawDir, TASKS_SYNC_DIR) 后注入。
-  // TASKS_SYNC_DIR 为 ClawIdentity 持有的中性 namespace 名称；L3 SubAgent 不 own 该常量（M#5 严守）。
-  // ToolExecutor 需要 syncDir 用于 file-tool 同 claw 沙箱内的 sync workspace 子目录解析。
   syncDir: string;
-
-  // 行为参数（per phase 747 ctor required 模板）
-  // phase 1490: maxSteps optional / undefined → SubAgent boundary fallback to DEFAULT_MAX_STEPS
   maxSteps?: number;
   idleTimeoutMs?: number;
-
-  // optional
   signal?: AbortSignal;
-  timeoutMs?: number;           // whole-task timeout（async caller 用、verifier 用 idleTimeoutMs only）
+  timeoutMs?: number;
   toolsForLLM?: ToolDefinition[];
   onIdleTimeout?: () => void;
-
-  // NEW (phase 765)：取 capturedResult 用的 tool name / default DONE_TOOL_NAME (phase 1056)
   resultTool?: string;
-
-  // NEW (phase 767)：shadow 需要传完整合成 messages
   messages?: Message[];
-
-  // NEW (phase 1029 / F-2)：tool-level timeout inheritance from caller ExecContext
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
-  /** Parent trace when available; otherwise runSubagent creates a durable run trace. */
   traceId?: TraceId;
-  /** Business contract correlation when this subagent verifies a contract. */
   currentContractId?: string;
-
 }
 
 export interface RunSubagentResult {
   text: string;
   capturedResult?: unknown;
-  /**
-   * phase 1858 Step G (SA-D6): 持久化/结算降级证据（哪些 artifact、何阶段失败）。
-   * best-effort 写点失败不改变执行结果，但必须可见；全成功时缺省。
-   */
   degraded?: DegradedArtifact[];
 }
 
-/**
- * phase 1858 Step E (SA-D4): terminal outcome 前无法可靠 join 时的「已收敛 / 仍运行」typed 证据。
- *
- * race 失败（timeout/abort 胜出）→ agent.run() 有界等待 runReact settle：
- * 窗口内收敛 → `subagentStillRunning: false`；超窗仍未收敛 → `true`（仍可能继续产生
- * 工具副作用）+ audit 留证。证据随上抛错误对象移交 owner（ATS/verifier/shadow）处置。
- */
-export interface SubagentStillRunningEvidence {
-  subagentStillRunning: boolean;
+interface PersistedRunSubagentInput {
+  readonly schema_version: 1;
+  readonly kind: 'run_subagent_options';
+  readonly agentId: string;
+  readonly clawDir: string;
+  readonly syncDir: string;
+  readonly resultDir: string;
+  readonly prompt: string;
+  readonly systemPrompt: string;
+  readonly traceId?: TraceId;
+  readonly toolProfile?: ToolProfile;
+  readonly execution?: ToolExecutionContext;
+  readonly maxSteps?: number;
+  readonly idleTimeoutMs?: number;
+  readonly timeoutMs?: number;
+  readonly toolsForLLM?: ToolDefinition[];
+  readonly resultTool?: string;
+  readonly messages?: Message[];
+  readonly toolTimeoutMs?: number;
+  readonly currentContractId?: string;
 }
 
-export function getSubagentStillRunning(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as Partial<SubagentStillRunningEvidence>).subagentStillRunning === true;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
-  await opts.fs.ensureDir(opts.resultDir);
+function isToolDefinition(value: unknown): value is ToolDefinition {
+  return isRecord(value) && typeof value.name === 'string' && typeof value.description === 'string'
+    && isRecord(value.input_schema);
+}
 
-  // audit 自治创建（caller 不传基础设施 writer、M#8 接口最小）
-  // stream 走 L2 createPerResourceStreamWriter（M#3 stream 物理格式归 L2、phase 1116）
-  const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
-  const traceId = opts.traceId ?? makeTraceId(randomHex(8));
-  const streamPath = `${opts.resultDir}/${STREAM_FILE}`;
-  const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
-  const taskStreamWriter = {
-    write: (event: Record<string, unknown>): void => {
-      const tsEvent = { ts: Date.now(), ...event } as StreamEvent;
-      baseStreamWriter.write(tsEvent);
-    },
-  };
+function isMessage(value: unknown): value is Message {
+  return isRecord(value)
+    && (value.role === 'user' || value.role === 'assistant' || value.role === 'system')
+    && (typeof value.content === 'string' || Array.isArray(value.content));
+}
 
-  // dialog store
-  const messageStore = createDialogStore(opts.fs, opts.resultDir, auditWriter, 'messages.json');
+function isExecutionContext(value: unknown): value is ToolExecutionContext {
+  return isRecord(value) && typeof value.callerKind === 'string';
+}
 
-  // Phase 1933 Step D: 每 run 一个恢复 store 实例（加载面 + RecoveryDelivery 交付面）；
-  // 状态落 ${resultDir}/recovery/，重启后由同 resultDir 的新实例从磁盘播种。
-  const recoveryStore = createSubAgentRecoveryStore({ fs: opts.fs, resultDir: opts.resultDir });
+function isDegradedArtifact(value: unknown): value is DegradedArtifact {
+  return isRecord(value)
+    && (value.artifact === 'steps_log' || value.artifact === 'dialog' || value.artifact === 'log' || value.artifact === 'completeness')
+    && typeof value.stage === 'string' && typeof value.error === 'string';
+}
 
-  // phase 1858 Step F (SA-D5): 每 run 独占 capture channel；registry 视图把 DONE tool 条目
-  // 绑定到本 run 通道（caller registry 不被修改）——结果由执行侧写入、本 helper 直接读取。
-  const capture = createResultCaptureChannel<{ result: string }>();
-  const runRegistry = bindRunCapture(opts.registry, capture);
-
-  // tools for LLM — caller 可 override；默认用 registry 全量（caller 已负责 profile filter）
-  const toolsForLLM = opts.toolsForLLM ?? runRegistry.formatForLLM(runRegistry.getAll());
-
-  // workspace shared with caller workspaceDir 路径决策（mirror async / verifier 既有 phase 518 决策）
-  const sharedWorkspaceDir = path.join(opts.clawDir, CLAWSPACE_DIR);
-
-  // phase 1489 (M#8 derive): caller (run.ts) own ToolExecutor 构造、SubAgent 不再 own
-  // 7 个 executor-only 字段、SubAgentOptions 收窄到「SubAgent 自身真正需要的」最小集合。
-  // phase 1858 Step K (SA-D10): run helper 构造 lifecycle sink adapter（真 AuditLog → 结构化 sink；
-  // agentId / traceId / currentContractId 绑定在此）。ToolExecutor / DialogStore 仍走完整 AuditLog（foundation 契约）。
-  const sink = createSubAgentLifecycleSink({
-    auditWriter,
+function serializeInput(opts: RunSubagentOptions): PersistedRunSubagentInput {
+  return {
+    schema_version: 1,
+    kind: 'run_subagent_options',
     agentId: opts.agentId,
-    traceId,
-    currentContractId: opts.currentContractId,
-  });
-
-  const toolExecutor = new ToolExecutor({
-    registry: runRegistry,
-    defaultTimeoutMs: opts.toolTimeoutMs,
     clawDir: opts.clawDir,
     syncDir: opts.syncDir,
-    workspaceDir: sharedWorkspaceDir,
-    fs: opts.fs,
-    fsFactory: opts.fsFactory,
-    llm: opts.llm,
-    auditWriter,
-    execution: opts.execution ?? {
-      callerKind: 'task',
-      allowDone: true,
-      allowShadow: false,
-      allowSummon: false,
-      allowNotifyClaw: false,
-    },
-  });
-
-  const agent = new SubAgent({
-    agentId: opts.agentId,
     resultDir: opts.resultDir,
-    messageStore,
     prompt: opts.prompt,
     systemPrompt: opts.systemPrompt,
-    toolExecutor,
-    llm: opts.llm,
-    registry: runRegistry,
-    fs: opts.fs,
-    maxSteps: opts.maxSteps,
-    idleTimeoutMs: opts.idleTimeoutMs,
-    signal: opts.signal,
-    timeoutMs: opts.timeoutMs,
-    toolsForLLM,
-    toolProfile: opts.toolProfile,
-    onIdleTimeout: opts.onIdleTimeout,
-    taskStreamWriter,
-    sink,
-    traceId,
-    messages: opts.messages,
-    permissionChecker: opts.permissionChecker,
-    recoveryStore,
-  });
-
-  let text: string;
-  try {
-    text = await agent.run();
-  } catch (err) {
-    // phase 1858 Step G (SA-D6): 失败路径透传——降级证据随错误对象移交 owner（同 Step E 承载模式）
-    const degraded = agent.getDegradedArtifacts();
-    if (degraded.length > 0) {
-      const carrier = typeof err === 'object' && err !== null ? err : new Error(formatErr(err));
-      Object.assign(carrier, { degraded: [...degraded] });
-      throw carrier;
-    }
-    throw err;
-  }
-
-  // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
-  // phase 805 设计意图：by-name string 0 import (避 L3→L4 反向 import / mirror shadow-system/system.ts:129 'done')
-  // phase 1056: default 改为 DONE_TOOL_NAME — done 是单一 result-capture 工具。
-  // phase 1858 Step F (SA-D5): 主路径（DONE_TOOL_NAME）读本 run 独占通道；
-  // 自定义 resultTool 名（无生产调用方的遗留 seam）保留按名读取——其捕获机制不在本模块职责内。
-  const toolName = opts.resultTool ?? DONE_TOOL_NAME;
-  const capturedResult = toolName === DONE_TOOL_NAME
-    ? capture.get()
-    : (opts.registry.get(toolName) as { capturedResult?: unknown } | undefined)?.capturedResult;
-
-  // phase 1858 Step H (SA-D7): capture 协议边界验证 —— 不合协议登记 audit（不静默折叠）
-  const parsedCapture = capturedResult === undefined ? undefined : parseCapturedResult(capturedResult);
-  if (parsedCapture?.kind === 'malformed') {
-    sink.captureProtocolMalformed({ tool: toolName, reason: parsedCapture.reason });
-  }
-
-  // phase 1858 Step G (SA-D6): 降级证据并入 typed outcome（成功路径）
-  const degraded = agent.getDegradedArtifacts();
-  return { text, capturedResult, degraded: degraded.length > 0 ? [...degraded] : undefined };
+    ...(opts.traceId !== undefined ? { traceId: opts.traceId } : {}),
+    ...(opts.toolProfile !== undefined ? { toolProfile: opts.toolProfile } : {}),
+    ...(opts.execution !== undefined ? { execution: opts.execution } : {}),
+    ...(opts.maxSteps !== undefined ? { maxSteps: opts.maxSteps } : {}),
+    ...(opts.idleTimeoutMs !== undefined ? { idleTimeoutMs: opts.idleTimeoutMs } : {}),
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.toolsForLLM !== undefined ? { toolsForLLM: opts.toolsForLLM } : {}),
+    ...(opts.resultTool !== undefined ? { resultTool: opts.resultTool } : {}),
+    ...(opts.messages !== undefined ? { messages: opts.messages } : {}),
+    ...(opts.toolTimeoutMs !== undefined ? { toolTimeoutMs: opts.toolTimeoutMs } : {}),
+    ...(opts.currentContractId !== undefined ? { currentContractId: opts.currentContractId } : {}),
+  };
 }
 
-// caller 负责 registry 装配（含 profile filter + 特殊工具如 done）
-// runSubagent 只 own audit/stream/workspace/dialog store lifecycle
+function parseInput(value: SubagentJsonValue): PersistedRunSubagentInput {
+  if (!isRecord(value) || value.schema_version !== 1 || value.kind !== 'run_subagent_options') {
+    throw new TypeError('invalid persisted RunSubagentOptions input header');
+  }
+  for (const field of ['agentId', 'clawDir', 'syncDir', 'resultDir', 'prompt', 'systemPrompt'] as const) {
+    if (typeof value[field] !== 'string') throw new TypeError(`invalid persisted RunSubagentOptions field: ${field}`);
+  }
+  const optionalString = (field: 'toolProfile' | 'resultTool' | 'currentContractId' | 'traceId'): string | undefined => {
+    const item = value[field];
+    if (item !== undefined && typeof item !== 'string') throw new TypeError(`invalid persisted field: ${field}`);
+    return item;
+  };
+  const optionalNumber = (field: 'maxSteps' | 'idleTimeoutMs' | 'timeoutMs' | 'toolTimeoutMs'): number | undefined => {
+    const item = value[field];
+    if (item !== undefined && (typeof item !== 'number' || !Number.isFinite(item) || item < 0)) {
+      throw new TypeError(`invalid persisted field: ${field}`);
+    }
+    return item;
+  };
+  const tools = value.toolsForLLM;
+  if (tools !== undefined && (!Array.isArray(tools) || !tools.every(isToolDefinition))) {
+    throw new TypeError('invalid persisted field: toolsForLLM');
+  }
+  const messages = value.messages;
+  if (messages !== undefined && (!Array.isArray(messages) || !messages.every(isMessage))) {
+    throw new TypeError('invalid persisted field: messages');
+  }
+  const execution = value.execution;
+  if (execution !== undefined && !isExecutionContext(execution)) {
+    throw new TypeError('invalid persisted field: execution');
+  }
+  return {
+    schema_version: 1,
+    kind: 'run_subagent_options',
+    agentId: value.agentId as string,
+    clawDir: value.clawDir as string,
+    syncDir: value.syncDir as string,
+    resultDir: value.resultDir as string,
+    prompt: value.prompt as string,
+    systemPrompt: value.systemPrompt as string,
+    ...(optionalString('traceId') !== undefined ? { traceId: makeTraceId(optionalString('traceId')!) } : {}),
+    ...(optionalString('toolProfile') !== undefined ? { toolProfile: optionalString('toolProfile') } : {}),
+    ...(optionalString('resultTool') !== undefined ? { resultTool: optionalString('resultTool') } : {}),
+    ...(optionalString('currentContractId') !== undefined ? { currentContractId: optionalString('currentContractId') } : {}),
+    ...(optionalNumber('maxSteps') !== undefined ? { maxSteps: optionalNumber('maxSteps') } : {}),
+    ...(optionalNumber('idleTimeoutMs') !== undefined ? { idleTimeoutMs: optionalNumber('idleTimeoutMs') } : {}),
+    ...(optionalNumber('timeoutMs') !== undefined ? { timeoutMs: optionalNumber('timeoutMs') } : {}),
+    ...(optionalNumber('toolTimeoutMs') !== undefined ? { toolTimeoutMs: optionalNumber('toolTimeoutMs') } : {}),
+    ...(tools !== undefined ? { toolsForLLM: tools } : {}),
+    ...(messages !== undefined ? { messages } : {}),
+    ...(execution !== undefined ? { execution } : {}),
+  };
+}
 
-/**
- * phase 1091: 统一 capturedResult 读取，消除 3 处重复 cast
- * phase 1858 Step H (SA-D7): 按 typed capture 协议边界验证——合协议 → 显示值；
- * 无 capture → text；畸形 → text 显式回退（typed 判定经 parseCapturedResult、登记在 run 边界）。
- */
+function executionResultDir(opts: RunSubagentOptions): string {
+  if (!path.isAbsolute(opts.resultDir)) return opts.resultDir;
+  const bases = [opts.clawDir];
+  if (typeof opts.fs.resolve === 'function') bases.unshift(opts.fs.resolve('.'));
+  for (const base of bases) {
+    if (!path.isAbsolute(base)) continue;
+    const relative = path.relative(base, opts.resultDir);
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+      return relative.split(path.sep).join(path.posix.sep);
+    }
+  }
+  throw new Error(`runSubagent resultDir must be inside clawDir: ${opts.resultDir}`);
+}
+
+function lateResult(error: unknown, resultDir: string, streamPath: string): SubagentAttemptResult | undefined {
+  if (!isRecord(error) || !isRecord(error.subagentLateResult)) return undefined;
+  const late = error.subagentLateResult;
+  if (typeof late.text !== 'string' || typeof late.stopReason !== 'string') return undefined;
+  return {
+    content: late.text,
+    rawResult: { text: late.text, stopReason: late.stopReason },
+    artifacts: [
+      { kind: 'dialog', path: `${resultDir}/messages.json` },
+      { kind: 'stream', path: streamPath },
+    ],
+  };
+}
+
+function executionDegraded(agent: SubAgent): SubagentExecutionDegraded[] {
+  return agent.getDegradedArtifacts().map(item => ({
+    stage: 'artifact',
+    artifact: `${item.artifact}:${item.stage}`,
+    error: item.error,
+  }));
+}
+
+function jsonValue(value: unknown, label = 'capturedResult'): SubagentJsonValue | undefined {
+  if (value === undefined) return undefined;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError(`${label} must be JSON serializable`);
+  return JSON.parse(serialized) as SubagentJsonValue;
+}
+
+function createRunDriver(opts: RunSubagentOptions, auditWriter: ReturnType<typeof createAuditWriter>) {
+  return {
+    recoveryFor(error: unknown) {
+      return error instanceof LLMAllProvidersFailedError
+        ? 'shared_dependency' as const
+        : 'none' as const;
+    },
+    createAttempt(request: {
+      input: SubagentJsonValue;
+      signal: AbortSignal;
+      deadlineAtMs?: number;
+    }) {
+      const input = parseInput(request.input);
+      const resultDir = input.resultDir;
+      const traceId = input.traceId ?? makeTraceId(randomHex(8));
+      const streamPath = `${resultDir}/${STREAM_FILE}`;
+      const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
+      const taskStreamWriter = {
+        write: (event: Record<string, unknown>): void => {
+          baseStreamWriter.write({ ts: Date.now(), ...event } as StreamEvent);
+        },
+      };
+      const messageStore = createDialogStore(opts.fs, resultDir, auditWriter, 'messages.json');
+      const recoveryStore = createSubAgentRecoveryStore({ fs: opts.fs, resultDir });
+      const capture = createResultCaptureChannel<{ result: string }>();
+      const runRegistry = bindRunCapture(opts.registry, capture);
+      const toolsForLLM = input.toolsForLLM ?? runRegistry.formatForLLM(runRegistry.getAll());
+      const sink = createSubAgentLifecycleSink({
+        auditWriter,
+        agentId: input.agentId,
+        traceId,
+        currentContractId: input.currentContractId,
+      });
+      const toolExecutor = new ToolExecutor({
+        registry: runRegistry,
+        defaultTimeoutMs: input.toolTimeoutMs,
+        clawDir: input.clawDir,
+        syncDir: input.syncDir,
+        workspaceDir: path.join(input.clawDir, CLAWSPACE_DIR),
+        fs: opts.fs,
+        fsFactory: opts.fsFactory,
+        llm: opts.llm,
+        auditWriter,
+        execution: input.execution ?? {
+          callerKind: 'task',
+          allowDone: true,
+          allowShadow: false,
+          allowSummon: false,
+          allowNotifyClaw: false,
+        },
+      });
+      const agent = new SubAgent({
+        agentId: input.agentId,
+        resultDir,
+        messageStore,
+        prompt: input.prompt,
+        systemPrompt: input.systemPrompt,
+        toolExecutor,
+        llm: opts.llm,
+        registry: runRegistry,
+        fs: opts.fs,
+        maxSteps: input.maxSteps,
+        idleTimeoutMs: input.idleTimeoutMs,
+        signal: request.signal,
+        timeoutMs: input.timeoutMs,
+        deadlineAtMs: request.deadlineAtMs,
+        toolsForLLM,
+        toolProfile: input.toolProfile,
+        onIdleTimeout: opts.onIdleTimeout,
+        taskStreamWriter,
+        sink,
+        traceId,
+        messages: input.messages,
+        permissionChecker: opts.permissionChecker,
+        recoveryStore,
+      });
+
+      let convergedLateResult: SubagentAttemptResult | undefined;
+      const completion = (async () => {
+        let text: string;
+        try {
+          text = await agent.run();
+        } catch (error) {
+          convergedLateResult = lateResult(error, resultDir, streamPath);
+          const degraded = agent.getDegradedArtifacts();
+          if (degraded.length > 0) {
+            const carrier = typeof error === 'object' && error !== null ? error : new Error(formatErr(error));
+            Object.assign(carrier, { degraded: [...degraded] });
+            throw carrier;
+          }
+          throw error;
+        }
+        const toolName = input.resultTool ?? DONE_TOOL_NAME;
+        const capturedResult = toolName === DONE_TOOL_NAME
+          ? capture.get()
+          : (opts.registry.get(toolName) as { capturedResult?: unknown } | undefined)?.capturedResult;
+        const parsedCapture = capturedResult === undefined ? undefined : parseCapturedResult(capturedResult);
+        if (parsedCapture?.kind === 'malformed') {
+          sink.captureProtocolMalformed({ tool: toolName, reason: parsedCapture.reason });
+        }
+        const degraded = agent.getDegradedArtifacts();
+        const rawResult: Record<string, SubagentJsonValue> = { text };
+        const jsonCapture = jsonValue(capturedResult);
+        if (jsonCapture !== undefined) rawResult.capturedResult = jsonCapture;
+        if (degraded.length > 0) rawResult.degraded = degraded.map(item => ({ ...item }));
+        return {
+          content: text,
+          rawResult,
+          artifacts: [
+            { kind: 'dialog', path: `${resultDir}/messages.json` },
+            { kind: 'stream', path: streamPath },
+          ],
+        };
+      })();
+      return {
+        completion,
+        close: () => { agent.close(); },
+        lateResult: () => convergedLateResult,
+        degraded: () => executionDegraded(agent),
+      };
+    },
+  };
+}
+
+function projectResult(outcome: SubagentFinalOutcome): RunSubagentResult {
+  const raw = outcome.rawResult;
+  if (!isRecord(raw) || typeof raw.text !== 'string') {
+    throw new Error(`completed subagent outcome has no valid RunSubagentResult: ${outcome.identity.attemptId}`);
+  }
+  const degraded = Array.isArray(raw.degraded) ? raw.degraded.filter(isDegradedArtifact) : [];
+  return {
+    text: raw.text,
+    ...(raw.capturedResult !== undefined ? { capturedResult: raw.capturedResult } : {}),
+    ...(degraded.length > 0 ? { degraded } : {}),
+  };
+}
+
+/** Compatibility convenience: start + completion, with no independent execution logic. */
+export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
+  const input = jsonValue(serializeInput(opts), 'runSubagent input');
+  if (input === undefined) throw new TypeError('runSubagent input must be JSON serializable');
+  const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
+  const runner = createSubagentExecutionRunner({
+    fs: opts.fs,
+    auditWriter,
+    driver: createRunDriver(opts, auditWriter),
+  });
+  const execution = await runner.start({
+    runId: opts.agentId,
+    resultDir: executionResultDir(opts),
+    input,
+    signal: opts.signal,
+    deadlineAtMs: Date.now() + (opts.timeoutMs ?? SUBAGENT_TIMEOUT_MS),
+  });
+  const outcome = await execution.completion;
+  if (outcome.kind !== 'completed') {
+    throw outcome.cause ?? new Error(outcome.content);
+  }
+  return projectResult(outcome);
+}
+
+/** Uniform display projection for the result-capture protocol. */
 export function getDisplayResult(text: string, capturedResult?: unknown): string {
   if (capturedResult === undefined) return text;
   const parsed = parseCapturedResult(capturedResult);

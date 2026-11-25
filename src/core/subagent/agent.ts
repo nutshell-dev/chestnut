@@ -64,6 +64,13 @@ export interface DegradedArtifact {
   error: string;
 }
 
+export interface SubagentLateResultEvidence {
+  readonly subagentLateResult?: {
+    readonly text: string;
+    readonly stopReason: string;
+  };
+}
+
 export interface SubAgentOptions {
   agentId: string;
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
@@ -77,6 +84,8 @@ export interface SubAgentOptions {
   // phase 1490: maxSteps optional / undefined → boundary fallback to DEFAULT_MAX_STEPS in runReact
   maxSteps?: number;
   timeoutMs?: number;
+  /** Absolute whole-run deadline; resume reuses the original value instead of gaining budget. */
+  deadlineAtMs?: number;
   signal?: AbortSignal;
   toolsForLLM?: ToolDefinition[];  // Pre-filtered tool list for LLM, overrides registry.getAll()
   idleTimeoutMs?: number;
@@ -114,6 +123,7 @@ export class SubAgent {
   private maxConsecutiveParseErrors?: number;
   private maxConsecutiveMaxTokensToolUse?: number;
   private timeoutMs: number;
+  private deadlineAtMs?: number;
   private signal?: AbortSignal;
   private logPath: string;
   private toolsForLLM?: ToolDefinition[];
@@ -131,6 +141,7 @@ export class SubAgent {
   private permissionChecker?: PermissionChecker;
   private runReact: (options: ReactOptions) => Promise<ReactResult>;
   private recoveryStore?: SubAgentRecoveryStore;
+  private closeStream?: () => void;
 
   // phase 283: textEndCount retained for AC-4; other counters dropped (by-construction equal via commitTurnEvent)
   private textEndCount = 0;
@@ -157,6 +168,7 @@ export class SubAgent {
     this.maxConsecutiveParseErrors = options.maxConsecutiveParseErrors;
     this.maxConsecutiveMaxTokensToolUse = options.maxConsecutiveMaxTokensToolUse;
     this.timeoutMs = options.timeoutMs ?? SUBAGENT_TIMEOUT_MS; // 5 min default
+    this.deadlineAtMs = options.deadlineAtMs;
     this.signal = options.signal;
     this.logPath = `${this.resultDir}/daemon.log`;
     this.toolsForLLM = options.toolsForLLM;
@@ -187,6 +199,7 @@ export class SubAgent {
 
     const timeout = createTimeoutController({
       timeoutMs: this.timeoutMs,
+      ...(this.deadlineAtMs !== undefined ? { deadlineAtMs: this.deadlineAtMs } : {}),
       idleTimeoutMs: this.idleTimeoutMs,
       onIdleTimeout: this.onIdleTimeout,
       externalSignal: this.signal,
@@ -198,6 +211,7 @@ export class SubAgent {
       streamWriter: this.taskStreamWriter,
       sink: this.sink,
     });
+    this.closeStream = stream.closeSw;
 
     // Turn start: written before any potentially-throwing init so catch always pairs it
     stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_START });
@@ -392,29 +406,38 @@ export class SubAgent {
             auditStepStart = Date.now();
           },
         });
-      let result;
-      try {
-        result = await Promise.race([runReactPromise, timeout.timeoutPromise]);
-      } catch (raceErr) {
-        // phase 337 M6: timeout / abort 赢了 race。有界等待 runReact 自然 settle
-        // （signal 已 abort、合作的 runReact 会立即抛出）、让 in-flight tool / disk
-        // write 收尾。上限 RUNREACT_ABORT_SETTLE_MS 防非合作 runReact 无限阻塞
-        // subagent shutdown。
-        // phase 1858 Step E (SA-D4): 超窗未收敛不再静默「交给 ghost 兜底」——
-        // 留证 + 以 typed 字段随错误移交 owner（可证明分类：已收敛 / 仍运行）。
-        const RUNREACT_ABORT_SETTLE_MS = 100;
-        const settled = await Promise.race([
-          runReactPromise.then(() => true, () => true),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), RUNREACT_ABORT_SETTLE_MS)),
-        ]);
-        if (!settled) {
-          this.sink.runReactAbortStillRunning({ settleMs: RUNREACT_ABORT_SETTLE_MS });
+      type ReactRace =
+        | { kind: 'result'; result: Awaited<typeof runReactPromise> }
+        | { kind: 'error'; error: unknown }
+        | { kind: 'stop'; error: unknown };
+      const raced: ReactRace = await Promise.race([
+        runReactPromise.then(
+          (result): ReactRace => ({ kind: 'result', result }),
+          (error): ReactRace => ({ kind: 'error', error }),
+        ),
+        timeout.timeoutPromise.then(
+          (): ReactRace => { throw new Error('timeoutPromise resolved unexpectedly'); },
+          (error): ReactRace => ({ kind: 'stop', error }),
+        ),
+      ]);
+      if (raced.kind === 'stop') {
+        // The stop request wins the presented outcome, but it is not convergence.
+        // Keep the owner, stream and final snapshot alive until the real loop and
+        // every non-cooperative child promise have actually settled.
+        const late = await runReactPromise.then(value => value, () => undefined);
+        if (late && typeof raced.error === 'object' && raced.error !== null) {
+          const evidence: SubagentLateResultEvidence = {
+            subagentLateResult: {
+              text: late.finalText ?? '[No output produced]',
+              stopReason: late.stopReason,
+            },
+          };
+          throw Object.assign(raced.error, evidence);
         }
-        const carrier = typeof raceErr === 'object' && raceErr !== null
-          ? raceErr
-          : new Error(formatErr(raceErr));
-        throw Object.assign(carrier, { subagentStillRunning: !settled });
+        throw raced.error;
       }
+      if (raced.kind === 'error') throw raced.error;
+      const result = raced.result;
 
       // Log completion
       const duration = Date.now() - startTime;
@@ -450,7 +473,6 @@ export class SubAgent {
         timeoutMs: this.timeoutMs,
       });
       stream.markTurnEnded();
-      stream.closeSw();
 
       throw classifiedError;
     } finally {
@@ -460,7 +482,6 @@ export class SubAgent {
       if (!stream.isTurnEnded()) {
         stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_END });
         this.sink.turnEnd();
-        stream.closeSw();
       }
       // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
       // Phase 1958 Step B: recoveryBlocked（恢复事实不可判定已阻断）→ 跳过落盘，
@@ -1005,6 +1026,11 @@ export class SubAgent {
       (d) => d.artifact === artifact && d.stage === stage && d.error === error,
     );
     if (!exists) this.degradedArtifacts.push({ artifact, stage, error });
+  }
+
+  /** Close only after the execution runner has committed its final outcome. */
+  close(): void {
+    this.closeStream?.();
   }
 
   /** phase 1858 Step G (SA-D6): 本次 run 的降级证据（run 结束/失败后由 run helper 读取）。 */

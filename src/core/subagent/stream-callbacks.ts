@@ -7,6 +7,7 @@
  * - callbacks 是 ReAct loop 接受的 7 个 primitive stream 回调（不含 resetIdle wrap / 不含 appendToLog / 不含 auditStepTools）
  *   - run() 调用方按需用箭头函数 wrap 这些 callback 注入 run-loop-local 副作用
  * - markTurnEnded / closeSw 各自管 turnEnded / swClosed 两个 closure flag
+ * - Phase 2248 D: closeSw 由执行 owner 在真实收敛且 outcome 提交后调用；stop/timeout 不提前关闭
  *
  * tests/core/subagent.test.ts 含 ghost-after-turn-end 守护测试。
  */

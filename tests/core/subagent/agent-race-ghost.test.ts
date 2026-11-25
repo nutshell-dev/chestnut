@@ -11,8 +11,6 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
-// phase 1858 Step E (SA-D4): typed 仍运行证据经 barrel 消费
-import { getSubagentStillRunning } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
@@ -112,55 +110,42 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
     vi.clearAllMocks();
   });
 
-  it('timeout 后 runReact callback 不污染 sw（safeSwWrite 丢弃 / ghost audit 写一次）', async () => {
+  it('timeout 只发 signal：真实收敛前不关闭流，晚到 callback 完整落盘后再结算', async () => {
     const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
+    let abortObservedResolve!: () => void;
+    const abortObserved = new Promise<void>(resolve => { abortObservedResolve = resolve; });
 
-    // phase 373: wrap mockAuditWriter.write 在 GHOST_CALLBACK_AFTER_TURN_END 时 resolve、替原 vi.waitFor polling
-    let ghostAuditResolve!: () => void;
-    const ghostAudited = new Promise<void>((r) => { ghostAuditResolve = r; });
-    const originalWrite = mockAuditWriter.write;
-    mockAuditWriter.write = vi.fn((event: string, ...args: unknown[]) => {
-      originalWrite(event, ...(args as []));
-      if (event === SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END) ghostAuditResolve();
+    runReact.mockImplementation(async (opts: {
+      ctx: { signal: AbortSignal };
+      stepCallbacks?: {
+        onTextDelta?: (delta: string) => void;
+        onToolCall?: (name: string, toolUseId: string) => Promise<void>;
+      };
+    }) => {
+      if (opts.ctx.signal.aborted) abortObservedResolve();
+      else opts.ctx.signal.addEventListener('abort', () => { abortObservedResolve(); }, { once: true });
+      await new Promise<void>(resolve => { runReactRelease = resolve; });
+      opts.stepCallbacks?.onTextDelta?.('late text');
+      await opts.stepCallbacks?.onToolCall?.('late_tool', 'lt1');
+      return { finalText: 'late result', stopReason: 'end_turn' };
     });
 
-    // runReact 在 timeout 后才调 callback（timeout 已触发）
-    runReact.mockImplementation(
-      async (opts: {
-        onTextDelta?: (delta: string) => void;
-        onToolCall?: (name: string, toolUseId: string) => void;
-      }) => {
-        await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
-        // timeout 后这些 callback 是 "ghost"
-        opts.stepCallbacks?.onTextDelta?.('ghost text');
-        opts.stepCallbacks?.onToolCall?.('ghost_tool', 'gt1');
-        return { finalText: 'result', stopReason: 'end_turn' };
-      },
-    );
+    let settled = false;
+    const running = agent.run();
+    void running.catch(() => { settled = true; });
+    await abortObserved;
+    expect(settled).toBe(false);
+    expect(sw.events.filter(event => event.type === 'turn_interrupted')).toHaveLength(0);
 
-    await expect(agent.run()).rejects.toThrow();
     runReactRelease!();
-    await ghostAudited;
-    // turn_interrupted 应在 ghost callback 前已 emit（agent run reject 时）
-    const interruptedCount = sw.events.filter((e) => e.type === 'turn_interrupted').length;
-    expect(interruptedCount).toBe(1);
-
-    // turn_interrupted 已写入
-    const interrupted = sw.events.filter((e) => e.type === 'turn_interrupted');
-    expect(interrupted.length).toBe(1);
-
-    // ghost callback 被丢弃，不写入 stream
-    const ghostEvents = sw.events.filter(
-      (e) => e.type === 'text_delta' || e.type === 'tool_call',
-    );
-    expect(ghostEvents.length).toBe(0);
-
-    // ghost audit 只写一次
-    const ghostAudits = mockAuditWriter.write.mock.calls.filter(
-      (call: any[]) => call[0] === SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END,
-    );
-    expect(ghostAudits.length).toBe(1);
-    expect(ghostAudits[0][1]).toContain('agentId=');
+    const err = await running.catch(error => error);
+    expect(err).toMatchObject({ subagentLateResult: { text: 'late result', stopReason: 'end_turn' } });
+    expect(sw.events.filter(event => event.type === 'text_delta' && event.delta === 'late text')).toHaveLength(1);
+    expect(sw.events.filter(event => event.type === 'tool_call' && event.name === 'late_tool')).toHaveLength(1);
+    expect(sw.events.filter(event => event.type === 'turn_interrupted')).toHaveLength(1);
+    expect(mockAuditWriter.write.mock.calls.filter(
+      call => call[0] === SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END,
+    )).toHaveLength(0);
   });
 
   it('正常完成时 sw 不受 safeSwWrite 影响', async () => {
@@ -192,15 +177,13 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
   });
 });
 
-describe('phase 1858 Step E (SA-D4): terminal outcome 前可靠 join / typed 仍运行证据', () => {
+describe('Phase 2248 Step D: timeout 与真实 convergence 分离', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('① 合作执行：race 失败后 settle 窗口内收敛 → subagentStillRunning=false、无留证行', async () => {
+  it('合作执行在 abort 后收敛，保留 timeout 原因且不产生 still-running 伪证据', async () => {
     const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
-
-    // 合作 mock：signal abort（turn_timeout）后立即收敛
     runReact.mockImplementation(async (opts: { ctx: { signal: AbortSignal } }) => {
       await new Promise<never>((_, reject) => {
         if (opts.ctx.signal.aborted) {
@@ -211,39 +194,41 @@ describe('phase 1858 Step E (SA-D4): terminal outcome 前可靠 join / typed 仍
       });
     });
 
-    const err = await agent.run().catch((e) => e);
-
+    const err = await agent.run().catch(error => error);
     expect(err).toBeInstanceOf(Error);
-    expect(getSubagentStillRunning(err)).toBe(false);
-    expect((err as { subagentStillRunning?: boolean }).subagentStillRunning).toBe(false);
-
-    const rows = mockAuditWriter.write.mock.calls.filter(
-      (call: unknown[]) => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
-    );
-    expect(rows).toHaveLength(0);
+    expect(err).not.toHaveProperty('subagentStillRunning');
+    expect(mockAuditWriter.write.mock.calls.filter(
+      call => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
+    )).toHaveLength(0);
   });
 
-  it('② 非合作执行：超窗仍未收敛 → typed stillRunning=true + audit 留证（settle_ms 与常量一致）', async () => {
+  it('非合作执行收到 abort 后仍不提前 reject；release 后才保存并交付原 timeout', async () => {
     const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
-
     let release!: () => void;
-    runReact.mockImplementation(async () => {
-      await new Promise<void>((resolve) => { release = resolve; });
+    let abortObservedResolve!: () => void;
+    const abortObserved = new Promise<void>(resolve => { abortObservedResolve = resolve; });
+    runReact.mockImplementation(async (opts: { ctx: { signal: AbortSignal } }) => {
+      opts.ctx.signal.addEventListener('abort', () => { abortObservedResolve(); }, { once: true });
+      await new Promise<void>(resolve => { release = resolve; });
       return { finalText: 'late', stopReason: 'end_turn' };
     });
 
-    const err = await agent.run().catch((e) => e);
-
-    expect(getSubagentStillRunning(err)).toBe(true);
-    expect((err as { subagentStillRunning?: boolean }).subagentStillRunning).toBe(true);
-
-    const rows = mockAuditWriter.write.mock.calls.filter(
-      (call: unknown[]) => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toContain('agentId=test-agent');
-    expect(rows[0]).toContain('settle_ms=100');
+    let settled = false;
+    const running = agent.run();
+    void running.catch(() => { settled = true; });
+    await abortObserved;
+    await new Promise<void>(resolve => { setImmediate(resolve); });
+    expect(settled).toBe(false);
+    expect(mockAuditWriter.write.mock.calls.filter(
+      call => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
+    )).toHaveLength(0);
 
     release();
+    const err = await running.catch(error => error);
+    expect(err).toMatchObject({
+      name: 'ToolTimeoutError',
+      subagentLateResult: { text: 'late', stopReason: 'end_turn' },
+    });
+    expect(err).not.toHaveProperty('subagentStillRunning');
   });
 });

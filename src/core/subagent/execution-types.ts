@@ -2,8 +2,8 @@
  * @module L3.SubAgent.ExecutionTypes
  * Persistent execution identity and observation contracts.
  *
- * These types describe the Step C capability only. They do not connect the
- * existing run/agent loops or transfer any ATS/Shadow/Contract ownership.
+ * Step C provides persistence and references; Step D connects owned execution
+ * without transferring ATS/Shadow/Contract business ownership.
  */
 
 import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
@@ -174,6 +174,8 @@ export type SubagentObservation =
 export interface SubagentStartRequest extends SubagentExecutionLocation {
   readonly input: unknown;
   readonly signal?: AbortSignal;
+  /** Absolute total deadline. Existing attempts keep their original value on attach/resume. */
+  readonly deadlineAtMs?: number;
 }
 
 export interface SubagentResumeRequest extends SubagentStartRequest {

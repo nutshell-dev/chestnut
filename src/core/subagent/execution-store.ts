@@ -79,6 +79,8 @@ const claimSchema = z.object({
     z.object({ kind: z.literal('start') }).strict(),
     z.object({ kind: z.literal('resume'), previousAttemptId: z.string().min(1) }).strict(),
   ]),
+  /** Optional for Step C records; managed executions always persist the absolute total deadline. */
+  deadlineAtMs: z.number().int().nonnegative().optional(),
   startedAtMs: z.number().int().nonnegative(),
 }).strict();
 
@@ -151,6 +153,7 @@ export interface SubagentAttemptClaim extends SubagentExecutionIdentity {
     readonly evidence: SubagentJsonValue;
   };
   readonly startBasis: { readonly kind: 'start' } | { readonly kind: 'resume'; readonly previousAttemptId: string };
+  readonly deadlineAtMs?: number;
   readonly startedAtMs: number;
 }
 
@@ -650,6 +653,7 @@ export class SubagentExecutionStore {
     readonly ordinal: number;
     readonly parentAttemptId: string | null;
     readonly startBasis: 'start' | 'resume';
+    readonly deadlineAtMs?: number;
   }): Promise<SubagentClaimResult> {
     const location = normalizeSubagentLocation(input.location);
     const capture = this.process.captureCurrentProcessRef();
@@ -682,6 +686,7 @@ export class SubagentExecutionStore {
       startBasis: input.startBasis === 'start'
         ? { kind: 'start' }
         : { kind: 'resume', previousAttemptId: input.parentAttemptId ?? '' },
+      ...(input.deadlineAtMs !== undefined ? { deadlineAtMs: input.deadlineAtMs } : {}),
       startedAtMs: this.now(),
     };
     const parsed = claimSchema.safeParse(claim);
@@ -690,7 +695,8 @@ export class SubagentExecutionStore {
     if (published.kind === 'exists') {
       const existing = await this.readClaimAt(input.ordinal);
       if (existing.runId !== location.runId || existing.inputDigest !== input.inputDigest
-          || existing.parentAttemptId !== input.parentAttemptId) {
+          || existing.parentAttemptId !== input.parentAttemptId
+          || existing.deadlineAtMs !== input.deadlineAtMs) {
         throw this.conflict(location, `different claim already owns ordinal ${input.ordinal}`);
       }
       return { kind: 'existing', claim: existing };

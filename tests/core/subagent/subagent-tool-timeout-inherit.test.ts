@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
+import { makeSubagentRunFs } from '../../helpers/subagent-run-fs.js';
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn().mockResolvedValue({ finalText: 'done', stopReason: 'end_turn' }),
@@ -52,19 +53,12 @@ function makeRunSubagentOpts(overrides: { toolTimeoutMs?: number } = {}) {
     get: vi.fn().mockReturnValue({ capturedResult: undefined }),
   };
 
-  const mockFs = {
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    append: vi.fn().mockResolvedValue(undefined),
-    appendSync: vi.fn(),
-    // Phase 1958 Step B: recovery 游标读严格三态——mock fs 必须提供 exists
-    // （确定缺席 = false），缺失方法不再被吞成「按无 cursor 继续」
-    exists: vi.fn().mockResolvedValue(false),
-  };
+  const mockFs = makeSubagentRunFs();
 
   return {
     agentId: 'test-agent',
     clawDir: '/tmp/test',
-    fs: mockFs as any,
+    fs: mockFs,
     llm: {} as any,
     registry: mockRegistry as any,
     prompt: 'test',

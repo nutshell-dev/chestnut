@@ -28,7 +28,7 @@ let runReactRelease: (() => void) | undefined;
 // phase 1489: ToolExecutor 注入 SubAgentOptions / 不再 vi.mock executor.js
 function makeMockToolExecutor(): ToolExecutor {
   return {
-    getExecContext: vi.fn().mockReturnValue({
+    getExecContext: vi.fn((_profile: string, overrides?: Record<string, unknown>) => ({
       clawId: 'test-agent',
       clawDir: '/tmp/test',
       workspaceDir: path.join('/tmp/test', 'clawspace'),
@@ -38,7 +38,8 @@ function makeMockToolExecutor(): ToolExecutor {
       maxSteps: 20,
       getElapsedMs: () => 0,
       incrementStep: vi.fn(),
-    }),
+      ...(overrides ?? {}),
+    })),
   } as unknown as ToolExecutor;
 }
 
@@ -219,45 +220,45 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
     expect(auditCols.some((c: string) => c.startsWith('content_size='))).toBe(true);
   });
 
-  it('反向 3 (边界路径反向)：swClosed 状态下 audit 仍 emit', async () => {
+  it('反向 3：timeout 后真实执行仍未收敛，晚到结果保持 audit-first 且 stream 不提前关闭', async () => {
     const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: GHOST_CALLBACK_TURN_TIMEOUT_MS });
     const swWriteSpy = vi.spyOn(sw, 'write');
+    let abortObservedResolve!: () => void;
+    const abortObserved = new Promise<void>(resolve => { abortObservedResolve = resolve; });
 
-    // phase 373: wrap mockAuditWriter.write 在 'tool_result' 时 resolve、替原 vi.waitFor polling
-    let toolResultAuditedResolve!: () => void;
-    const toolResultAudited = new Promise<void>((r) => { toolResultAuditedResolve = r; });
-    const originalWrite = mockAuditWriter.write;
-    mockAuditWriter.write = vi.fn((event: string, ...args: unknown[]) => {
-      originalWrite(event, ...(args as []));
-      if (event === 'tool_result') toolResultAuditedResolve();
+    runReact.mockImplementation(async (opts: {
+      ctx: { signal: AbortSignal };
+      stepCallbacks?: {
+        onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
+      };
+    }) => {
+      opts.ctx.signal.addEventListener('abort', () => { abortObservedResolve(); }, { once: true });
+      await new Promise<void>(resolve => { runReactRelease = resolve; });
+      opts.stepCallbacks?.onToolResult?.('late_tool', 'lt1', { success: true, content: 'late' }, 0, 5);
+      return { finalText: 'done', stopReason: 'end_turn' };
     });
 
-    // timeout 后 runReact 才调 onToolResult → ghost callback
-    runReact.mockImplementation(
-      async (opts: {
-        onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
-      }) => {
-        await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
-        opts.stepCallbacks?.onToolResult?.('ghost_tool', 'gt1', { success: true, content: 'ghost' }, 0, 5);
-        return { finalText: 'done', stopReason: 'end_turn' };
-      },
-    );
-
-    await expect(agent.run()).rejects.toThrow();
+    const running = agent.run();
+    await abortObserved;
+    expect(swWriteSpy.mock.calls.filter(
+      call => (call[0] as StreamEvent).type === SUBAGENT_EVENTS.TOOL_RESULT,
+    )).toHaveLength(0);
     runReactRelease!();
-    await toolResultAudited;
+    await expect(running).rejects.toThrow();
 
-    // audit 对 tool_result 仍写一次
-    const toolResultAudits = mockAuditWriter.write.mock.calls.filter(
-      (call: any[]) => call[0] === 'tool_result',
-    );
-    expect(toolResultAudits.length).toBe(1);
-    expect(toolResultAudits[0][1]).toBe('ghost_tool');
-
-    // stream 被 safeSwWrite gate 掉（silent skip）
+    const toolResultAudits = mockAuditWriter.write.mock.calls.filter(call => call[0] === 'tool_result');
+    expect(toolResultAudits).toHaveLength(1);
+    expect(toolResultAudits[0][1]).toBe('late_tool');
     const toolResultStreamEvents = swWriteSpy.mock.calls.filter(
-      (call: any[]) => (call[0] as StreamEvent).type === SUBAGENT_EVENTS.TOOL_RESULT,
+      call => (call[0] as StreamEvent).type === SUBAGENT_EVENTS.TOOL_RESULT,
     );
-    expect(toolResultStreamEvents.length).toBe(0);
+    expect(toolResultStreamEvents).toHaveLength(1);
+    const auditOrder = mockAuditWriter.write.mock.invocationCallOrder[
+      mockAuditWriter.write.mock.calls.findIndex(call => call[0] === 'tool_result')
+    ];
+    const streamOrder = swWriteSpy.mock.invocationCallOrder[
+      swWriteSpy.mock.calls.findIndex(call => (call[0] as StreamEvent).type === SUBAGENT_EVENTS.TOOL_RESULT)
+    ];
+    expect(auditOrder).toBeLessThan(streamOrder);
   });
 });

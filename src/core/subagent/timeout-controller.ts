@@ -34,6 +34,8 @@ type AbortEnvelope = { type?: unknown; ms?: unknown };
 
 interface TimeoutControllerOptions {
   timeoutMs: number;
+  /** Absolute total deadline; a resumed run never receives a fresh timeout window. */
+  deadlineAtMs?: number;
   idleTimeoutMs?: number;
   onIdleTimeout?: () => void;
   externalSignal?: AbortSignal;
@@ -50,9 +52,12 @@ interface TimeoutControllerHandle {
 
 export function createTimeoutController(opts: TimeoutControllerOptions): TimeoutControllerHandle {
   const controller = new AbortController();
+  const remainingMs = opts.deadlineAtMs === undefined
+    ? opts.timeoutMs
+    : Math.max(0, opts.deadlineAtMs - Date.now());
   const timeoutId = setTimeout(() => {
     controller.abort({ type: 'turn_timeout', ms: opts.timeoutMs } satisfies TurnTimerAbortReason);
-  }, opts.timeoutMs);
+  }, remainingMs);
 
   let idleTimerId: ReturnType<typeof setTimeout> | undefined;
   const resetIdle = opts.idleTimeoutMs

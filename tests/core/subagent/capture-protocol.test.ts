@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { makeSubagentRunFs } from '../../helpers/subagent-run-fs.js';
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -84,14 +85,7 @@ describe('phase 1858 Step H: getDisplayResult 三态（SA-D7）', () => {
 });
 
 function makeFs() {
-  return {
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    append: vi.fn().mockResolvedValue(undefined),
-    appendSync: vi.fn(),
-    write: vi.fn().mockResolvedValue(undefined),
-    read: vi.fn().mockResolvedValue(''),
-    exists: vi.fn().mockResolvedValue(false),
-  } as any;
+  return makeSubagentRunFs();
 }
 
 describe('phase 1858 Step H: run 边界登记（SA-D7）', () => {
