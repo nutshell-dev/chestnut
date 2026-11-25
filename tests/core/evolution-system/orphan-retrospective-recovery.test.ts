@@ -14,6 +14,7 @@ import {
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { makeContractId, type ContractId } from '../../../src/core/contract/types.js';
 import type { FullTaskId } from '../../../src/core/async-task-system/types.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
   const events: Array<[string, ...(string | number)[]]> = [];
@@ -80,6 +81,7 @@ describe('EvolutionSystem archived orphan recovery (Phase 2185)', () => {
       fs: motionFs,
       audit: audit.audit,
       taskSystem: { schedulePrepared } as any,
+      prepareSubagentInput: prepareRetroInputForTest,
       contractManager: {} as any,
       motionReviewContext: ctx,
       skillVersions: { formatPublishedForContext: () => 'No skills loaded' } as any,
@@ -148,6 +150,7 @@ describe('EvolutionSystem archived orphan recovery (Phase 2185)', () => {
       fs: f.motionFs,
       audit: f.audit.audit,
       taskSystem: { schedulePrepared: f.schedulePrepared } as any,
+      prepareSubagentInput: prepareRetroInputForTest,
       contractManager: {} as any,
       motionReviewContext: f.ctx,
       skillVersions: { formatPublishedForContext: () => 'No skills loaded' } as any,

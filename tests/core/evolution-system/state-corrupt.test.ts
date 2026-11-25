@@ -11,6 +11,7 @@ import { READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evo
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const { mockSkillVersions } = vi.hoisted(() => {
   const format = vi.fn().mockReturnValue('No skills loaded');
@@ -55,6 +56,7 @@ async function setupFixtures(): Promise<TestFixtures> {
     fs: motionFs,
     audit: mockAudit as any,
     taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
+    prepareSubagentInput: prepareRetroInputForTest,
     contractManager: {} as any,
     skillVersions: mockSkillVersions as any,
   });

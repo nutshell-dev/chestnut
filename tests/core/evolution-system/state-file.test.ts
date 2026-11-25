@@ -12,6 +12,12 @@ import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-aud
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import {
+  deriveShortIdFromTaskId,
+  TASKS_QUEUES_PENDING_DIR,
+} from '../../../src/core/async-task-system/index.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS = 5 * 60_000; // Five minutes exercises an explicit non-default budget.
 
@@ -60,6 +66,7 @@ async function setupFixtures(overrides?: {
     fs: motionFs,
     audit: mockAudit as any,
     taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
+    prepareSubagentInput: prepareRetroInputForTest,
     contractManager: {} as any,
     retroSubagentTimeoutMs: overrides?.retroSubagentTimeoutMs,
     skillVersions: mockSkillVersions as any,
@@ -129,9 +136,56 @@ describe('EvolutionSystem disk-state dispatch', () => {
         payload: expect.objectContaining({ kind: 'subagent' }),
       }),
     );
+    const prepared = mockSchedulePrepared.mock.calls[0][1];
+    expect(prepared.payload.executionInput.schema_version).toBe(1);
+    const executionInput = decodeSubagentInput(prepared.payload.executionInput.input);
+    expect(executionInput.prompt).toBe(prepared.payload.intent);
+    expect(executionInput.budget.timeoutMs).toBe(prepared.payload.timeoutMs);
+    expect(executionInput.systemPrompt).toMatchObject({
+      kind: 'template',
+      parameters: { callerClawId: 'motion' },
+    });
 
     expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
     expect(await motionFs.exists(`${READY_DIR}/${contractId}.json`)).toBe(false);
+  });
+
+  it('replays a persisted ready prepared payload without rebuilding execution input', async () => {
+    fixtures = await setupFixtures();
+    const { contractId, ctx, evolutionSystem, store, motionFs } = fixtures;
+    const committed = await store.ensure({ contractId, targetExecutorId: 'claw-a' });
+    const persistedPayload = {
+      kind: 'subagent',
+      mode: 'standard',
+      intent: 'persisted prompt and skill summary',
+      correlation: { source: 'retro', ref: contractId },
+      timeoutMs: 123_000,
+      parentClawId: 'motion',
+      originClawId: 'motion',
+      toolProfile: 'subagent',
+      systemPrompt: 'persisted legacy system prompt',
+    };
+    await motionFs.writeAtomic(
+      `${TASKS_QUEUES_PENDING_DIR}/${committed.taskId}.json`,
+      JSON.stringify({
+        ...persistedPayload,
+        id: committed.taskId,
+        shortId: deriveShortIdFromTaskId(committed.taskId),
+        createdAt: committed.createdAt,
+      }, null, 2),
+    );
+    mockSkillVersions.formatPublishedForContext.mockClear();
+
+    const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
+
+    expect(result.status).toBe('submitted');
+    expect(mockSchedulePrepared).toHaveBeenCalledExactlyOnceWith('subagent', {
+      id: committed.taskId,
+      createdAt: committed.createdAt,
+      payload: persistedPayload,
+    });
+    expect(mockSkillVersions.formatPublishedForContext).not.toHaveBeenCalled();
+    expect(ctx.clawContractManagerFactory).not.toHaveBeenCalled();
   });
 
   it('calling notifyContractCompleted twice returns already_submitted the second time without scheduling twice', async () => {
@@ -284,6 +338,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
 
       const prepared = mockSchedulePrepared.mock.calls[0][1];
       expect(prepared.payload.timeoutMs).toBe(CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS);
+      expect(prepared.payload.executionInput.input.budget.timeoutMs).toBe(CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS);
     });
   });
 });

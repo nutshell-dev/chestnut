@@ -19,8 +19,10 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_CLAIMS_DIR,
 } from '../../../src/core/async-task-system/dirs.js';
 import { buildRetroSubagentPayload } from '../../../src/core/evolution-system/retro-scheduler.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const { mockSkillVersions } = vi.hoisted(() => {
   const format = vi.fn().mockReturnValue('No skills loaded');
@@ -84,6 +86,7 @@ async function setupFixtures(): Promise<TestFixtures> {
     fs: motionFs,
     audit: auditWriter,
     taskSystem,
+    prepareSubagentInput: prepareRetroInputForTest,
     contractManager: {} as any,
     skillVersions: mockSkillVersions as any,
   });
@@ -208,6 +211,7 @@ describe('EvolutionSystem recovery crash matrix (Phase 1206 Step E)', () => {
         motionFs,
         audit: motionAudit as any,
         skillVersions: mockSkillVersions as any,
+        prepareSubagentInput: prepareRetroInputForTest,
       });
 
       const taskFile = {
@@ -278,6 +282,9 @@ describe('EvolutionSystem recovery crash matrix (Phase 1206 Step E)', () => {
     expect(second.failed).toBe(0);
     expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
     expect(await motionFs.exists(`${DISPATCHING_DIR}/${contractId}.json`)).toBe(false);
+    const persisted = JSON.parse(await motionFs.read(`${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`));
+    expect(persisted.id).toBe(taskId);
+    expect(persisted.executionInput.schema_version).toBe(1);
   });
 
   it('B/C: markSubmitted failure keeps dispatching row and second recovery succeeds', async () => {
@@ -304,9 +311,28 @@ describe('EvolutionSystem recovery crash matrix (Phase 1206 Step E)', () => {
     expect(await motionFs.exists(`${DISPATCHING_DIR}/${contractId}.json`)).toBe(true);
     expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(false);
 
+    const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
+    const claimPath = `${TASKS_QUEUES_CLAIMS_DIR}/${taskId}.json`;
+    const taskBeforeReplay = await motionFs.read(taskPath);
+    const claimBeforeReplay = await motionFs.read(claimPath);
+    const { id: _id, shortId: _shortId, createdAt: replayCreatedAt, ...originalPayload } = JSON.parse(taskBeforeReplay);
+    const taskSystem = (evolutionSystem as any).deps.taskSystem;
+    await expect(taskSystem.schedulePrepared('subagent', {
+      id: taskId,
+      createdAt: replayCreatedAt,
+      payload: { ...originalPayload, intent: 'same identity, different payload' },
+    })).rejects.toThrow(`Prepared task identity conflict for ${taskId}`);
+    expect(await motionFs.read(taskPath)).toBe(taskBeforeReplay);
+    expect(await motionFs.read(claimPath)).toBe(claimBeforeReplay);
+
+    // A restart must not feed new template/skill data into the committed input.
+    mockSkillVersions.formatPublishedForContext.mockClear().mockReturnValue('new skill summary');
     const second = await evolutionSystem.recoverRetrospectives(ctx);
     expect(second.recovered).toBe(1);
     expect(second.failed).toBe(0);
+    expect(mockSkillVersions.formatPublishedForContext).not.toHaveBeenCalled();
+    expect(await motionFs.read(taskPath)).toBe(taskBeforeReplay);
+    expect(await motionFs.read(claimPath)).toBe(claimBeforeReplay);
     expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
     expect(await motionFs.exists(`${DISPATCHING_DIR}/${contractId}.json`)).toBe(false);
   });

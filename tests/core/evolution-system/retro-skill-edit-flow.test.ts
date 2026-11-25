@@ -37,6 +37,7 @@ import {
 import { newUuid } from '../../../src/foundation/node-utils/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const gitAvailable = (() => {
   try { execSync('which git', { stdio: 'ignore' }); return true; } catch { return false; }
@@ -104,6 +105,7 @@ describe.skipIf(!gitAvailable)('复盘分支编辑工作流（phase 1919 Step E�
       motionFs: deps.fsFactory(path.join(tmpDir, '.chestnut', 'motion')),
       audit: makeAudit().audit,
       skillVersions: versions,
+      prepareSubagentInput: prepareRetroInputForTest,
     });
     // Step D：持久来源引用随任务落盘
     expect(payload.correlation).toEqual({ source: 'retro', ref: CONTRACT_ID });

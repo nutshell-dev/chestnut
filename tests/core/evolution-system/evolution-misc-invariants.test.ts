@@ -33,6 +33,7 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS = 2 * 60_000; // Two minutes exercises an explicit non-default budget.
 
@@ -77,6 +78,7 @@ async function setupFixtures(overrides?: {
     fs: motionFs,
     audit: mockAudit as any,
     taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
+    prepareSubagentInput: prepareRetroInputForTest,
     contractManager: {} as any,
     skillVersions: mockSkillVersions as any,
   });
@@ -345,6 +347,7 @@ describe('retro-scheduler', () => {
       motionBaseDir: '/tmp/motion',
       audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog,
       taskSystem: { schedule: mockSchedule } as unknown as RetroConfig['taskSystem'],
+      prepareSubagentInput: prepareRetroInputForTest,
       skillVersions: mockSkillVersions as any,
       ...overrides,
     };
@@ -368,6 +371,10 @@ describe('retro-scheduler', () => {
           timeoutMs: RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
           parentClawId: 'motion',
           originClawId: 'motion',
+          executionInput: {
+            schema_version: 1,
+            input: expect.objectContaining({ kind: 'prepared_subagent_input' }),
+          },
         }),
       );
     });

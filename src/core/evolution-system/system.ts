@@ -2,10 +2,13 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { PreparedSubAgentTaskScheduler } from '../async-task-system/index.js';
+import { loadSubAgentTask, type PreparedSubAgentTaskScheduler } from '../async-task-system/index.js';
 import { archiveContainerDir, ContractSystem, readContractTerminalFact } from '../contract/index.js';
 import type { SkillVersions } from '../../foundation/skill-system/index.js';
-import { buildRetroSubagentPayload } from './retro-scheduler.js';
+import {
+  buildRetroSubagentPayload,
+  type PrepareRetroSubagentInput,
+} from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
 
@@ -24,6 +27,8 @@ interface EvolutionSystemDeps {
   fs: FileSystem;
   audit: AuditLog;
   taskSystem: PreparedSubAgentTaskScheduler;
+  /** Fixed SubAgent preparation capability, including its canonical tool binding. */
+  prepareSubagentInput: PrepareRetroSubagentInput;
   contractManager: ContractSystem;
   retroSubagentTimeoutMs?: number;   // default 600000ms (10 min)
   /** Phase 1919 Step B：retro 摘要的 dispatch 技能唯一来源（固定版本读取） */
@@ -232,7 +237,10 @@ export class EvolutionSystem {
     item: RetrospectiveWorkItem,
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
-    const prepared = await this._buildPreparedRetroTask(item, ctx);
+    // A durable ATS task is the prepared declaration. Replay it byte-for-byte by
+    // payload value; never inject new defaults, prompt text or skill summaries.
+    const persisted = await this._readPersistedPreparedRetroTask(item, ctx);
+    const prepared = persisted ?? await this._buildPreparedRetroTask(item, ctx);
     const scheduled = await this.deps.taskSystem.schedulePrepared('subagent', prepared);
     const outcome = await this.store.markSubmitted(item.contract_id);
     return {
@@ -405,6 +413,20 @@ export class EvolutionSystem {
     }
   }
 
+  private async _readPersistedPreparedRetroTask(
+    item: RetrospectiveWorkItem,
+    ctx: MotionReviewContext,
+  ): Promise<PreparedSubagentSchedule | undefined> {
+    const persisted = await loadSubAgentTask(ctx.motionFs, item.task_id);
+    if (!persisted) return undefined;
+    const { id: _id, shortId: _shortId, createdAt: _createdAt, ...payload } = persisted;
+    return {
+      id: item.task_id,
+      createdAt: persisted.createdAt,
+      payload,
+    };
+  }
+
   private async _buildPreparedRetroTask(
     item: RetrospectiveWorkItem,
     ctx: MotionReviewContext,
@@ -436,6 +458,7 @@ export class EvolutionSystem {
       audit: this.deps.audit,
       retroSubagentTimeoutMs: this.deps.retroSubagentTimeoutMs,
       skillVersions: this.deps.skillVersions,
+      prepareSubagentInput: this.deps.prepareSubagentInput,
     });
 
     return {

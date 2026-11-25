@@ -8,7 +8,11 @@
  * - createSkillSystem（A.5 / from core/skill）
  */
 
-import { buildRetroPrompt } from '../../templates/prompts/index.js';
+import {
+  buildRetroPrompt,
+  DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+  SUBAGENT_WORKSPACE_PROMPT_TEMPLATE,
+} from '../../templates/prompts/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
@@ -28,6 +32,11 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 export const RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT = 10 * 60_000;
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import type { ContractId } from '../contract/index.js';
+import {
+  TASKS_SUBAGENTS_DIR,
+  type PreparedSubagentInput,
+  type SubagentInputDeclaration,
+} from '../subagent/index.js';
 
 
 
@@ -41,12 +50,19 @@ export interface RetroConfig {
   audit: AuditLog;  // claw audit (for skill failure log)
   retroSubagentTimeoutMs?: number;   // default 600000ms
   taskSystem: SubAgentTaskScheduler;
+  /** Constructor-bound SubAgent preparation; there is no legacy Assembly fallback. */
+  prepareSubagentInput: PrepareRetroSubagentInput;
   /**
    * Phase 1919 Step B：dispatch 技能摘要唯一来源 = 版本服务固定版本读取。
    * 未注入（非 Motion 装配/测试窄 fixture）= 无摘要，绝不回退 live 目录扫描。
    */
   skillVersions?: SkillVersions;
 }
+
+/** Fixed SubAgent preparation capability; the bound implementation supplies canonical tools. */
+export type PrepareRetroSubagentInput = (
+  declaration: Omit<SubagentInputDeclaration, 'tools'>,
+) => PreparedSubagentInput;
 
 interface RetroSubagentPayloadInput {
   targetClaw: string;
@@ -56,6 +72,7 @@ interface RetroSubagentPayloadInput {
   audit: AuditLog;
   retroSubagentTimeoutMs?: number;
   skillVersions?: SkillVersions;
+  prepareSubagentInput: PrepareRetroSubagentInput;
 }
 
 /**
@@ -84,6 +101,23 @@ export async function buildRetroSubagentPayload(
     input.targetClaw, input.contractId, input.contractYaml, skillsSummary
   );
 
+  const timeoutMs = input.retroSubagentTimeoutMs ?? RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT;
+  const executionInput = input.prepareSubagentInput({
+    prompt: retroPrompt,
+    systemPrompt: {
+      kind: 'template',
+      template: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.name,
+      version: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.version,
+      parameters: {
+        callerClawId: MOTION_CLAW_ID,
+        subagentsDir: TASKS_SUBAGENTS_DIR,
+        systemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+      },
+    },
+    toolProfile: 'subagent',
+    budget: { timeoutMs },
+  });
+
   return {
     kind: 'subagent',
     mode: 'standard',
@@ -92,7 +126,8 @@ export async function buildRetroSubagentPayload(
     // 复盘子代理编辑 dispatch 技能时经 CHESTNUT_SUBAGENT_TASK_ID + owner 窄查询
     // （loadSubAgentTask）解析回本任务与本 contract，依据可追溯、不伪造。
     correlation: { source: 'retro', ref: input.contractId },
-    timeoutMs: input.retroSubagentTimeoutMs ?? RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
+    timeoutMs,
+    executionInput: { schema_version: 1, input: executionInput },
     // phase 1490: maxSteps 不传、task.maxSteps optional / undefined → SubAgent boundary fallback
     parentClawId: MOTION_CLAW_ID,
     originClawId: MOTION_CLAW_ID,
@@ -116,6 +151,7 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
     audit: config.audit,
     retroSubagentTimeoutMs: config.retroSubagentTimeoutMs,
     skillVersions: config.skillVersions,
+    prepareSubagentInput: config.prepareSubagentInput,
   });
   await config.taskSystem.schedule('subagent', payload);
 }

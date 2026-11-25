@@ -22,6 +22,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 import { createTestTaskSystem } from '../../helpers/task-system.js';
+import { prepareRetroInputForTest } from './execution-input-fixture.js';
 
 const { mockSkillVersions } = vi.hoisted(() => ({
   mockSkillVersions: { formatPublishedForContext: vi.fn().mockReturnValue('No skills loaded') },
@@ -68,6 +69,7 @@ async function setup(motionFsOverride?: FileSystem) {
     fs: motionFs,
     audit: mockAudit as any,
     taskSystem,
+    prepareSubagentInput: prepareRetroInputForTest,
     contractManager: {} as any,
     skillVersions: mockSkillVersions as any,
   });
@@ -142,6 +144,7 @@ describe('EvolutionSystem legacy state read failure（phase 1934 Step G）', () 
       fs: failingFs,
       audit: s.mockAudit as any,
       taskSystem: createTestTaskSystem(s.motionDir, s.nodeFs, s.mockAudit as any),
+      prepareSubagentInput: prepareRetroInputForTest,
       contractManager: {} as any,
       skillVersions: mockSkillVersions as any,
     });
@@ -173,6 +176,7 @@ describe('EvolutionSystem legacy state read failure（phase 1934 Step G）', () 
       fs: failingFs,
       audit: s.mockAudit as any,
       taskSystem: createTestTaskSystem(s.motionDir, s.nodeFs, s.mockAudit as any),
+      prepareSubagentInput: prepareRetroInputForTest,
       contractManager: {} as any,
       skillVersions: mockSkillVersions as any,
     });
