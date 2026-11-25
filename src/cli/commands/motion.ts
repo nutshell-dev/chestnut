@@ -14,7 +14,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
+import { STATUS_SUBDIR, type StopProcessOutcome } from '../../foundation/process-manager/index.js';
 import {
   resolveClawDaemonDir,
   resolveClawLocation,
@@ -282,10 +282,12 @@ export async function motionOutboxCommand(
 /**
  * motion stop - 停止 Motion 守护进程
  */
-export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function stopCommand(
+  deps: { fsFactory(baseDir: string): FileSystem },
+  extraDeps?: { audit?: AuditLog },
+): Promise<StopProcessOutcome> {
   requireMotionAccess(getCapturedCliMotionAccess('stop'), 'stop', 'motion/stop');
   const audit = extraDeps?.audit;
-  deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
   console.log('Stopping Motion daemon...');
@@ -295,16 +297,21 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
     getCapturedCliMotionAccess('stop'),
     'stop',
   ));
-  if (outcome.kind === 'stopped' || outcome.kind === 'intent_recorded') {
+  if (outcome.kind === 'stopped') {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=success`);
     console.log('✓ Stopped Motion daemon');
-    return;
+    return outcome;
+  }
+  if (outcome.kind === 'intent_recorded') {
+    audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=intent_recorded`);
+    console.log('Motion stop intent recorded; daemon exit not confirmed');
+    return outcome;
   }
   if (outcome.kind === 'not_running') {
     // 无目标 generation 的幂等终局：非失败，不 throw
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
     console.log('Motion is not running');
-    return;
+    return outcome;
   }
   // phase 355 C2 (review-2026-06-13): throw CliError 而非 process.exitCode=1 静默。
   // process.exitCode 等 Node 自然 drain + audit writer fs flush 才退、race 可能

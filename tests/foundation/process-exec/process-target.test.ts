@@ -6,6 +6,7 @@ import {
   terminateMatchingProcesses,
   terminateProcessTarget,
   type ProcessEvidence,
+  type ProcessTarget,
   type ProcessTargetObservation,
 } from '../../../src/foundation/process-exec/index.js';
 import { makeProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
@@ -192,6 +193,144 @@ describe('typed process termination', () => {
       { signal, legacyProbe: () => true, argvMatch: () => false },
     );
     expect(result).toMatchObject({ kind: 'gone', via: 'already_gone', termSent: false });
+    expect(signal).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy fire-then-probe synchronous when no evidence recheck is configured', async () => {
+    let alive = true;
+    const signal = vi.fn(() => { alive = false; });
+
+    const pending = terminateProcessTarget({ pid: PID }, immediate, {
+      signal, legacyProbe: () => alive,
+    });
+
+    expect(signal).toHaveBeenCalledExactlyOnceWith(PID, 'TERM');
+    await expect(pending).resolves.toMatchObject({ kind: 'gone', via: 'sigterm' });
+  });
+
+  it('requires a captured start time before enabling pre-signal evidence checks', async () => {
+    const beforeSignal = vi.fn(async () => observation('alive'));
+    const signal = vi.fn();
+    const observeTarget = vi.fn(() => observation('alive'));
+
+    const result = await terminateProcessTarget(
+      { pid: PID },
+      { ...immediate, beforeSignal },
+      { signal, observeTarget },
+    );
+
+    expect(result).toMatchObject({
+      kind: 'indeterminate', stage: 'observe', termSent: false, killSent: false,
+      error: { kind: 'unknown', reason: 'incomplete_data' },
+    });
+    expect(beforeSignal).not.toHaveBeenCalled();
+    expect(observeTarget).not.toHaveBeenCalled();
+    expect(signal).not.toHaveBeenCalled();
+  });
+
+  it('rechecks before TERM and KILL, confirms identity synchronously, and only polls identity', async () => {
+    const target = { pid: PID, startTime: START };
+    const events: string[] = [];
+    const beforeSignal = vi.fn(async (_target: ProcessTarget, value: 'TERM' | 'KILL') => {
+      events.push(`recheck:${value}`);
+      return observation('alive');
+    });
+    const signal = vi.fn((_pid: number, value: 'TERM' | 'KILL') => {
+      events.push(`signal:${value}`);
+    });
+
+    const result = await terminateProcessTarget(target, { ...immediate, beforeSignal }, {
+      signal,
+      observeTarget: () => {
+        events.push('observe');
+        return observation('alive');
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'still_alive', termSent: true, killSent: true });
+    expect(events).toEqual([
+      'observe',
+      'recheck:TERM', 'observe', 'signal:TERM',
+      'observe',
+      'recheck:KILL', 'observe', 'signal:KILL',
+      'observe',
+    ]);
+    expect(beforeSignal).toHaveBeenNthCalledWith(1, target, 'TERM');
+    expect(beforeSignal).toHaveBeenNthCalledWith(2, target, 'KILL');
+  });
+
+  it.each([
+    { value: 'TERM', source: 'recheck', blockedKind: 'gone' },
+    { value: 'TERM', source: 'recheck', blockedKind: 'unknown' },
+    { value: 'TERM', source: 'final', blockedKind: 'gone' },
+    { value: 'TERM', source: 'final', blockedKind: 'unknown' },
+    { value: 'KILL', source: 'recheck', blockedKind: 'gone' },
+    { value: 'KILL', source: 'recheck', blockedKind: 'unknown' },
+    { value: 'KILL', source: 'final', blockedKind: 'gone' },
+    { value: 'KILL', source: 'final', blockedKind: 'unknown' },
+  ] as const)(
+    'blocks $value when the $source $blockedKind observation arrives before sending',
+    async ({ value, source, blockedKind }) => {
+      const blockedEvidence: ProcessEvidence = {
+        version: 1, atMs: 1, facts: [{ value, source, blockedKind }],
+      };
+      const blocked: ProcessTargetObservation = blockedKind === 'gone'
+        ? { kind: 'gone', reason: 'identity_changed', evidence: blockedEvidence }
+        : { kind: 'unknown', reason: 'permission_denied', evidence: blockedEvidence };
+      let blockNextObservation = false;
+      const beforeSignal = vi.fn(async (_target: ProcessTarget, current: 'TERM' | 'KILL') => {
+        if (current !== value) return observation('alive');
+        if (source === 'recheck') return blocked;
+        blockNextObservation = true;
+        return observation('alive');
+      });
+      const signal = vi.fn();
+
+      const result = await terminateProcessTarget(
+        { pid: PID, startTime: START },
+        { ...immediate, beforeSignal },
+        {
+          signal,
+          observeTarget: () => {
+            if (!blockNextObservation) return observation('alive');
+            blockNextObservation = false;
+            return blocked;
+          },
+        },
+      );
+
+      if (blockedKind === 'gone') {
+        expect(result).toMatchObject({
+          kind: 'gone', via: value === 'TERM' ? 'already_gone' : 'sigterm',
+          termSent: value === 'KILL', killSent: false,
+        });
+      } else {
+        expect(result).toMatchObject({
+          kind: 'indeterminate', stage: value === 'TERM' ? 'sigterm' : 'sigkill',
+          termSent: value === 'KILL', killSent: false, error: blocked,
+        });
+      }
+      expect(result.evidence).toBe(blockedEvidence);
+      expect(beforeSignal).toHaveBeenCalledTimes(value === 'TERM' ? 1 : 2);
+      expect(signal).toHaveBeenCalledTimes(value === 'TERM' ? 0 : 1);
+      if (value === 'KILL') expect(signal).toHaveBeenCalledExactlyOnceWith(PID, 'TERM');
+    },
+  );
+
+  it('turns a rejected evidence recheck into an indeterminate signal outcome', async () => {
+    const failure = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const signal = vi.fn();
+    const result = await terminateProcessTarget(
+      { pid: PID, startTime: START },
+      { ...immediate, beforeSignal: async () => { throw failure; } },
+      { signal, observeTarget: () => observation('alive') },
+    );
+
+    expect(result).toMatchObject({
+      kind: 'indeterminate', stage: 'sigterm', termSent: false, killSent: false,
+      error: { kind: 'unknown', reason: 'permission_denied', error: failure },
+    });
+    expect(JSON.stringify(result.evidence)).toContain('denied');
     expect(signal).not.toHaveBeenCalled();
   });
 });

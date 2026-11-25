@@ -20,6 +20,8 @@ const mockKill = vi.hoisted(() => vi.fn());
 const mockIsAlive = vi.hoisted(() => vi.fn());
 const mockLivePids = vi.hoisted(() => new Set<number>());
 const mockStopWatchdog = vi.hoisted(() => vi.fn());
+const mockMotionStop = vi.hoisted(() => vi.fn());
+const mockClawStop = vi.hoisted(() => vi.fn());
 // phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
 // mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
 const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
@@ -58,7 +60,7 @@ vi.mock('../../src/watchdog/watchdog.js', () => ({
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({
-  stopCommand: vi.fn().mockResolvedValue(undefined),
+  stopCommand: mockMotionStop,
 }));
 
 vi.mock('../../src/watchdog/watchdog-control.js', () => ({
@@ -68,7 +70,7 @@ vi.mock('../../src/watchdog/watchdog-control.js', () => ({
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     liveness: vi.fn().mockReturnValue({ kind: 'dead', pid: 12345, evidence: { version: 1, atMs: 0, facts: [] } }),
-    stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' }),
+    stop: mockClawStop,
     findProcessesSyncForCli: mockFindProcesses,
     findProcessesAsync: mockFindProcessesAsync,
   })),
@@ -139,7 +141,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-const stopDeps = { fsFactory, rootConfig: { loadGlobal: vi.fn() } };
+const stopDeps = { fsFactory };
 
 describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
   beforeEach(() => {
@@ -147,13 +149,17 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
     mockAuditState.clear();
     vi.clearAllMocks();
     mockLivePids.clear();
-    mockStopWatchdog.mockResolvedValue({ kind: 'not_running', reason: 'no_process' });
+    mockFindProcesses.mockReset().mockReturnValue([]);
+    mockFindProcessesAsync.mockReset().mockResolvedValue([]);
+    mockStopWatchdog.mockReset().mockResolvedValue({ kind: 'not_running', reason: 'no_process' });
+    mockMotionStop.mockReset().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' });
+    mockClawStop.mockReset().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' });
     mockIsAlive.mockImplementation((pid: number) => mockLivePids.has(pid));
     mockKill.mockImplementation((pid: number) => { mockLivePids.delete(pid); });
   });
 
   it('stopAllCommand sweeps orphan watchdogs + audits ORPHAN_SWEEP_KILLED', async () => {
-    mockFindProcesses.mockReturnValue([1111, 2222]);
+    mockFindProcesses.mockReturnValue([]);
     mockFindProcessesAsync.mockResolvedValue([1111, 2222]);
     [1111, 2222].forEach(pid => mockLivePids.add(pid));
     mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
@@ -172,13 +178,37 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
     );
   });
 
-  it('RootConfig guard error propagates before process side effects', async () => {
-    const sentinel = new Error('stop config sentinel');
-    stopDeps.rootConfig.loadGlobal.mockImplementationOnce(() => { throw sentinel; });
+  it('continues sweep and read-only discovery but blocks downstream after Watchdog fails', async () => {
+    const sentinel = new Error('watchdog stop sentinel');
+    mockStopWatchdog.mockRejectedValueOnce(sentinel);
+    mockFindProcessesAsync.mockResolvedValue([1111]);
+    mockFindProcesses.mockReturnValue([2222]);
+    mockLivePids.add(1111);
+    const terminateTarget = vi.fn();
 
-    await expect(stopAllCommand(stopDeps)).rejects.toBe(sentinel);
-    expect(mockFindProcesses).not.toHaveBeenCalled();
-    expect(mockFindProcessesAsync).not.toHaveBeenCalled();
-    expect(mockCreateDirContext).not.toHaveBeenCalled();
+    await expect(stopAllCommand(stopDeps, {
+      kill: mockKill,
+      isAlive: mockIsAlive,
+      terminateTarget,
+    })).rejects.toThrow(/downstream blocked/);
+
+    expect(mockFindProcessesAsync).toHaveBeenCalled();
+    expect(mockFindProcesses).toHaveBeenCalled();
+    expect(mockKill).toHaveBeenCalledWith(1111, 'TERM');
+    expect(mockMotionStop).not.toHaveBeenCalled();
+    expect(mockClawStop).not.toHaveBeenCalled();
+    expect(terminateTarget).not.toHaveBeenCalled();
+  });
+
+  it('blocks Motion, claws, and orphan termination when sweep is unconfirmed', async () => {
+    mockFindProcessesAsync.mockRejectedValueOnce(new Error('watchdog process list unavailable'));
+    mockFindProcesses.mockReturnValue([2222]);
+    const terminateTarget = vi.fn();
+
+    await expect(stopAllCommand(stopDeps, { terminateTarget })).rejects.toThrow(/downstream blocked/);
+    expect(mockFindProcesses).toHaveBeenCalled();
+    expect(mockMotionStop).not.toHaveBeenCalled();
+    expect(mockClawStop).not.toHaveBeenCalled();
+    expect(terminateTarget).not.toHaveBeenCalled();
   });
 });

@@ -28,6 +28,7 @@ const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
 const mockStopWatchdog = vi.hoisted(() => vi.fn());
+const mockMotionStop = vi.hoisted(() => vi.fn());
 // phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
 // mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
 const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
@@ -78,7 +79,7 @@ vi.mock('../../src/watchdog/orphan-sweep.js', () => ({
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({
-  stopCommand: vi.fn().mockResolvedValue(undefined),
+  stopCommand: mockMotionStop,
 }));
 
 vi.mock('../../src/watchdog/watchdog-control.js', () => ({
@@ -97,7 +98,7 @@ vi.mock('../../src/foundation/process-manager/constants.js', () => ({
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     isAlive: vi.fn().mockReturnValue(false),
-    stop: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' }),
     findProcessesSyncForCli: mockFindProcesses,
   })),
 }));
@@ -135,9 +136,24 @@ import { stopAllCommand } from '../../src/cli/commands/stop.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../src/cli/errors.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
+import { makeProcessStartTime } from '../../src/foundation/process-exec/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-const stopDeps = { fsFactory, rootConfig: { loadGlobal: vi.fn() } };
+const stopDeps = { fsFactory };
+
+const evidence = { version: 1 as const, atMs: 0, facts: [] };
+const startTime = makeProcessStartTime('start');
+const alive = { kind: 'alive' as const, startTime, evidence };
+const ownedDeps = (overrides: any = {}) => ({
+  captureTarget: vi.fn((pid: number) => ({
+    kind: 'captured', target: { pid, startTime }, evidence,
+  })),
+  observeTarget: vi.fn(() => alive),
+  observeArgv: vi.fn(() => ({ kind: 'match', evidence })),
+  observeCwd: vi.fn(async () => ({ kind: 'observed', cwd: '/workspace', evidence })),
+  canonicalizePath: vi.fn(() => '/canonical/workspace'),
+  ...overrides,
+});
 
 describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   beforeEach(() => {
@@ -147,10 +163,16 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     // hoisted mock back to a known default so one test's mockImplementation cannot
     // leak into the next test.
     mockKill.mockReset().mockImplementation(() => {});
-    mockFindProcesses.mockReset().mockReturnValue([99991, 99992]);
+    mockFindProcesses.mockReset().mockReturnValue([]);
     mockIsAlive.mockReset().mockReturnValue(false);
     mockIsPidArgvMatching.mockReset().mockReturnValue(true);
     mockStopWatchdog.mockReset().mockResolvedValue({ kind: 'not_running', reason: 'no_process' });
+    mockMotionStop.mockReset().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' });
+    vi.mocked(createProcessManagerForCLI).mockReset().mockImplementation(() => ({
+      isAlive: vi.fn().mockReturnValue(false),
+      stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' }),
+      findProcessesSyncForCli: mockFindProcesses,
+    }));
     mockCreateDirContext.mockReset().mockImplementation(() => ({
       fs: {},
       audit: {
@@ -177,11 +199,9 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       },
     });
 
-    await expect(stopAllCommand(stopDeps, {
+    await expect(stopAllCommand(stopDeps, ownedDeps({
       kill: mockKill,
-      isPidArgvMatching: mockIsPidArgvMatching,
-      isAlive: () => true,
-    })).rejects.toBeInstanceOf(CliError);
+    }))).rejects.toBeInstanceOf(CliError);
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);
@@ -227,7 +247,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
 
   it('audit 构造失败时 fallback null + 不抛', async () => {
     mockKill.mockImplementation(() => {});
-    mockFindProcesses.mockReturnValue([3333]);
+    mockFindProcesses.mockReturnValue([]);
     mockCreateDirContext.mockImplementation(() => {
       throw new Error('audit init failed');
     });
@@ -317,7 +337,16 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       },
     });
 
-    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+    let running = true;
+    const observeTarget = vi.fn(() => running
+      ? alive
+      : { kind: 'gone' as const, reason: 'absent' as const, evidence });
+    const cleanup = ownedDeps({ kill: mockKill, observeTarget });
+    mockKill.mockImplementation((_pid: number, signal: string | number) => {
+      if (signal === 'KILL') running = false;
+    });
+
+    await stopAllCommand(stopDeps, cleanup);
 
     // TERM + KILL 各一次
     const termCalls = mockKill.mock.calls.filter(c => c[1] === 'TERM');
@@ -344,7 +373,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
 
     await expect(
-      stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive }),
+      stopAllCommand(stopDeps, ownedDeps({ kill: mockKill })),
     ).rejects.toBeInstanceOf(CliError);
 
     const partialEvents = mockAuditState.events.filter(e => e[0] === 'orphan_cleanup_partial');
@@ -356,5 +385,132 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
         'context=stop_all_orphan_sigkill_survived',
       ]),
     );
+  });
+
+  it('skips a foreign workspace using the same daemon entry and still succeeds', async () => {
+    mockFindProcesses.mockReturnValue([6001]);
+    const observeTarget = vi.fn(() => alive);
+    const cleanup = ownedDeps({
+      kill: mockKill,
+      observeTarget,
+      observeCwd: vi.fn(async () => ({ kind: 'observed', cwd: '/foreign/workspace', evidence })),
+      canonicalizePath: (value: string) => value,
+    });
+
+    await expect(stopAllCommand(stopDeps, cleanup)).resolves.toBeUndefined();
+    expect(mockKill).not.toHaveBeenCalled();
+    expect(observeTarget).toHaveBeenCalledTimes(2);
+    expect(cleanup.observeArgv).toHaveBeenCalledWith(6001, expect.stringMatching(/ motion$/));
+  });
+
+  it.each(['no_evidence', 'unknown', 'pid_reuse', 'incomplete_argv', 'cwd_unknown'] as const)(
+    'fails closed without signals for %s',
+    async scenario => {
+      mockFindProcesses.mockReturnValue([6100]);
+      const overrides: any = { kill: mockKill };
+      if (scenario === 'no_evidence') {
+        overrides.captureTarget = vi.fn(() => ({ kind: 'unknown', reason: 'query_failed', evidence }));
+      } else if (scenario === 'unknown') {
+        overrides.observeTarget = vi.fn(() => ({ kind: 'unknown', reason: 'timed_out', evidence }));
+      } else if (scenario === 'pid_reuse') {
+        overrides.observeTarget = vi.fn(() => ({ kind: 'gone', reason: 'identity_changed', evidence }));
+      } else if (scenario === 'incomplete_argv') {
+        overrides.observeArgv = vi.fn(() => ({ kind: 'mismatch', evidence }));
+      } else {
+        overrides.observeCwd = vi.fn(async () => ({ kind: 'unknown', reason: 'query_failed', evidence }));
+      }
+
+      await expect(stopAllCommand(stopDeps, ownedDeps(overrides))).rejects.toBeInstanceOf(CliError);
+      expect(mockKill).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rechecks ownership before TERM and KILL', async () => {
+    mockFindProcesses.mockReturnValue([6200]);
+    let running = true;
+    const observeTarget = vi.fn(() => running
+      ? alive
+      : { kind: 'gone' as const, reason: 'absent' as const, evidence });
+    const observeCwd = vi.fn(async () => ({ kind: 'observed', cwd: '/workspace', evidence }));
+    const observeArgv = vi.fn(() => ({ kind: 'match', evidence }));
+    mockKill.mockImplementation((_pid: number, signal: string | number) => {
+      if (signal === 'KILL') running = false;
+    });
+
+    await stopAllCommand(stopDeps, ownedDeps({
+      kill: mockKill, observeTarget, observeCwd, observeArgv,
+    }));
+
+    expect(mockKill.mock.calls.map(call => call[1])).toEqual(['TERM', 'KILL']);
+    // Initial classification plus the TERM and KILL ownership rechecks.
+    expect(observeCwd).toHaveBeenCalledTimes(3);
+    expect(observeArgv).toHaveBeenCalledTimes(3);
+  });
+
+  it('blocks KILL when cwd changes after TERM', async () => {
+    mockFindProcesses.mockReturnValue([6300]);
+    const observeCwd = vi.fn()
+      .mockResolvedValueOnce({ kind: 'observed', cwd: '/workspace', evidence })
+      .mockResolvedValueOnce({ kind: 'observed', cwd: '/workspace', evidence })
+      .mockResolvedValue({ kind: 'observed', cwd: '/foreign/workspace', evidence });
+
+    await expect(stopAllCommand(stopDeps, ownedDeps({
+      kill: mockKill,
+      observeCwd,
+      canonicalizePath: (value: string) => value === '/foreign/workspace' ? '/foreign/canonical' : '/canonical/workspace',
+    }))).rejects.toThrow(/daemon orphan 6300: indeterminate\/sigkill/);
+    expect(mockKill.mock.calls.map(call => call[1])).toEqual(['TERM']);
+  });
+
+  it('continues claw stops after Motion fails', async () => {
+    mockMotionStop.mockRejectedValueOnce(new Error('motion unavailable'));
+    vi.mocked(fs.readdirSync).mockReturnValueOnce([
+      { name: 'alpha', isDirectory: () => true },
+    ] as any);
+    const stop = vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' });
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop,
+      findProcessesSyncForCli: mockFindProcesses,
+    } as any);
+
+    await expect(stopAllCommand(stopDeps)).rejects.toThrow(/motion failed/);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes a non-ENOENT claw enumeration error terminal', async () => {
+    vi.mocked(fs.readdirSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('claw enumeration EIO'), { code: 'EIO' });
+    });
+
+    await expect(stopAllCommand(stopDeps)).rejects.toThrow(/claw enumeration:.*EIO/);
+  });
+
+  it('does not write a per-claw success marker or Done for intent_recorded', async () => {
+    vi.mocked(fs.readdirSync).mockReturnValueOnce([
+      { name: 'alpha', isDirectory: () => true },
+    ] as any);
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'intent_recorded' }),
+      findProcessesSyncForCli: mockFindProcesses,
+    } as any);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await expect(stopAllCommand(stopDeps)).rejects.toThrow(/claws intent_recorded: alpha/);
+      expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+      expect(log).not.toHaveBeenCalledWith('Done.');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('does not allow Motion intent_recorded to produce Done', async () => {
+    mockMotionStop.mockResolvedValueOnce({ kind: 'intent_recorded' });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await expect(stopAllCommand(stopDeps)).rejects.toThrow(/motion intent_recorded/);
+      expect(log).not.toHaveBeenCalledWith('Done.');
+    } finally {
+      log.mockRestore();
+    }
   });
 });

@@ -48,6 +48,8 @@ export {
 export type { FindByPatternOptions } from './find-by-pattern.js';
 export { observePidArgv } from './argv-verify.js';
 export type { ProcessArgvObservation } from './argv-verify.js';
+export { observeProcessCwd } from './process-cwd.js';
+export type { ProcessCwdObservation } from './process-cwd.js';
 export { makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export { observeProcessStartTime } from './process-starttime-fact.js';

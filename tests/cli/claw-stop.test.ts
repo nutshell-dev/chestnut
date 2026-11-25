@@ -93,6 +93,25 @@ describe('claw-stop', () => {
     );
   });
 
+  it('stop intent_recorded reports unconfirmed exit instead of stopped', async () => {
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'intent_recorded' }),
+    } as any);
+
+    await stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any });
+
+    expect(mockAudit.write).toHaveBeenCalledWith(
+      'cli_claw_stop',
+      'name=test-claw',
+      'status=intent_recorded',
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'Claw "test-claw" stop intent recorded; daemon exit not confirmed',
+    );
+    expect(consoleLogSpy).not.toHaveBeenCalledWith('✓ Stopped Claw "test-claw"');
+    expect(clearCleanStop).not.toHaveBeenCalled();
+  });
+
   it('stop failure → clean-stop marker removed + CliError still thrown（含 stage 证据）', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn().mockReturnValue(true),
@@ -209,11 +228,17 @@ describe('claw-stop', () => {
     expect(createProcessManagerForCLI).not.toHaveBeenCalled();
   });
 
-  it('global config failure propagates the same instance before loadClaw', async () => {
+  it('damaged global config does not affect stop and loadGlobal is not called', async () => {
     const sentinel = new Error('global config sentinel');
     commandDeps.rootConfig.loadGlobal.mockImplementation(() => { throw sentinel; });
-    await expect(stopCommand(commandDeps, 'test-claw')).rejects.toBe(sentinel);
-    expect(commandDeps.rootConfig.loadClaw).not.toHaveBeenCalled();
+    const stop = vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' });
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({ stop } as any);
+
+    await expect(stopCommand(commandDeps, 'test-claw')).resolves.toBeUndefined();
+
+    expect(commandDeps.rootConfig.loadGlobal).not.toHaveBeenCalled();
+    expect(commandDeps.rootConfig.loadClaw).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it('claw config failure propagates the same instance', async () => {

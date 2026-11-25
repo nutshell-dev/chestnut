@@ -97,25 +97,48 @@ describe('phase 922: motion stop failed branch exitCode', () => {
   it('pm.stop returns failed → throw CliError with ✗ + code=1', async () => {
     mockPmState.stop.mockResolvedValue({ kind: 'failed', stage: 'signal', reason: 'kill ESRCH' });
 
-    await expect(stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } })).rejects.toThrow(/Failed to stop Motion/);
+    await expect(stopCommand({ fsFactory })).rejects.toThrow(/Failed to stop Motion/);
   });
 
-  it('pm.stop returns stopped → console emits ✓ + process.exitCode 不变', async () => {
-    mockPmState.stop.mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' });
+  it('pm.stop returns stopped → 保留原回执并返回真实 outcome', async () => {
+    const outcome = { kind: 'stopped', pid: 123, via: 'sigterm' } as const;
+    mockPmState.stop.mockResolvedValue(outcome);
 
-    await stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } });
+    await expect(stopCommand({ fsFactory })).resolves.toEqual(outcome);
 
     expect(consoleSpy).toHaveBeenCalledWith('✓ Stopped Motion daemon');
     expect(process.exitCode).toBe(0);
   });
 
-  it('RootConfig error propagates before process inspection', async () => {
-    const sentinel = new Error('motion config sentinel');
-    await expect(stopCommand({
-      fsFactory,
-      rootConfig: { loadGlobal: () => { throw sentinel; } },
-    })).rejects.toBe(sentinel);
-    expect(mockPmState.stop).not.toHaveBeenCalled();
+  it('pm.stop returns not_running → 保留原回执并返回真实 outcome', async () => {
+    const outcome = { kind: 'not_running' } as const;
+    mockPmState.stop.mockResolvedValue(outcome);
+
+    await expect(stopCommand({ fsFactory })).resolves.toEqual(outcome);
+
+    expect(consoleSpy).toHaveBeenCalledWith('Motion is not running');
+  });
+
+  it('pm.stop returns intent_recorded → 明确退出未确认并返回真实 outcome', async () => {
+    const outcome = { kind: 'intent_recorded' } as const;
+    mockPmState.stop.mockResolvedValue(outcome);
+
+    await expect(stopCommand({ fsFactory })).resolves.toEqual(outcome);
+
+    expect(consoleSpy).toHaveBeenCalledWith('Motion stop intent recorded; daemon exit not confirmed');
+    expect(consoleSpy).not.toHaveBeenCalledWith('✓ Stopped Motion daemon');
+  });
+
+  it('损坏的 global config 不影响 stop，且 loadGlobal 不被调用', async () => {
+    const outcome = { kind: 'stopped', pid: 123, via: 'sigterm' } as const;
+    mockPmState.stop.mockResolvedValue(outcome);
+    const loadGlobal = vi.fn(() => { throw new Error('motion config sentinel'); });
+    const deps = { fsFactory, rootConfig: { loadGlobal } };
+
+    await expect(stopCommand(deps)).resolves.toEqual(outcome);
+
+    expect(loadGlobal).not.toHaveBeenCalled();
+    expect(mockPmState.stop).toHaveBeenCalledTimes(1);
   });
 });
 

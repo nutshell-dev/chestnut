@@ -128,7 +128,7 @@ program.addCommand(createConfigCommand({ fsFactory, rootConfig, llmConfiguration
 rootShape(program.command('stop'), 'stop')
   .action(action('disabled', async () => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await stopAllCommand({ fsFactory, rootConfig }, { audit });
+    await stopAllCommand({ fsFactory }, { audit });
   }));
 
 // status command
@@ -286,7 +286,7 @@ motionShape(motionCmd.command('chat'), 'chat')
 motionShape(motionCmd.command('stop'), 'stop')
   .action(action('disabled', async () => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await motionStopCommand({ fsFactory, rootConfig }, { audit });
+    await motionStopCommand({ fsFactory }, { audit });
   }));
 
 // motion outbox

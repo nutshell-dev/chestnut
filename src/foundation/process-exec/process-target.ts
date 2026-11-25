@@ -38,6 +38,11 @@ export interface ProcessTerminationOptions {
   graceMs?: number;
   confirmMs?: number;
   pollIntervalMs?: number;
+  /** Revalidate evidence immediately before each signal; requires a start-time identity. */
+  beforeSignal?: (
+    target: ProcessTarget,
+    signal: 'TERM' | 'KILL',
+  ) => Promise<ProcessTargetObservation>;
 }
 
 export type ProcessTerminationOutcome =
@@ -309,6 +314,24 @@ export async function terminateProcessTarget(
       throw error;
     }
   };
+  const verifyBeforeSignal = async (
+    value: 'TERM' | 'KILL',
+  ): Promise<ProcessTargetObservation | undefined> => {
+    const beforeSignal = options.beforeSignal;
+    if (beforeSignal === undefined) return undefined;
+    let recheck: ProcessTargetObservation;
+    try {
+      recheck = await beforeSignal(target, value);
+    } catch (error) {
+      recheck = unknownFromError(error, encodeProcessEvidence(Date.now(), [{
+        operation: 'before_signal', outcome: 'throw', signal: value, target, error,
+      }]));
+    }
+    lastEvidence = recheck.evidence;
+    if (recheck.kind !== 'alive') return recheck;
+    // No await between this final identity check and the synchronous signal send.
+    return observe();
+  };
   const waitGone = async (
     budgetMs: number,
   ): Promise<ProcessTargetObservation | undefined> => {
@@ -323,6 +346,17 @@ export async function terminateProcessTarget(
     }
   };
 
+  if (options.beforeSignal !== undefined && target.startTime === undefined) {
+    const invalid: ProcessTargetObservation = {
+      kind: 'unknown', reason: 'incomplete_data',
+      evidence: encodeProcessEvidence(Date.now(), [{
+        operation: 'before_signal', outcome: 'start_time_required', target,
+      }]),
+    };
+    lastEvidence = invalid.evidence;
+    return indeterminate('observe', invalid);
+  }
+
   // Plain legacy targets preserve the old fire-then-probe test seam. An argv
   // identity always requires a safe pre-signal observation, including adapters.
   if (adapters.legacyProbe === undefined || target.argvToken !== undefined) {
@@ -331,6 +365,16 @@ export async function terminateProcessTarget(
       return { kind: 'gone', via: 'already_gone', termSent, killSent, evidence: initial.evidence };
     }
     if (initial.kind === 'unknown') return indeterminate('observe', initial);
+  }
+
+  if (options.beforeSignal !== undefined) {
+    const beforeTerm = await verifyBeforeSignal('TERM');
+    if (beforeTerm?.kind === 'gone') {
+      return {
+        kind: 'gone', via: 'already_gone', termSent, killSent, evidence: beforeTerm.evidence,
+      };
+    }
+    if (beforeTerm?.kind === 'unknown') return indeterminate('sigterm', beforeTerm);
   }
 
   try {
@@ -348,6 +392,14 @@ export async function terminateProcessTarget(
     return { kind: 'gone', via: 'sigterm', termSent, killSent, evidence: afterTerm.evidence };
   }
   if (afterTerm?.kind === 'unknown') return indeterminate('observe', afterTerm);
+
+  if (options.beforeSignal !== undefined) {
+    const beforeKill = await verifyBeforeSignal('KILL');
+    if (beforeKill?.kind === 'gone') {
+      return { kind: 'gone', via: 'sigterm', termSent, killSent, evidence: beforeKill.evidence };
+    }
+    if (beforeKill?.kind === 'unknown') return indeterminate('sigkill', beforeKill);
+  }
 
   try {
     if (send('KILL') === 'gone') {

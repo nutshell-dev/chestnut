@@ -18,7 +18,6 @@ import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  deps.rootConfig.loadGlobal();
 
   const target = assertPublishedClaw(deps, name);
 
@@ -72,7 +71,7 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
 
   // phase 1769: typed outcome——按 discriminant 处理，不再由 boolean 反推终局
   const outcome = await processManager.stop(daemonDir);
-  if (outcome.kind === 'stopped' || outcome.kind === 'intent_recorded') {
+  if (outcome.kind === 'stopped') {
     if (markerFailures.length > 0) {
       throw new CliError(
         `Stopped Claw "${name}" without clean-stop proof: ${markerFailures.join('; ')}`,
@@ -81,6 +80,17 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
     }
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=success`);
     console.log(`✓ Stopped Claw "${name}"`);
+    return;
+  }
+  if (outcome.kind === 'intent_recorded') {
+    if (markerFailures.length > 0) {
+      throw new CliError(
+        `Claw "${name}" stop intent recorded without clean-stop proof; daemon exit not confirmed: ${markerFailures.join('; ')}`,
+        { code: 1, cause: new AggregateError(stopErrors) },
+      );
+    }
+    audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=intent_recorded`);
+    console.log(`Claw "${name}" stop intent recorded; daemon exit not confirmed`);
     return;
   }
   if (outcome.kind === 'not_running') {
