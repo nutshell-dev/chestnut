@@ -1,43 +1,70 @@
 #!/usr/bin/env bash
-# Post-merge hook: verify merged tree compiles and tests pass.
+# Post-merge hook: verify the exact pre-merge..post-merge tree.
 # Enabled via: git config core.hooksPath .githooks
-# If this fails, the merge has already completed; consider manual rollback.
+# A failure cannot roll back a merge that Git has already recorded.
 
 set -euo pipefail
 
 LOCKFILE="/tmp/chestnut-post-merge.lock"
-LOCK_TIMEOUT=600  # 10 min max wait for previous run
-TEST_TIMEOUT=600  # 10 min max for test suite
+LOCK_TIMEOUT=600
+TEST_TIMEOUT=600
+HOOK_KIND="${1:-0}"
 
-# ── mutex: only one post-merge test at a time ──
+for tool in flock timeout; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "[post-merge] UNVERIFIED: required facility '$tool' is unavailable; run pnpm test:diff with explicit --base and --head" >&2
+    exit 1
+  fi
+done
+
+resolve_scope() {
+  node scripts/test-diff.mjs --resolve-merge-scope --hook-kind "$HOOK_KIND"
+}
+
+if ! initial_scope="$(resolve_scope)"; then
+  echo "[post-merge] UNVERIFIED: cannot establish a clean, exact merge scope; use explicit --base and --head" >&2
+  exit 1
+fi
+read -r base head <<<"$initial_scope"
+
 exec 9>"$LOCKFILE"
 if ! flock -w "$LOCK_TIMEOUT" 9; then
-  echo "[post-merge] SKIP: could not acquire lock (another post-merge test running)"
-  exit 0
+  echo "[post-merge] UNVERIFIED: could not acquire lock" >&2
+  exit 1
 fi
 
 cleanup() {
-  # Kill any leftover vitest/node child processes from this run
   pkill -P $$ 2>/dev/null || true
   flock -u 9 2>/dev/null || true
 }
 trap cleanup EXIT
 
+# The merge may have moved while waiting for another hook invocation.
+if ! locked_scope="$(resolve_scope)" || [[ "$locked_scope" != "$initial_scope" ]]; then
+  echo "[post-merge] UNVERIFIED: HEAD, merge metadata, or cleanliness changed while waiting for the lock" >&2
+  exit 1
+fi
+
+echo "[post-merge] verifying base $base head $head"
 echo "[post-merge] running pnpm typecheck..."
 if ! pnpm run typecheck; then
-  echo ""
-  echo "[post-merge] TYPECHECK FAILED on merged tree."
-  echo "[post-merge] The merge is already recorded. Options:"
-  echo "[post-merge]   1. git reset --hard HEAD~1   (if HEAD~1 is correct)"
-  echo "[post-merge]   2. investigate and fix forward"
+  echo "[post-merge] TYPECHECK FAILED on merged tree." >&2
   exit 1
 fi
 
-echo "[post-merge] running pnpm test:diff..."
-if ! timeout "$TEST_TIMEOUT" pnpm run test:diff; then
-  echo ""
-  echo "[post-merge] TESTS FAILED (or timed out) on merged tree."
+set +e
+timeout "$TEST_TIMEOUT" pnpm run test:diff --base "$base" --head "$head" --merge-verification
+test_status=$?
+set -e
+
+# Never turn a moving or newly dirty tree into a green merge receipt.
+if ! final_scope="$(resolve_scope)" || [[ "$final_scope" != "$initial_scope" ]]; then
+  echo "[post-merge] UNVERIFIED: HEAD, merge metadata, or cleanliness changed during verification" >&2
+  exit 1
+fi
+if [[ "$test_status" -ne 0 ]]; then
+  echo "[post-merge] TESTS FAILED, TIMED OUT, OR COULD NOT VERIFY THE SELECTION." >&2
   exit 1
 fi
 
-echo "[post-merge] green."
+echo "[post-merge] green: $base...$head"

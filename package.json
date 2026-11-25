@@ -28,7 +28,7 @@
     "test:smoke": "vitest run --config .config/vitest.config.ts --project=fast --project=resource --project=isolated",
     "test:integration": "vitest run --config .config/vitest.config.ts --project=integration-process --project=integration-io",
     "test:infra": "vitest run --config .config/vitest.config.ts --project=infra",
-    "test:diff": "vitest run --config .config/vitest.config.ts --changed=main",
+    "test:diff": "node scripts/test-diff.mjs --config .config/vitest.config.ts",
     "bench:test-cost": "node scripts/test-cost-baseline.mjs",
     "check:drift-backlog": "node scripts/check-drift-backlog.mjs",
     "typecheck": "tsc --noEmit && tsc -p .config/tsconfig.json",
