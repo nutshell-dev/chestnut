@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { runShadow } from '../../../src/core/shadow-system/system.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
-import { createDoneTool } from '../../../src/core/subagent/tools/done.js';
-import type { Tool } from '../../../src/foundation/tools/index.js';
+import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
+import { createCanonicalToolManifestFromDefinitions, type Tool } from '../../../src/foundation/tools/index.js';
+import { prepareSubagentInput } from '../../../src/core/subagent/execution-input.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { runSubagent } from '../../../src/core/subagent/run.js';
@@ -56,6 +57,20 @@ describe('shadow static parent snapshot equivalence', () => {
       callerKind: 'shadow', allowDone: true, allowShadow: false,
       allowSummon: false, allowNotifyClaw: false, manifestRevision: manifest.revision,
     });
+    const explicitInput = prepareSubagentInput({
+      prompt: call.prompt!,
+      systemPrompt: call.systemPrompt!,
+      messages: call.messages,
+      tools: { manifest: createCanonicalToolManifestFromDefinitions(call.toolsForLLM!) },
+      execution: call.execution!,
+      toolProfile: call.toolProfile,
+      budget: { timeoutMs: call.timeoutMs! },
+      resultCapture: { toolName: call.resultTool ?? DONE_TOOL_NAME },
+    });
+    expect(explicitInput.tools.manifest.llmTools).toEqual(call.toolsForLLM);
+    expect(explicitInput.tools.manifest.revision).toBe(manifest.revision);
+    expect(explicitInput.messages).toEqual(call.messages);
+    expect(explicitInput.execution).toEqual(call.execution);
     expect(result.metadata).toMatchObject({
       manifestRevision: manifest.revision, promptRevision: 'prompt-revision',
     });

@@ -33,12 +33,20 @@ Do NOT attempt to fix issues, execute tasks, or make assumptions about missing e
  * 装配方（subagent-executor / verifier-job）调用 / prepend 到 default/verifier prompt
  * phase 514 加
  */
-export function buildSubagentSystemPrompt(args: {
+export interface SubagentWorkspacePromptTemplateParameters {
+  readonly callerClawId: string;
+  readonly subagentsDir: string;
+  readonly systemPrompt?: string;
+}
+
+export const SUBAGENT_WORKSPACE_PROMPT_TEMPLATE = {
+  name: 'subagent_workspace_context',
+  version: 1,
+} as const;
+
+export function buildSubagentSystemPrompt(args: SubagentWorkspacePromptTemplateParameters & {
   /** phase 849: should be FullTaskId; paths in the prompt use this value verbatim. */
   taskId: string;              // subagent task id
-  callerClawId: string;        // caller's clawId
-  subagentsDir: string;        // e.g. 'tasks/subagents' — caller 装配期注入
-  systemPrompt?: string;       // optional custom system prompt to append after prefix
 }): string {
   const prefix = `## Workspace Context
 
@@ -54,4 +62,12 @@ Tool defaults:
 - 访问其他 claw 用 read tools 的 \`claw: "<id>"\` 参数（read-only / write 隔离）
 `;
   return args.systemPrompt ? `${prefix}\n\n${args.systemPrompt}` : prefix;
+}
+
+/** Identity is supplied only after the execution owner has allocated it. */
+export function renderSubagentWorkspacePromptTemplate(
+  parameters: SubagentWorkspacePromptTemplateParameters,
+  identity: { readonly taskId: string },
+): string {
+  return buildSubagentSystemPrompt({ ...parameters, taskId: identity.taskId });
 }

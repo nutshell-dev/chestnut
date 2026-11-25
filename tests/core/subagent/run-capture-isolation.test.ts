@@ -34,6 +34,8 @@ vi.mock('../../../src/foundation/dialog-store/index.js', async (importOriginal) 
 
 import { runSubagent } from '../../../src/core/subagent/run.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
+import { prepareSubagentInput } from '../../../src/core/subagent/execution-input.js';
+import { SUBAGENT_WORKSPACE_PROMPT_TEMPLATE } from '../../../src/templates/prompts/subagent.js';
 import { runReact } from '../../../src/core/agent-executor/loop.js';
 
 const runReactMock = vi.mocked(runReact);
@@ -132,5 +134,50 @@ describe('phase 1858 Step F: per-run capture channel 隔离（SA-D5）', () => {
     expect(run1Done).not.toBe(run2Done);     // run 间实例不同（各自独占通道）
     // 其余条目透传：base registry 的非 done 工具在视图中同实例可见性不破坏
     expect(run1View.get(DONE_TOOL_NAME)).not.toBe(null);
+  });
+
+  it('④ 消费 PreparedSubagentInput，并在实际 agentId 分配后展开模板身份', async () => {
+    const baseRegistry = createToolRegistry();
+    baseRegistry.register(createDoneTool());
+    const manifest = baseRegistry.freeze();
+    const executionInput = prepareSubagentInput({
+      prompt: 'prepared prompt',
+      systemPrompt: {
+        kind: 'template',
+        template: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.name,
+        version: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.version,
+        parameters: { callerClawId: 'caller', subagentsDir: 'tasks/subagents' },
+      },
+      tools: { manifest },
+      budget: { timeoutMs: 4_321, maxSteps: 2 },
+    });
+    let seen: { systemPrompt?: string; tools?: unknown; maxSteps?: number } | undefined;
+    runReactMock.mockImplementation(async (opts) => {
+      seen = opts;
+      return { finalText: 'prepared result', stopReason: 'end_turn' };
+    });
+    const fs = makeFs();
+
+    const result = await runSubagent({
+      agentId: 'assigned-task-id',
+      clawDir: '/tmp/test',
+      fs,
+      llm: {} as any,
+      registry: baseRegistry,
+      resultDir: '/tmp/test/result-prepared-input',
+      syncDir: '/tmp/test/tasks/sync',
+      executionInput,
+    });
+
+    expect(result.text).toBe('prepared result');
+    expect(seen?.systemPrompt).toContain('../tasks/subagents/assigned-task-id/');
+    expect(seen?.tools).toEqual(manifest.llmTools);
+    expect(seen?.maxSteps).toBe(2);
+    const document = JSON.parse(await fs.read('result-prepared-input/execution/input.json'));
+    expect(document.input).toEqual(JSON.parse(JSON.stringify(executionInput)));
+    expect(document.input.systemPrompt.parameters).not.toHaveProperty('taskId');
+    expect(document.input).not.toHaveProperty('fs');
+    expect(document.input).not.toHaveProperty('llm');
+    expect(document.input).not.toHaveProperty('registry');
   });
 });

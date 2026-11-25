@@ -16,6 +16,23 @@ export { resolveSubagentRunDir } from './result-dir-query.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
 
+// Phase 2248 E: versioned, JSON-only execution declarations.
+export {
+  decodeSubagentInput,
+  PREPARED_SUBAGENT_INPUT_KIND,
+  prepareSubagentInput,
+} from './execution-input.js';
+export type {
+  PreparedSubagentInput,
+  PreparedSubagentInputBudget,
+  SubagentInputBudgetDeclaration,
+  SubagentInputDeclaration,
+  SubagentResultCaptureDeclaration,
+  SubagentSystemPromptDeclaration,
+  SubagentTemplateSystemPrompt,
+  SubagentTextSystemPrompt,
+} from './execution-input.js';
+
 // Phase 2248 C/D: persistent admission, observation and self-owned execution.
 export { createSubagentRunner, SubagentExecutionReference, SubagentRunnerImpl } from './execution-reference.js';
 export { createSubagentExecutionRunner, SubagentExecutionRunner } from './execution-runner.js';

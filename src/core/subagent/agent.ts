@@ -71,6 +71,8 @@ export interface SubagentLateResultEvidence {
   };
 }
 
+export const DEFAULT_SUBAGENT_TOOL_PROFILE: ToolProfile = 'subagent';
+
 export interface SubAgentOptions {
   agentId: string;
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
@@ -218,7 +220,7 @@ export class SubAgent {
     this.sink.turnStart();
 
     try {
-      const executorProfile = this.toolProfile ?? 'subagent';
+      const executorProfile = this.toolProfile ?? DEFAULT_SUBAGENT_TOOL_PROFILE;
       const executor = this.toolExecutor;
 
       // Setup messages（若传入 messages 则直接使用，否则从 prompt 构建）

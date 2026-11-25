@@ -30,6 +30,12 @@ import type {
   SubagentJsonValue,
 } from './execution-types.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
+import {
+  decodeSubagentInput,
+  PREPARED_SUBAGENT_INPUT_KIND,
+  resolveSubagentSystemPrompt,
+  type PreparedSubagentInput,
+} from './execution-input.js';
 
 export interface RunSubagentOptions {
   agentId: string;
@@ -40,8 +46,11 @@ export interface RunSubagentOptions {
   fsFactory?: (baseDir: string) => FileSystem;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
-  prompt: string;
-  systemPrompt: string;
+  /** Legacy transition fields; omit both when executionInput is supplied. */
+  prompt?: string;
+  systemPrompt?: string;
+  /** New versioned declaration; runtime dependencies still come from this options object. */
+  executionInput?: PreparedSubagentInput;
   resultDir: string;
   syncDir: string;
   maxSteps?: number;
@@ -64,9 +73,7 @@ export interface RunSubagentResult {
   degraded?: DegradedArtifact[];
 }
 
-interface PersistedRunSubagentInput {
-  readonly schema_version: 1;
-  readonly kind: 'run_subagent_options';
+interface ResolvedRunSubagentInput {
   readonly agentId: string;
   readonly clawDir: string;
   readonly syncDir: string;
@@ -84,6 +91,11 @@ interface PersistedRunSubagentInput {
   readonly messages?: Message[];
   readonly toolTimeoutMs?: number;
   readonly currentContractId?: string;
+}
+
+interface PersistedRunSubagentInput extends ResolvedRunSubagentInput {
+  readonly schema_version: 1;
+  readonly kind: 'run_subagent_options';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -112,6 +124,9 @@ function isDegradedArtifact(value: unknown): value is DegradedArtifact {
 }
 
 function serializeInput(opts: RunSubagentOptions): PersistedRunSubagentInput {
+  if (typeof opts.prompt !== 'string' || typeof opts.systemPrompt !== 'string') {
+    throw new TypeError('legacy runSubagent input requires prompt and systemPrompt');
+  }
   return {
     schema_version: 1,
     kind: 'run_subagent_options',
@@ -135,7 +150,14 @@ function serializeInput(opts: RunSubagentOptions): PersistedRunSubagentInput {
   };
 }
 
-function parseInput(value: SubagentJsonValue): PersistedRunSubagentInput {
+function parseInput(value: SubagentJsonValue): PersistedRunSubagentInput | PreparedSubagentInput {
+  if (isRecord(value) && value.kind === PREPARED_SUBAGENT_INPUT_KIND) {
+    return decodeSubagentInput(value);
+  }
+  return parseLegacyInput(value);
+}
+
+function parseLegacyInput(value: SubagentJsonValue): PersistedRunSubagentInput {
   if (!isRecord(value) || value.schema_version !== 1 || value.kind !== 'run_subagent_options') {
     throw new TypeError('invalid persisted RunSubagentOptions input header');
   }
@@ -186,6 +208,32 @@ function parseInput(value: SubagentJsonValue): PersistedRunSubagentInput {
     ...(tools !== undefined ? { toolsForLLM: tools } : {}),
     ...(messages !== undefined ? { messages } : {}),
     ...(execution !== undefined ? { execution } : {}),
+  };
+}
+
+function resolveInput(
+  persisted: PersistedRunSubagentInput | PreparedSubagentInput,
+  opts: RunSubagentOptions,
+): ResolvedRunSubagentInput {
+  if (persisted.kind === 'run_subagent_options') return persisted;
+  return {
+    agentId: opts.agentId,
+    clawDir: opts.clawDir,
+    syncDir: opts.syncDir,
+    resultDir: opts.resultDir,
+    prompt: persisted.prompt,
+    systemPrompt: resolveSubagentSystemPrompt(persisted.systemPrompt, { taskId: opts.agentId }),
+    ...(opts.traceId !== undefined ? { traceId: opts.traceId } : {}),
+    toolProfile: persisted.toolProfile,
+    execution: persisted.execution,
+    maxSteps: persisted.budget.maxSteps,
+    idleTimeoutMs: persisted.budget.idleTimeoutMs,
+    timeoutMs: persisted.budget.timeoutMs,
+    toolsForLLM: structuredClone([...persisted.tools.manifest.llmTools]),
+    resultTool: persisted.resultCapture.toolName,
+    ...(persisted.messages !== undefined ? { messages: structuredClone([...persisted.messages]) } : {}),
+    toolTimeoutMs: persisted.budget.toolTimeoutMs,
+    ...(opts.currentContractId !== undefined ? { currentContractId: opts.currentContractId } : {}),
   };
 }
 
@@ -244,7 +292,7 @@ function createRunDriver(opts: RunSubagentOptions, auditWriter: ReturnType<typeo
       signal: AbortSignal;
       deadlineAtMs?: number;
     }) {
-      const input = parseInput(request.input);
+      const input = resolveInput(parseInput(request.input), opts);
       const resultDir = input.resultDir;
       const traceId = input.traceId ?? makeTraceId(randomHex(8));
       const streamPath = `${resultDir}/${STREAM_FILE}`;
@@ -371,8 +419,20 @@ function projectResult(outcome: SubagentFinalOutcome): RunSubagentResult {
 
 /** Compatibility convenience: start + completion, with no independent execution logic. */
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
-  const input = jsonValue(serializeInput(opts), 'runSubagent input');
+  const prepared = opts.executionInput === undefined ? undefined : decodeSubagentInput(opts.executionInput);
+  if (prepared) {
+    const legacyFields = [
+      'prompt', 'systemPrompt', 'toolProfile', 'execution', 'maxSteps', 'idleTimeoutMs',
+      'timeoutMs', 'toolsForLLM', 'resultTool', 'messages', 'toolTimeoutMs',
+    ] as const;
+    const conflicting = legacyFields.filter(field => opts[field] !== undefined);
+    if (conflicting.length > 0) {
+      throw new TypeError(`executionInput cannot be combined with legacy fields: ${conflicting.join(', ')}`);
+    }
+  }
+  const input = jsonValue(prepared ?? serializeInput(opts), 'runSubagent input');
   if (input === undefined) throw new TypeError('runSubagent input must be JSON serializable');
+  const timeoutMs = prepared?.budget.timeoutMs ?? opts.timeoutMs ?? SUBAGENT_TIMEOUT_MS;
   const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
   const runner = createSubagentExecutionRunner({
     fs: opts.fs,
@@ -384,7 +444,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     resultDir: executionResultDir(opts),
     input,
     signal: opts.signal,
-    deadlineAtMs: Date.now() + (opts.timeoutMs ?? SUBAGENT_TIMEOUT_MS),
+    deadlineAtMs: Date.now() + timeoutMs,
   });
   const outcome = await execution.completion;
   if (outcome.kind !== 'completed') {
