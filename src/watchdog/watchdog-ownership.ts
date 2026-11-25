@@ -269,6 +269,10 @@ export function inspectActive(fs: FileSystem): ActiveInspection {
     if (isFsNotFound(err)) return { status: 'none' };
     return { status: 'malformed', cause: formatErr(err) };
   }
+  return parseOwner(content);
+}
+
+function parseOwner(content: string): ActiveInspection {
   try {
     const parsed: unknown = JSON.parse(content);
     if (!isOwnerRecord(parsed)) return { status: 'malformed', cause: 'owner_shape_mismatch' };
@@ -396,6 +400,127 @@ export function inspectTerminal(fs: FileSystem): TerminalInspection {
     return { status: 'malformed', cause: formatErr(err) };
   }
   return parseTerminal(content);
+}
+
+export type WatchdogAttemptTerminalInspection =
+  | { kind: 'none' }
+  | { kind: 'terminal'; terminal: WatchdogGenerationTerminal }
+  | { kind: 'unknown'; reason: string; error?: unknown };
+
+function readTerminalForAttempt(fs: FileSystem, dir: string): WatchdogAttemptTerminalInspection {
+  let content: string;
+  try {
+    content = fs.readSync(`${dir}/${WATCHDOG_TERMINAL_FILE}`);
+  } catch (err) {
+    if (isFsNotFound(err)) return { kind: 'none' };
+    return { kind: 'unknown', reason: 'terminal_read_failed', error: formatErr(err) };
+  }
+  const inspection = parseTerminal(content);
+  if (inspection.status === 'ok') return { kind: 'terminal', terminal: inspection.terminal };
+  return {
+    kind: 'unknown',
+    reason: 'terminal_malformed',
+    error: inspection.status === 'malformed' ? inspection.cause : 'terminal_read_failed',
+  };
+}
+
+function inspectExactRetiredTerminal(
+  fs: FileSystem,
+  attemptId: string,
+  ownerToken: string,
+): WatchdogAttemptTerminalInspection {
+  const dir = `${WATCHDOG_RETIRED_DIR}/${ownerToken}`;
+  let content: string;
+  try {
+    content = fs.readSync(`${dir}/${WATCHDOG_OWNER_FILE}`);
+  } catch (err) {
+    if (isFsNotFound(err)) return { kind: 'none' };
+    return { kind: 'unknown', reason: 'retired_owner_read_failed', error: formatErr(err) };
+  }
+  const inspection = parseOwner(content);
+  if (inspection.status !== 'ok') {
+    return {
+      kind: 'unknown',
+      reason: 'retired_owner_malformed',
+      error: inspection.status === 'malformed' ? inspection.cause : 'retired_owner_missing',
+    };
+  }
+  if (inspection.owner.attempt_id !== attemptId || inspection.owner.owner_token !== ownerToken) {
+    return { kind: 'unknown', reason: 'retired_owner_mismatch' };
+  }
+  return readTerminalForAttempt(fs, dir);
+}
+
+function inspectRetiredTerminalForAttempt(
+  fs: FileSystem,
+  attemptId: string,
+): WatchdogAttemptTerminalInspection {
+  let entries;
+  try {
+    entries = fs.listSync(WATCHDOG_RETIRED_DIR, { includeDirs: true });
+  } catch (err) {
+    if (isFsNotFound(err)) return { kind: 'none' };
+    return { kind: 'unknown', reason: 'retired_list_failed', error: formatErr(err) };
+  }
+  let match: { dir: string; owner: WatchdogOwnerRecord } | null = null;
+  for (const entry of entries) {
+    if (!entry.isDirectory) continue;
+    const dir = `${WATCHDOG_RETIRED_DIR}/${entry.name}`;
+    let content: string;
+    try {
+      content = fs.readSync(`${dir}/${WATCHDOG_OWNER_FILE}`);
+    } catch (err) {
+      return {
+        kind: 'unknown',
+        reason: isFsNotFound(err) ? 'retired_owner_missing' : 'retired_owner_read_failed',
+        error: formatErr(err),
+      };
+    }
+    const inspection = parseOwner(content);
+    if (inspection.status !== 'ok') {
+      return {
+        kind: 'unknown',
+        reason: 'retired_owner_malformed',
+        error: inspection.status === 'malformed' ? inspection.cause : 'retired_owner_missing',
+      };
+    }
+    if (inspection.owner.attempt_id !== attemptId) continue;
+    if (entry.name !== inspection.owner.owner_token) {
+      return { kind: 'unknown', reason: 'retired_owner_token_mismatch' };
+    }
+    if (match !== null) return { kind: 'unknown', reason: 'multiple_retired_matches' };
+    match = { dir, owner: inspection.owner };
+  }
+  return match === null ? { kind: 'none' } : readTerminalForAttempt(fs, match.dir);
+}
+
+/** Read only the terminal bound to this startup attempt; never fall back to a latest generation. */
+export function inspectTerminalForAttempt(
+  fs: FileSystem,
+  attemptId: string,
+): WatchdogAttemptTerminalInspection {
+  const active = inspectActive(fs);
+  if (active.status === 'malformed') {
+    return { kind: 'unknown', reason: 'active_owner_malformed', error: active.cause };
+  }
+  if (active.status !== 'ok' || active.owner.attempt_id !== attemptId) {
+    return inspectRetiredTerminalForAttempt(fs, attemptId);
+  }
+
+  const ownerToken = active.owner.owner_token;
+  const terminal = readTerminalForAttempt(fs, WATCHDOG_ACTIVE_DIR);
+  const recheck = inspectActive(fs);
+  if (
+    recheck.status === 'ok' &&
+    recheck.owner.attempt_id === attemptId &&
+    recheck.owner.owner_token === ownerToken
+  ) {
+    return terminal;
+  }
+
+  const retired = inspectExactRetiredTerminal(fs, attemptId, ownerToken);
+  if (retired.kind !== 'none' || recheck.status !== 'malformed') return retired;
+  return { kind: 'unknown', reason: 'active_owner_malformed', error: recheck.cause };
 }
 
 function terminalTimeMs(terminal: WatchdogGenerationTerminal): number {

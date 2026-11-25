@@ -25,7 +25,12 @@ import {
   WATCHDOG_CANDIDATE_ATTEMPT_ENV,
 } from './candidate-recovery.js';
 import { getChestnutFs } from './watchdog-context.js';
-import { writeCandidateOutcome } from './watchdog-ownership.js';
+import {
+  inspectTerminalForAttempt,
+  writeCandidateOutcome,
+  type WatchdogAttemptTerminalInspection,
+  type WatchdogGenerationTerminal,
+} from './watchdog-ownership.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
 /**
@@ -63,6 +68,37 @@ export class WatchdogCandidateAdmissionRejectedError extends Error {
     super(`Watchdog candidate admission rejected (${reason}): window=${windowId} attempt=${attemptId}`);
     this.name = 'WatchdogCandidateAdmissionRejectedError';
   }
+}
+
+export class WatchdogStartupCrashError extends Error {
+  constructor(
+    summary: string,
+    readonly terminal: Extract<WatchdogGenerationTerminal, { kind: 'crashed' }>,
+  ) {
+    super(`Watchdog crashed during startup: ${summary}. Check watchdog log at ${WATCHDOG_LOG_HINT}.`);
+    this.name = 'WatchdogStartupCrashError';
+  }
+}
+
+export class WatchdogStartupUnconfirmedError extends Error {
+  constructor(
+    readonly evidence: Extract<WatchdogAttemptTerminalInspection, { kind: 'unknown' }>,
+  ) {
+    super(
+      `Watchdog startup outcome is unconfirmed (${evidence.reason}). ` +
+      `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
+    );
+    this.name = 'WatchdogStartupUnconfirmedError';
+  }
+}
+
+function inspectAliveWinner(fsFactory: (baseDir: string) => FileSystem): number | null {
+  const inspection = inspectWatchdogOwner(fsFactory);
+  if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
+    throw new WatchdogOwnerInspectionError(inspection);
+  }
+  if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
+  return inspection.kind === 'alive' ? inspection.pid : null;
 }
 
 /**
@@ -124,15 +160,32 @@ export async function spawnWatchdogCandidate(
     }
 
     for (let attempts = 0; ; attempts++) {
-      const inspection = inspectWatchdogOwner(fsFactory);
-      if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
-        throw new WatchdogOwnerInspectionError(inspection);
-      }
-      if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
-      if (inspection.kind === 'alive') return inspection.pid;
+      const aliveWinner = inspectAliveWinner(fsFactory);
+      if (aliveWinner !== null) return aliveWinner;
       if (attempts >= WATCHDOG_START_MAX_ATTEMPTS) break;
       await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
     }
+
+    // A winner may commit while the polling budget expires. Recheck without another
+    // sleep before attributing a terminal to this attempt.
+    const aliveWinner = inspectAliveWinner(fsFactory);
+    if (aliveWinner !== null) return aliveWinner;
+
+    const evidence = inspectTerminalForAttempt(getChestnutFs(fsFactory), attemptId);
+    if (evidence.kind === 'terminal') {
+      if (evidence.terminal.kind === 'crashed') {
+        const summary = evidence.terminal.reason.split(/\r?\n/, 1)[0]!.slice(0, 240);
+        throw new WatchdogStartupCrashError(summary, evidence.terminal);
+      }
+      if (evidence.terminal.kind === 'stopped') {
+        throw new Error(
+          `Watchdog stopped during startup (${evidence.terminal.signal}). ` +
+          `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
+        );
+      }
+      throw new Error(`Watchdog startup ended unclean. Check watchdog log at ${WATCHDOG_LOG_HINT}.`);
+    }
+    if (evidence.kind === 'unknown') throw new WatchdogStartupUnconfirmedError(evidence);
 
     throw new Error(
       `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +

@@ -40,6 +40,7 @@ import { makeAudit } from '../helpers/audit.js';
 import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
 import { createUserMotionAccess } from '../../src/core/claw-topology/index.js';
+import { WatchdogStartupCrashError } from '../../src/watchdog/spawn.js';
 
 const COMMIT_LOST_AUDIT_WAIT_BUDGET_MS = 10_000;
 
@@ -369,5 +370,32 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     await expect(startPromise).rejects.toThrow(/chestnut start failed/);
     expect(h.counts.contractCreate).toBe(0);
     expect(h.counts.chat).toBe(0);
+  });
+
+  it('Phase 2244 Step C：start 呈现受控 crash 摘要并保留原错误 cause', async () => {
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+    const terminal = {
+      kind: 'crashed' as const,
+      reason: 'controlled summary\nfull child stack remains structured evidence',
+      recorded_at: new Date().toISOString(),
+    };
+    const startupError = new WatchdogStartupCrashError('controlled summary', terminal);
+    const ensureSupervision = vi.fn(async () => { throw startupError; });
+
+    let failure: unknown;
+    try {
+      await startCommand(startDeps(), { ensureSupervision });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    const cliError = failure as Error & { cause?: unknown };
+    expect(cliError.message).toBe(
+      'chestnut start failed: Watchdog crashed during startup: controlled summary. ' +
+      'Check watchdog log at .chestnut/watchdog/watchdog.log.',
+    );
+    expect(cliError.message).not.toContain('full child stack');
+    expect(cliError.cause).toBe(startupError);
   });
 });

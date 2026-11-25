@@ -8,7 +8,7 @@
  * - 畸形 active fail-closed 并 audit
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -24,6 +24,7 @@ import {
   commitOwnership,
   inspectActive,
   inspectTerminal,
+  inspectTerminalForAttempt,
   recordGenerationTerminal,
   retireOwnership,
   writeCandidateOutcome,
@@ -67,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setAuditWriter(null);
+  vi.restoreAllMocks();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -406,5 +408,132 @@ describe('recordGenerationTerminal', () => {
       expect(read.terminal.kind).toBe('crashed');
       expect(read.terminal.reason).toBe('first crash');
     }
+  });
+});
+
+
+describe('inspectTerminalForAttempt', () => {
+  const crash = (reason: string): WatchdogGenerationTerminal => ({
+    kind: 'crashed', reason, recorded_at: new Date().toISOString(),
+  });
+
+  const expectedOf = (record: WatchdogOwnerRecord) => ({
+    attemptId: record.attempt_id, ownerToken: record.owner_token, pid: record.pid,
+  });
+
+  function seedActive(record: WatchdogOwnerRecord): void {
+    prepareCandidate(chestnutFs, record);
+    commitOwnership(chestnutFs, record);
+  }
+
+  function writeRetired(
+    record: WatchdogOwnerRecord,
+    terminal?: WatchdogGenerationTerminal | string,
+    directoryToken = record.owner_token,
+  ): void {
+    const dir = path.join(chestnutDir, WATCHDOG_RETIRED_DIR, directoryToken);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify(record));
+    if (terminal !== undefined) {
+      fs.writeFileSync(
+        path.join(dir, WATCHDOG_TERMINAL_FILE),
+        typeof terminal === 'string' ? terminal : JSON.stringify(terminal),
+      );
+    }
+  }
+
+  it('active 与 retired 都只读取同 attempt/token 配对的 terminal', () => {
+    const record = makeRecord();
+    const terminal = crash('paired crash');
+    seedActive(record);
+    expect(recordGenerationTerminal(chestnutFs, expectedOf(record), terminal).kind).toBe('recorded');
+
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toEqual({
+      kind: 'terminal', terminal,
+    });
+
+    expect(retireOwnership(chestnutFs, expectedOf(record), 'shutdown').kind).toBe('retired');
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toEqual({
+      kind: 'terminal', terminal,
+    });
+  });
+
+  it('active terminal 读取期间退休后，按原 token 从 retired 重新取证', () => {
+    const record = makeRecord();
+    const terminal = crash('original crash');
+    seedActive(record);
+    expect(recordGenerationTerminal(chestnutFs, expectedOf(record), terminal).kind).toBe('recorded');
+
+    const originalRead = chestnutFs.readSync.bind(chestnutFs);
+    let moved = false;
+    vi.spyOn(chestnutFs, 'readSync').mockImplementation((relativePath) => {
+      if (relativePath === `${WATCHDOG_ACTIVE_DIR}/${WATCHDOG_TERMINAL_FILE}` && !moved) {
+        moved = true;
+        expect(retireOwnership(chestnutFs, expectedOf(record), 'shutdown').kind).toBe('retired');
+        const fresh = makeRecord();
+        seedActive(fresh);
+        expect(recordGenerationTerminal(chestnutFs, expectedOf(fresh), crash('fresh crash')).kind)
+          .toBe('recorded');
+      }
+      return originalRead(relativePath);
+    });
+
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toEqual({
+      kind: 'terminal', terminal,
+    });
+    expect(moved).toBe(true);
+  });
+
+  it('同 attempt 多个 retired token 或目录 token 不匹配均为 unknown', () => {
+    const attemptId = 'shared-attempt';
+    writeRetired(makeRecord({ attempt_id: attemptId, owner_token: 'token-a' }), crash('a'));
+    writeRetired(makeRecord({ attempt_id: attemptId, owner_token: 'token-b' }), crash('b'));
+    expect(inspectTerminalForAttempt(chestnutFs, attemptId).kind).toBe('unknown');
+
+    fs.rmSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR), { recursive: true, force: true });
+    writeRetired(makeRecord({ attempt_id: attemptId, owner_token: 'owner-token' }), crash('a'), 'other-token');
+    expect(inspectTerminalForAttempt(chestnutFs, attemptId)).toMatchObject({
+      kind: 'unknown', reason: 'retired_owner_token_mismatch',
+    });
+  });
+
+  it('不会选择其他 generation 的最新 terminal，也不读取其 malformed terminal', () => {
+    const requested = makeRecord();
+    writeRetired(makeRecord(), crash('unrelated crash'));
+    expect(inspectTerminalForAttempt(chestnutFs, requested.attempt_id)).toEqual({ kind: 'none' });
+
+    fs.rmSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR), { recursive: true, force: true });
+    writeRetired(makeRecord(), 'NOT_JSON');
+    expect(inspectTerminalForAttempt(chestnutFs, requested.attempt_id)).toEqual({ kind: 'none' });
+  });
+
+  it('匹配 retired 缺失 terminal 为 none，畸形 terminal 为 unknown', () => {
+    const record = makeRecord();
+    writeRetired(record);
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toEqual({ kind: 'none' });
+
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_RETIRED_DIR, record.owner_token, WATCHDOG_TERMINAL_FILE),
+      'NOT_JSON',
+    );
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toMatchObject({
+      kind: 'unknown', reason: 'terminal_malformed',
+    });
+  });
+
+  it('匹配 terminal 的 IO 权限错误为 unknown，而不是缺失', () => {
+    const record = makeRecord();
+    seedActive(record);
+    const originalRead = chestnutFs.readSync.bind(chestnutFs);
+    vi.spyOn(chestnutFs, 'readSync').mockImplementation((relativePath) => {
+      if (relativePath === `${WATCHDOG_ACTIVE_DIR}/${WATCHDOG_TERMINAL_FILE}`) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      return originalRead(relativePath);
+    });
+
+    expect(inspectTerminalForAttempt(chestnutFs, record.attempt_id)).toMatchObject({
+      kind: 'unknown', reason: 'terminal_read_failed', error: expect.stringContaining('EACCES'),
+    });
   });
 });
