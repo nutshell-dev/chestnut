@@ -5,7 +5,7 @@
  * Results are delivered via inbox message when the subagent completes.
  */
 
-import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import { createCanonicalToolManifest, type Tool, type ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
 import { type SubAgentTaskScheduler } from '../../async-task-system/index.js';
@@ -16,6 +16,8 @@ import {
   listSpawnTemplateNames,
 } from '../templates.js';
 import { SPAWN_AUDIT_EVENTS } from '../audit-events.js';
+import { prepareSubagentInput, TASKS_SUBAGENTS_DIR } from '../../subagent/index.js';
+import { SUBAGENT_WORKSPACE_PROMPT_TEMPLATE } from '../../../templates/prompts/subagent.js';
 
 
 import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
@@ -123,6 +125,23 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
           };
         }
         try {
+          const baseRegistry = ctx.baseRegistry ?? ctx.registry;
+          const input = prepareSubagentInput({
+            prompt: intent,
+            systemPrompt: {
+              kind: 'template',
+              template: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.name,
+              version: SUBAGENT_WORKSPACE_PROMPT_TEMPLATE.version,
+              parameters: {
+                callerClawId: ctx.clawId,
+                subagentsDir: TASKS_SUBAGENTS_DIR,
+                systemPrompt,
+              },
+            },
+            tools: { manifest: createCanonicalToolManifest(baseRegistry?.getAll() ?? []) },
+            toolProfile: 'subagent',
+            budget: { timeoutMs, ...(maxSteps !== undefined ? { maxSteps } : {}) },
+          });
           // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId（brand 经契约传播、不由调用点重铸）
           const taskId = await taskSystem.schedule('subagent', {
             kind: 'subagent',
@@ -135,6 +154,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             originClawId: deps.originClawId ?? ctx.clawId,
             correlation: { source: 'spawn_subagent' },
             toolProfile: 'subagent',
+            executionInput: { schema_version: 1, input },
           });
 
           return {

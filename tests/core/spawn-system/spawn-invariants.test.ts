@@ -16,6 +16,9 @@ import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/in
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
+import { decodeSubagentInput, TASKS_SUBAGENTS_DIR } from '../../../src/core/subagent/index.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../../src/templates/prompts/index.js';
 
 describe('spawn-di-restrictions', () => {
   /**
@@ -104,23 +107,65 @@ describe('phase 1479 Step B: spawn async schedule 不写 mainContextSnapshot', (
     const fs = new NodeFileSystem({ baseDir: tempDir });
     const audit = makeAudit();
     const tool = createSpawnTool({ taskSystem: createMockTaskSystem(fs, audit.audit) });
+    const registry = new ToolRegistryImpl();
+    registry.register({
+      name: 'read',
+      description: 'read',
+      schema: { type: 'object', properties: {} },
+      readonly: true,
+      idempotent: true,
+      execute: async () => ({ success: true, content: 'ok' }),
+    });
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'full',
       fs,
+      registry,
       auditWriter: audit.audit,
       currentToolUseId: 'tu-phase1479' as never,
     });
 
-    const result = await tool.execute({ intent: 'async task', async: true }, ctx);
+    const result = await tool.execute({ intent: 'async task', async: true, timeoutMs: 12_345, maxSteps: 7 }, ctx);
     expect(result.success).toBe(true);
+    expect(result.metadata?.taskId).toBeDefined();
+    expect(result.content).toContain(String(result.metadata?.taskId));
 
     const pendingDir = path.join(tempDir, TASKS_QUEUES_PENDING_DIR);
     const files = (await fsPromises.readdir(pendingDir)).filter(f => f.endsWith('.json'));
     expect(files).toHaveLength(1);
     const task = JSON.parse(await fsPromises.readFile(path.join(pendingDir, files[0]), 'utf-8'));
     expect(task.mainContextSnapshot).toBeUndefined();
+    expect(result.metadata?.taskId).toBe(task.id);
+    expect(task).toMatchObject({ intent: 'async task', timeoutMs: 12_345, maxSteps: 7 });
+    expect(task.executionInput.schema_version).toBe(1);
+    const input = decodeSubagentInput(task.executionInput.input);
+    expect(input).toMatchObject({
+      schema_version: 1,
+      kind: 'prepared_subagent_input',
+      prompt: 'async task',
+      toolProfile: 'subagent',
+      budget: { timeoutMs: 12_345, maxSteps: 7 },
+      execution: {
+        callerKind: 'task',
+        allowDone: true,
+        allowShadow: false,
+        allowSummon: false,
+        allowNotifyClaw: false,
+      },
+      resultCapture: { toolName: 'done' },
+    });
+    expect(input.systemPrompt).toEqual({
+      kind: 'template',
+      template: 'subagent_workspace_context',
+      version: 1,
+      parameters: {
+        callerClawId: 'test-claw',
+        subagentsDir: TASKS_SUBAGENTS_DIR,
+        systemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+      },
+    });
+    expect(input.tools.manifest.llmTools.map(tool => tool.name)).toEqual(['read']);
   });
 });

@@ -105,6 +105,14 @@ describe('spawn tool template param (phase 11)', () => {
       const [taskKind, params] = mockSchedule.mock.calls[0];
       expect(taskKind).toBe('subagent');
       expect(params.systemPrompt).toBe(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+      expect(params.executionInput.schema_version).toBe(1);
+      expect(params.executionInput.input).toMatchObject({
+        prompt: 'test task',
+        systemPrompt: {
+          kind: 'template',
+          parameters: { systemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT },
+        },
+      });
     });
 
     it("caller 传 template:'default' → 行为同不传", async () => {
@@ -118,6 +126,10 @@ describe('spawn tool template param (phase 11)', () => {
       expect(result.success).toBe(true);
       const [, params] = mockSchedule.mock.calls[0];
       expect(params.systemPrompt).toBe(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+      expect(params.executionInput.input.systemPrompt).toMatchObject({
+        kind: 'template',
+        parameters: { systemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT },
+      });
     });
 
     it("sync 路径 default template 透传 systemPrompt 进 runSubagent", async () => {
