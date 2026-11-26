@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_EXECUTION_DIR } from './constants.js';
+import { projectExecutionCorrelation, type SubagentExecutionCorrelation } from './execution-correlation.js';
 import {
   normalizeSubagentLocation,
   SubagentExecutionStore,
@@ -44,6 +45,7 @@ export type SubagentResultDirObservation =
       readonly kind: 'found';
       readonly identity: SubagentExecutionIdentity;
       readonly view: SubagentExecutionView;
+      readonly correlation: SubagentExecutionCorrelation;
     })
   | (SubagentResultDirObservationBase & {
       readonly kind: 'legacy';
@@ -87,7 +89,13 @@ export async function querySubagentExecution(
   try {
     const read = await store.read(location.runId, query.attemptId);
     if (read.kind === 'found') {
-      return { kind: 'found', ...location, identity: read.view.identity, view: read.view };
+      return {
+        kind: 'found',
+        ...location,
+        identity: read.view.identity,
+        view: read.view,
+        correlation: projectExecutionCorrelation(read.input.input),
+      };
     }
     if (read.kind === 'corrupt') {
       return {
