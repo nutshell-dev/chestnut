@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFailed, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
@@ -203,19 +203,46 @@ describe('Phase 2248 K execution delivery composition', () => {
     registry.register(gate.tool);
     const controlled = fakeLlm([toolChunks('held_step'), textChunks('unreachable after stop')]);
     const opts = runOptions(root, fs, controlled.llm, registry, 'spawn-phase2248-stopping', 250);
-    const ref = await startSubagent(opts);
-    await gate.entered;
+    const startedAt = Date.now();
+    const stages: string[] = [];
+    let stage = 'start';
     let settled = false;
+    const mark = (next: string) => {
+      stage = next;
+      stages.push(`${Date.now() - startedAt}ms ${next}`);
+    };
+    onTestFailed(() => {
+      const journal = fs.existsSync('tasks/sync/tool-executions')
+        ? fs.listSync('tasks/sync/tool-executions', { recursive: true }).map(entry => entry.path)
+        : [];
+      console.error(`[V03/V13 diagnostic] stage=${stage} settled=${settled} llmCalls=${controlled.calls()} toolCalls=${gate.execute.mock.calls.length}\n${stages.join('\n')}\njournal=${JSON.stringify(journal)}`);
+      gate.release({ success: false, content: 'released by failed-test cleanup' });
+    });
+    // Admission is real filesystem work and is part of the absolute run deadline.
+    // Freeze only its clock so slow full-lane IO cannot expire the 250ms fixture
+    // before the controlled tool has even been reached.
+    vi.useFakeTimers();
+    mark('start.await');
+    const ref = await startSubagent(opts);
+    mark('gate.entered.await');
+    await gate.entered;
+    await vi.advanceTimersByTimeAsync(250);
+    vi.useRealTimers();
+    mark('tool.timeout.fired');
     void ref.completion.then(() => { settled = true; });
     // The internal SubAgent timeout reaches the real Tools owner first. Its
     // persisted stop intent is the convergence-independent observation point.
+    mark('tool.stop-journal.await');
     await vi.waitFor(async () => {
       const entries = await fs.list('tasks/sync/tool-executions', { recursive: true });
       expect(entries.some(entry => entry.path.endsWith('/stop-1.json'))).toBe(true);
     });
+    mark('ref.read.await');
     expect((await ref.read()).state).toBe('running');
 
+    mark('requestStop.await');
     const receipt = await ref.requestStop({ type: 'test_cancel' });
+    mark('requestStop.returned');
     expect(receipt).toMatchObject({ accepted: true, state: 'stopping', persisted: true });
     expect(settled).toBe(false);
     expect(await fs.exists(`${ref.identity.resultDir}/execution/attempts/1/outcome.json`)).toBe(false);
@@ -225,17 +252,23 @@ describe('Phase 2248 K execution delivery composition', () => {
     });
 
     await fs.writeAtomic(`${ref.identity.resultDir}/result.txt`, 'stale result must not win');
+    mark('scan.stopping.await');
     const stopping = await scanSubagentResults({ fsFactory: base => new NodeFileSystem({ baseDir: base }) }, root);
+    mark('scan.stopping.returned');
     expect(stopping).toHaveLength(1);
     expect(stopping[0]).toMatchObject({ id: opts.agentId, status: 'stopping', source: 'execution' });
 
     gate.release({ success: true, content: 'actual gated tool body' });
+    mark('ref.completion.await');
     const outcome = await ref.completion;
+    mark('ref.completion.returned');
     expect(outcome.kind).toBe('interrupted');
     expect(outcome.cause).toMatchObject({ name: 'ToolTimeoutError' });
     expect(settled).toBe(true);
     expect(await fs.exists(`${ref.identity.resultDir}/execution/attempts/1/outcome.json`)).toBe(true);
+    mark('scan.terminal.await');
     const terminal = await scanSubagentResults({ fsFactory: base => new NodeFileSystem({ baseDir: base }) }, root);
+    mark('scan.terminal.returned');
     expect(terminal[0]).toMatchObject({ status: 'interrupted', state: 'settled', source: 'execution' });
     expect(controlled.calls()).toBe(1);
   });
