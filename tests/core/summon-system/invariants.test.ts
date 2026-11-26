@@ -27,6 +27,13 @@ import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/in
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../../../src/core/summon-system/pending-retrospective.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { SubAgentTaskSchema } from '../../../src/core/async-task-system/task-schemas.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
+
+function inputOf(task: Record<string, unknown>): ReturnType<typeof decodeSubagentInput> {
+  const envelope = task.executionInput as { schema_version: number; input: unknown };
+  expect(envelope?.schema_version).toBe(1);
+  return decodeSubagentInput(envelope.input);
+}
 
 describe('summon-rejected-shadow-audit', () => {
   /**
@@ -220,11 +227,10 @@ describe('summon-verify-param', () => {
   }
 
   function getTaskContent(task: Record<string, unknown>): string {
-    // phase 1863 (AT-D7)：shadow messages 在 owner payload（executorPayload）内
-    const payload = task.executorPayload as { messages?: Array<{ role: string; content: string }> } | undefined;
-    if (Array.isArray(payload?.messages)) {
-      const lastMsg = payload.messages[payload.messages.length - 1];
-      return lastMsg?.content ?? '';
+    if (task.executionInput !== undefined) {
+      const messages = inputOf(task).messages;
+      const lastMsg = messages?.[messages.length - 1];
+      return typeof lastMsg?.content === 'string' ? lastMsg.content : '';
     }
     if (typeof task.intent === 'string') {
       return task.intent;
@@ -466,10 +472,10 @@ describe('summon-default-mode-shadow', () => {
       expect(tasks).toHaveLength(1);
       // phase 1863 (AT-D8)：callerType → opaque correlation.source
       expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
-      const payload = tasks[0].executorPayload as Record<string, unknown>;
-      expect(payload).toBeDefined();
-      expect(Array.isArray(payload.messages)).toBe(true);
-      expect(payload.systemPrompt).toBe('mock system prompt');
+      const input = inputOf(tasks[0]);
+      expect(Array.isArray(input.messages)).toBe(true);
+      expect(input.systemPrompt).toEqual({ kind: 'text', text: 'mock system prompt' });
+      expect(tasks[0].executorPayload).toBeUndefined();
       expect(tasks[0].motionClawDir).toBeUndefined();
     });
 

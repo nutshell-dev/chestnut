@@ -55,7 +55,7 @@ describe('Tools real execution settlement', () => {
     const { ctx, records } = memoryContext();
     const executor = new ToolExecutorImpl(registry, 60_000);
 
-    const ref = await executor.begin({ toolName: 'noncooperative', args: {}, ctx, timeoutMs: 20 });
+    const ref = await executor.begin({ toolName: 'noncooperative', args: {}, ctx, timeoutMs: 20 }); // time-fixture: bounded tool timeout for late-settlement timing
     const views: string[] = [];
     ref.observe((view) => views.push(`${view.seq}:${view.state}:${view.cleanup ?? '-'}`));
     let completed = false;
@@ -99,7 +99,7 @@ describe('Tools real execution settlement', () => {
     }));
     const { ctx } = memoryContext();
     const pending = new ToolExecutorImpl(registry).execute({
-      toolName: 'legacy-projection', args: {}, ctx, timeoutMs: 10,
+      toolName: 'legacy-projection', args: {}, ctx, timeoutMs: 10, // time-fixture: bounded tool timeout for pending-projection timing
     });
     let completed = false;
     void pending.then(() => { completed = true; });
@@ -253,7 +253,7 @@ describe('Tools real execution settlement', () => {
     const { ctx } = memoryContext();
     ctx.signal = upstream.signal;
     const ref = await new ToolExecutorImpl(registry).begin({
-      toolName: 'abort-then-timeout', args: {}, ctx, timeoutMs: 50,
+      toolName: 'abort-then-timeout', args: {}, ctx, timeoutMs: 50, // time-fixture: bounded tool timeout for abort-cause timing
     });
     const reason = { type: 'user_abort', message: 'stop this call' };
 

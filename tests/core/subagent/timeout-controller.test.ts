@@ -116,7 +116,7 @@ describe('subagent timeout controller audit semantics', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const sink = createSubAgentLifecycleSink({ auditWriter: { write: vi.fn() } as any, agentId: 'agent-deadline' });
-    const first = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink });
+    const first = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink }); // time-fixture: bounded fake-timer deadline inputs
     const firstSettled = first.timeoutPromise.catch(error => error);
     await vi.advanceTimersByTimeAsync(99);
     expect(first.signal.aborted).toBe(false);
@@ -124,7 +124,7 @@ describe('subagent timeout controller audit semantics', () => {
     expect(await firstSettled).toMatchObject({ name: 'ToolTimeoutError' });
     first.cleanup();
 
-    const resumed = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink });
+    const resumed = createTimeoutController({ timeoutMs: 1_000, deadlineAtMs: 1_100, sink }); // time-fixture: bounded fake-timer deadline inputs
     const resumedSettled = resumed.timeoutPromise.catch(error => error);
     await vi.advanceTimersByTimeAsync(0);
     expect(resumed.signal.aborted).toBe(true);

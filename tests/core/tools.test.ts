@@ -398,6 +398,7 @@ describe('Tools', () => {
         ],
         ctx
       );
+      await vi.waitFor(() => expect(parallelReleases).toHaveLength(3));
       parallelReleases.forEach(release => release());
       const results = await resultsPromise;
 

@@ -30,6 +30,7 @@ function makeTaskJson(fullId: string): string {
     timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
     parentClawId: 'parent',
+    executionInput: { schema_version: 1, input: { kind: 'derive-fixture' } },
     createdAt: new Date().toISOString(),
   });
 }

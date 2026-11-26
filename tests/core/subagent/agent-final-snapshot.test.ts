@@ -179,7 +179,7 @@ describe('phase 1858 Step C: finally 单一快照（SA-D2）', () => {
   });
 
   it('timeout 后非合作 runReact 未收敛时不保存；release 后最终快照包含真实晚到响应', async () => {
-    const { agent, savedSnapshots, runReact } = makeHarness({ timeoutMs: 25 });
+    const { agent, savedSnapshots, runReact } = makeHarness({ timeoutMs: 25 }); // time-fixture: bounded timeout for late-response timing
     let release!: () => void;
     let abortObservedResolve!: () => void;
     const abortObserved = new Promise<void>(resolve => { abortObservedResolve = resolve; });

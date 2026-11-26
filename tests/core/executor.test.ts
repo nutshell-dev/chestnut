@@ -379,6 +379,8 @@ describe('ToolExecutor', () => {
       // Regression test: Step 2 initially lost ctx.signal in mergedSignal,
       // breaking upstream abort propagation from subagent.
       const abortController = new AbortController();
+      let markStarted!: () => void;
+      const started = new Promise<void>(resolve => { markStarted = resolve; });
 
       registry.register({
         name: 'abortable',
@@ -387,6 +389,7 @@ describe('ToolExecutor', () => {
 
         readonly: true,
         async execute(_args, toolCtx) {
+          markStarted();
           await new Promise<void>((_, reject) => {
             toolCtx.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
           });
@@ -410,8 +413,9 @@ describe('ToolExecutor', () => {
         timeoutMs: ABORT_OWNED_EXECUTION_BUDGET_MS,
       });
 
-      // Abort after a short delay
+      // Abort only after journal admission has invoked the tool and installed its listener.
       setTimeout(() => abortController.abort(), ABORT_TRIGGER_DELAY_MS);
+      await started;
       await vi.advanceTimersByTimeAsync(ABORT_TRIGGER_DELAY_MS);
 
       const result = await execPromise;

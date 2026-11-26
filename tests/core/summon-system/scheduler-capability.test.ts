@@ -11,7 +11,8 @@ import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_LLM_IDLE_TIMEOUT_MS, type LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
 
 const repoRoot = process.cwd();
 
@@ -84,7 +85,7 @@ describe('phase 1866 Step F: summon scheduler capability', () => {
       expect(calls[0].taskKind).toBe('subagent');
       expect(Object.keys(calls[0].payload).sort()).toEqual([
         'correlation',
-        'executorPayload',
+        'executionInput',
         'intent',
         'kind',
         'maxSteps',
@@ -96,6 +97,31 @@ describe('phase 1866 Step F: summon scheduler capability', () => {
       ]);
       expect(calls[0].payload.originClawId).toBe('origin-claw');
       expect(calls[0].payload.postProcessor).toBe('summon-contract-extract');
+
+      const envelope = calls[0].payload.executionInput as { schema_version: number; input: unknown };
+      expect(envelope.schema_version).toBe(1);
+      const input = decodeSubagentInput(envelope.input);
+      expect(input).toMatchObject({
+        prompt: '',
+        systemPrompt: { kind: 'text', text: 'sp' },
+        toolProfile: 'full',
+        execution: {
+          callerKind: 'shadow',
+          allowDone: true,
+          allowShadow: false,
+          allowSummon: false,
+          allowNotifyClaw: false,
+        },
+        budget: {
+          timeoutMs: 3_600_000, // time-fixture: Shadow declaration budget projection
+          maxSteps: 100,
+          idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
+        },
+      });
+      expect(input.messages).toHaveLength(1);
+      expect(input.messages?.[0]?.content).toContain('do something');
+      expect(input.tools.manifest.llmTools).toEqual([]);
+      expect(input.execution.manifestRevision).toBe(input.tools.manifest.revision);
     });
   });
 });

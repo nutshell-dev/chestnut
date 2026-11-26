@@ -62,6 +62,7 @@ describe('Runtime.initialize() failure audits', () => {
         startDispatch: vi.fn(),
         shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
       } as any,
+      prepareTaskExecutionInputs: async () => {},
       contextInjector: {} as any,
       execContext: {} as any,
       dialogStoreFactory: vi.fn(),

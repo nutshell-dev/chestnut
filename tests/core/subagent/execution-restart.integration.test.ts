@@ -25,6 +25,7 @@ import {
   RecoveryUncertainSideEffectError,
 } from '../../../src/core/subagent/recovery-state.js';
 import type { CompleteLLMResponse } from '../../../src/core/step-executor/index.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
 const { makeToolUseId } = llmProviderProtocol;
@@ -97,7 +98,7 @@ async function fixture(tag: string, executionTool?: Tool) {
   if (executionTool) registry.register(executionTool);
   const input = prepareSubagentInput({
     prompt: 'restart from committed owner facts', tools: { manifest: registry.freeze() },
-    budget: { timeoutMs: 5_000, maxSteps: 3 },
+    budget: { timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS, maxSteps: 3 },
   });
   const infrastructure = (llm: LLMOrchestrator): SubagentExecutionInfrastructure => ({
     clawDir: root, syncDir: path.join(root, 'tasks/sync'), fs, llm, registry,
@@ -128,7 +129,7 @@ describe('Phase 2248 K persistent restart composition', () => {
     const firstRunner = createDefaultSubagentExecutionRunner(infrastructure(firstLlm.llm));
     const first = await firstRunner.start({
       runId: 'restart-uncertain', resultDir: 'results/restart-uncertain', input,
-      deadlineAtMs: Date.now() + 5_000,
+      deadlineAtMs: Date.now() + SUBAGENT_WAIT_TIMEOUT_MS,
     });
     await expect(first.completion).resolves.toMatchObject({ kind: 'failed', recovery: 'uncertain_side_effect' });
     expect(firstLlm.calls()).toBe(1);
@@ -148,7 +149,7 @@ describe('Phase 2248 K persistent restart composition', () => {
 
     const resumed = await restarted.resume({
       runId: first.identity.runId, resultDir: first.identity.resultDir, input,
-      previousAttemptId: first.identity.attemptId, deadlineAtMs: Date.now() + 60_000,
+      previousAttemptId: first.identity.attemptId, deadlineAtMs: Date.now() + SUBAGENT_DEFAULT_TIMEOUT_MS,
     });
     const outcome = await resumed.completion;
     expect(outcome).toMatchObject({ kind: 'failed', recovery: 'uncertain_side_effect' });
@@ -172,7 +173,7 @@ describe('Phase 2248 K persistent restart composition', () => {
     const firstLlm = fakeLlm([new Error('initial attempt stopped before the tool response')]);
     const first = await createDefaultSubagentExecutionRunner(infrastructure(firstLlm.llm)).start({
       runId: 'restart-unstarted', resultDir: 'results/restart-unstarted', input,
-      deadlineAtMs: Date.now() + 5_000,
+      deadlineAtMs: Date.now() + SUBAGENT_WAIT_TIMEOUT_MS,
     });
     await expect(first.completion).resolves.toMatchObject({ kind: 'failed' });
     await createSubAgentRecoveryStore({ fs, resultDir: first.identity.resultDir }).llmResponseCommitted(completeResponse());

@@ -22,6 +22,7 @@ import {
 } from '../../../src/core/async-task-system/types.js';
 import type { SubagentRunner } from '../../../src/core/subagent/index.js';
 import { createMockWatcherFactory } from '../../helpers/task-system.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { createTempDir } from '../../utils/temp.js';
 
 const roots: string[] = [];
@@ -44,7 +45,7 @@ function task(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
   const id = randomUUID();
   return {
     kind: 'subagent', id: makeFullTaskId(id), shortId: makeShortTaskId(id.slice(0, 8)),
-    intent: 'run reference test', timeoutMs: 60_000, maxSteps: 2,
+    intent: 'run reference test', timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS, maxSteps: 2,
     parentClawId: 'parent', createdAt: '2026-01-01T00:00:00.000Z',
     executionInput: { schema_version: 1, input: { schema_version: 1, kind: 'test-input' } },
     ...overrides,

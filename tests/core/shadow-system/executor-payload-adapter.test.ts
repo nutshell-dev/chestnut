@@ -66,7 +66,7 @@ describe('Shadow explicit execution input (phase 2248 G4)', () => {
       prompt: '',
       systemPrompt: { kind: 'text', text: payload.systemPrompt },
       toolProfile: 'full',
-      budget: { timeoutMs: 12_345, maxSteps: 7, idleTimeoutMs: 999 },
+      budget: { timeoutMs: 12_345, maxSteps: 7, idleTimeoutMs: 999 }, // time-fixture: bounded prepared-input payload assertion
       resultCapture: { toolName: 'done' },
       execution: {
         callerKind: 'shadow',

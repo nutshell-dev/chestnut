@@ -781,6 +781,26 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>,
   ): Promise<ShortTaskId> {
+    // New non-prepared writers may still use the legacy public API. Bind their
+    // execution input before the first task write; prepared replay never passes
+    // through here and therefore retains its original payload/hash unchanged.
+    let effectivePayload = payload;
+    if (payload.executionInput === undefined
+        && payload.executorPayload === undefined && payload.summonDecision === undefined) {
+      if (!this.options.prepareLegacyInput) {
+        throw new Error('prepareLegacyInput is required for an ordinary legacy schedule');
+      }
+      const input = await this.options.prepareLegacyInput({
+        prompt: payload.intent,
+        ...(payload.systemPrompt !== undefined ? { systemPrompt: payload.systemPrompt } : {}),
+        ...(payload.toolProfile !== undefined ? { toolProfile: payload.toolProfile } : {}),
+        budget: {
+          timeoutMs: payload.timeoutMs,
+          ...(payload.maxSteps !== undefined ? { maxSteps: payload.maxSteps } : {}),
+        },
+      });
+      effectivePayload = { ...payload, executionInput: { schema_version: 1, input } };
+    }
     // Phase 849: dual-key task IDs. fullId for persistence, shortId for agents/CLI.
     let fullId: FullTaskId;
     let shortId: ShortTaskId;
@@ -790,7 +810,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     } while (this.shortIdIndex.has(shortId));
 
     const task = {
-      ...payload,
+      ...effectivePayload,
       id: fullId,
       shortId: shortId,
       createdAt: new Date().toISOString(),
@@ -1866,6 +1886,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     task: SubAgentTask | ToolTask,
     signal: AbortSignal
   ): Promise<void> {
+    let executionAttempted = false;
     try {
       await this.movePendingToRunning(task.id as FullTaskId);
 
@@ -1890,6 +1911,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         });
       }
 
+      executionAttempted = true;
       await this.executors[task.kind](task, signal);
     } catch (error) {
       const errorMsg = formatErr(error);
@@ -1902,8 +1924,9 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       });
       // A reference-mode admission/observation error is not proof of physical
       // convergence. Keep running evidence and never emit a fictitious failed result.
-      if (task.kind === 'subagent') return;
-      // 通知 parent，避免永久挂起（legacy/tool path only）
+      if (task.kind === 'subagent' && executionAttempted) return;
+      // A queue move failure occurs before any execution attempt and retains the
+      // existing fallback notification; owner admission/observation failures do not.
       await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: `Task failed to start: ${errorMsg}`, isError: true }, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
         emitStartFailed(this.auditWriter, {
           fullTaskId: fullId,

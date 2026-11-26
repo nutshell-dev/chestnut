@@ -45,7 +45,7 @@ function declaration(): SubagentInputDeclaration {
       manifestRevision: manifest.revision,
     },
     toolProfile: 'full',
-    budget: { timeoutMs: 5_000, maxSteps: 4, idleTimeoutMs: 100, toolTimeoutMs: 200 },
+    budget: { timeoutMs: 5_000, maxSteps: 4, idleTimeoutMs: 100, toolTimeoutMs: 200 }, // time-fixture: bounded execution-input round-trip payload
     resultCapture: { toolName: 'done' },
   };
 }

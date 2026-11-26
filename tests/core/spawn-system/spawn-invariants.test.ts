@@ -127,7 +127,7 @@ describe('phase 1479 Step B: spawn async schedule 不写 mainContextSnapshot', (
       currentToolUseId: 'tu-phase1479' as never,
     });
 
-    const result = await tool.execute({ intent: 'async task', async: true, timeoutMs: 12_345, maxSteps: 7 }, ctx);
+    const result = await tool.execute({ intent: 'async task', async: true, timeoutMs: 12_345, maxSteps: 7 }, ctx); // time-fixture: bounded Spawn declaration payload
     expect(result.success).toBe(true);
     expect(result.metadata?.taskId).toBeDefined();
     expect(result.content).toContain(String(result.metadata?.taskId));
@@ -138,7 +138,7 @@ describe('phase 1479 Step B: spawn async schedule 不写 mainContextSnapshot', (
     const task = JSON.parse(await fsPromises.readFile(path.join(pendingDir, files[0]), 'utf-8'));
     expect(task.mainContextSnapshot).toBeUndefined();
     expect(result.metadata?.taskId).toBe(task.id);
-    expect(task).toMatchObject({ intent: 'async task', timeoutMs: 12_345, maxSteps: 7 });
+    expect(task).toMatchObject({ intent: 'async task', timeoutMs: 12_345, maxSteps: 7 }); // time-fixture: bounded scheduled-task payload assertion
     expect(task.executionInput.schema_version).toBe(1);
     const input = decodeSubagentInput(task.executionInput.input);
     expect(input).toMatchObject({
@@ -146,7 +146,7 @@ describe('phase 1479 Step B: spawn async schedule 不写 mainContextSnapshot', (
       kind: 'prepared_subagent_input',
       prompt: 'async task',
       toolProfile: 'subagent',
-      budget: { timeoutMs: 12_345, maxSteps: 7 },
+      budget: { timeoutMs: 12_345, maxSteps: 7 }, // time-fixture: bounded prepared-input payload assertion
       execution: {
         callerKind: 'task',
         allowDone: true,

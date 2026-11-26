@@ -18,6 +18,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
+import { decodeSubagentInput } from '../../../src/core/subagent/index.js';
 
 async function createTempDir(): Promise<string> {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -37,12 +38,14 @@ async function readPendingTasks(baseDir: string): Promise<Array<Record<string, u
   }
 }
 
-/** phase 1863 (AT-D7)：shadow 语义在 owner payload（executorPayload）内，ATS 侧无顶层 shadow 字段。 */
-function payloadOf(task: Record<string, unknown>): Record<string, unknown> {
-  return task.executorPayload as Record<string, unknown>;
+/** G4：Shadow 语义由版本化 executionInput 外壳内的 PreparedSubagentInput 携带。 */
+function inputOf(task: Record<string, unknown>): ReturnType<typeof decodeSubagentInput> {
+  const envelope = task.executionInput as { schema_version: number; input: unknown };
+  expect(envelope?.schema_version).toBe(1);
+  return decodeSubagentInput(envelope.input);
 }
-function payloadMessages(task: Record<string, unknown>): Array<{ role: string; content: string }> {
-  return payloadOf(task).messages as Array<{ role: string; content: string }>;
+function inputMessages(task: Record<string, unknown>): NonNullable<ReturnType<typeof decodeSubagentInput>['messages']> {
+  return inputOf(task).messages!;
 }
 
 describe('SummonTool', () => {
@@ -116,7 +119,8 @@ describe('SummonTool', () => {
       intent: expect.stringContaining('do something'),
       kind: 'subagent',
     });
-    expect(payloadOf(tasks[0])).toBeDefined();
+    expect(inputOf(tasks[0])).toBeDefined();
+    expect(tasks[0].executorPayload).toBeUndefined();
     expect(result.content).toContain(tasks[0].id);
     expect(auditEvents.find(e => e.type === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toBeDefined();
   });
@@ -194,10 +198,10 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadMessages(tasks[0])).toBeDefined();
+      expect(inputMessages(tasks[0])).toBeDefined();
       // stripped motion dialog (1 msg) + SHADOW INSTRUCTION user msg = 2
-      expect(payloadMessages(tasks[0]).length).toBeGreaterThanOrEqual(2);
-      const lastMsg = payloadMessages(tasks[0])[payloadMessages(tasks[0]).length - 1];
+      expect(inputMessages(tasks[0]).length).toBeGreaterThanOrEqual(2);
+      const lastMsg = inputMessages(tasks[0])[inputMessages(tasks[0]).length - 1];
       expect(lastMsg.role).toBe('user');
       expect(lastMsg.content).toContain('SHADOW INSTRUCTION');
       expect(lastMsg.content).toContain('shadow_id: summon-');
@@ -223,11 +227,11 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadMessages(tasks[0])).toBeDefined();
+      expect(inputMessages(tasks[0])).toBeDefined();
       // strip 后 1 msg + SHADOW INSTRUCTION = 2
-      expect(payloadMessages(tasks[0])).toHaveLength(2);
-      expect(payloadMessages(tasks[0])[0]).toEqual({ role: 'user', content: '帮我创建 foo claw 的契约' });
-      const lastMsg = payloadMessages(tasks[0])[payloadMessages(tasks[0]).length - 1];
+      expect(inputMessages(tasks[0])).toHaveLength(2);
+      expect(inputMessages(tasks[0])[0]).toEqual({ role: 'user', content: '帮我创建 foo claw 的契约' });
+      const lastMsg = inputMessages(tasks[0])[inputMessages(tasks[0]).length - 1];
       expect(lastMsg.role).toBe('user');
       expect(lastMsg.content).toContain('SHADOW INSTRUCTION');
     });
@@ -245,11 +249,11 @@ Content.
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       // 2 msgs + SHADOW INSTRUCTION = 3
-      expect(payloadMessages(tasks[0])).toHaveLength(3);
-      expect(payloadMessages(tasks[0])[0]).toEqual({ role: 'user', content: 'hi' });
-      expect(payloadMessages(tasks[0])[1]).toEqual({ role: 'assistant', content: 'hello' });
-      expect(payloadMessages(tasks[0])[2].role).toBe('user');
-      expect(payloadMessages(tasks[0])[2].content).toContain('SHADOW INSTRUCTION');
+      expect(inputMessages(tasks[0])).toHaveLength(3);
+      expect(inputMessages(tasks[0])[0]).toEqual({ role: 'user', content: 'hi' });
+      expect(inputMessages(tasks[0])[1]).toEqual({ role: 'assistant', content: 'hello' });
+      expect(inputMessages(tasks[0])[2].role).toBe('user');
+      expect(inputMessages(tasks[0])[2].content).toContain('SHADOW INSTRUCTION');
     });
 
     it('shadow mode: dialogMessages 为空时 shadowMessages = [SHADOW INSTRUCTION]', async () => {
@@ -259,9 +263,9 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadMessages(tasks[0])).toHaveLength(1);
-      expect(payloadMessages(tasks[0])[0].role).toBe('user');
-      expect(payloadMessages(tasks[0])[0].content).toContain('SHADOW INSTRUCTION');
+      expect(inputMessages(tasks[0])).toHaveLength(1);
+      expect(inputMessages(tasks[0])[0].role).toBe('user');
+      expect(inputMessages(tasks[0])[0].content).toContain('SHADOW INSTRUCTION');
     });
 
     it('phase 1396 Step C: mining 模式不再是公开路径，execute 始终走 shadow', async () => {
@@ -272,7 +276,7 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadMessages(tasks[0])).toBeDefined();
+      expect(inputMessages(tasks[0])).toBeDefined();
       // phase 1863 (AT-D8)：callerType → opaque correlation.source
       expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
       expect(tasks[0].motionClawDir).toBeUndefined();
@@ -290,8 +294,12 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadOf(tasks[0]).systemPrompt).toBe(mockMotionPrompt);
-      expect(payloadMessages(tasks[0])).toBeDefined();
+      const input = inputOf(tasks[0]);
+      expect(input.systemPrompt).toEqual({ kind: 'text', text: mockMotionPrompt });
+      expect(input.messages).toBeDefined();
+      expect(input.tools.manifest.llmTools).toEqual([
+        { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } },
+      ]);
       // phase 1863 (AT-D8)：callerType → opaque correlation.source
       expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
     });
@@ -306,7 +314,7 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(payloadOf(tasks[0]).systemPrompt).toBe(mockMotionPrompt);
+      expect(inputOf(tasks[0]).systemPrompt).toEqual({ kind: 'text', text: mockMotionPrompt });
     });
   });
 

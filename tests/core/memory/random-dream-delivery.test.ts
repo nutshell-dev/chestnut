@@ -128,7 +128,7 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
       mode: 'standard',
       parentClawId: MOTION_CLAW_ID,
       originClawId: MOTION_CLAW_ID,
-      timeoutMs: 1000,
+      timeoutMs: 1000, // time-fixture: bounded scheduled-subagent payload assertion
       maxSteps: 200,
       executionInput: { schema_version: 1 },
     });
@@ -148,7 +148,7 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
       },
     });
     expect(executionInput.toolProfile).toBe('subagent');
-    expect(executionInput.budget).toEqual({ timeoutMs: 1000, maxSteps: 200 });
+    expect(executionInput.budget).toEqual({ timeoutMs: 1000, maxSteps: 200 }); // time-fixture: bounded execution-input payload assertion
     expect(decodeSubagentInput(JSON.parse(JSON.stringify(executionInput)))).toEqual(executionInput);
 
     // notification sent

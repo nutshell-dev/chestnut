@@ -160,10 +160,10 @@ describe('phase 1858 Step G: degraded 并入 outcome（SA-D6）', () => {
     });
 
     const first = await runner.start({
-      runId: 'shared-a', resultDir: 'result-shared-a', input, deadlineAtMs: 111_111,
+      runId: 'shared-a', resultDir: 'result-shared-a', input, deadlineAtMs: 111_111, // time-fixture: bounded absolute-deadline input
     });
     const second = await runner.start({
-      runId: 'shared-b', resultDir: 'result-shared-b', input, deadlineAtMs: 222_222,
+      runId: 'shared-b', resultDir: 'result-shared-b', input, deadlineAtMs: 222_222, // time-fixture: bounded absolute-deadline input
     });
     await expect(first.completion).resolves.toMatchObject({
       kind: 'completed', content: 'shared-a', identity: { runId: 'shared-a', resultDir: 'result-shared-a' },

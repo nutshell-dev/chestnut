@@ -36,7 +36,7 @@ function legacyPayload(shadowId = 'shadow-legacy'): ShadowExecutorPayload {
     promptRevision: 'parent-prompt-revision',
     identity: { shadowId, originClawId: 'origin', isShadow: true },
     detached: true,
-    budget: { timeoutMs: 30_000, maxSteps: 9, idleTimeoutMs: 500 },
+    budget: { timeoutMs: 30_000, maxSteps: 9, idleTimeoutMs: 500 }, // time-fixture: bounded legacy Shadow budget payload
   };
 }
 

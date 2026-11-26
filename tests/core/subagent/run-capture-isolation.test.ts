@@ -149,7 +149,7 @@ describe('phase 1858 Step F: per-run capture channel 隔离（SA-D5）', () => {
         parameters: { callerClawId: 'caller', subagentsDir: 'tasks/subagents' },
       },
       tools: { manifest },
-      budget: { timeoutMs: 4_321, maxSteps: 2 },
+      budget: { timeoutMs: 4_321, maxSteps: 2 }, // time-fixture: bounded prepared-input payload
     });
     let seen: { systemPrompt?: string; tools?: unknown; maxSteps?: number } | undefined;
     runReactMock.mockImplementation(async (opts) => {

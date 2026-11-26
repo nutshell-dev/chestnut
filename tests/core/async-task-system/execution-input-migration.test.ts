@@ -50,7 +50,7 @@ function prepared(executorPayload?: unknown): PreparedSubagentSchedule {
     id: makeFullTaskId(id),
     createdAt: '2026-01-01T00:00:00.000Z',
     payload: {
-      kind: 'subagent', intent: 'legacy intent', timeoutMs: 30_000, maxSteps: 3,
+      kind: 'subagent', intent: 'legacy intent', timeoutMs: 30_000, maxSteps: 3, // time-fixture: bounded legacy task payload for migration
       parentClawId: 'parent', systemPrompt: 'legacy system', toolProfile: 'subagent',
       ...(executorPayload !== undefined ? { executorPayload } : {}),
     },
@@ -89,7 +89,7 @@ function legacyShadowPayload(): ShadowExecutorPayload {
     promptRevision: 'parent-prompt-revision',
     identity: { shadowId: 'shadow-running-legacy', originClawId: 'origin', isShadow: true },
     detached: true,
-    budget: { timeoutMs: 30_000, maxSteps: 9, idleTimeoutMs: 500 },
+    budget: { timeoutMs: 30_000, maxSteps: 9, idleTimeoutMs: 500 }, // time-fixture: bounded legacy Shadow budget payload
   };
 }
 

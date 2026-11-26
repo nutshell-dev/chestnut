@@ -42,6 +42,7 @@ import { scanSubagentResults } from '../../src/cli/commands/subagent-helpers.js'
 import { makeExecContext } from '../helpers/exec-context.js';
 import { createMockWatcherFactory } from '../helpers/task-system.js';
 import { makeMockAudit } from '../helpers/audit.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
 
 function deferred<T = void>() {
@@ -115,7 +116,7 @@ function task(executionInput?: SubAgentTask['executionInput']): SubAgentTask {
   const id = randomUUID();
   return {
     kind: 'subagent', id: makeFullTaskId(id), shortId: makeShortTaskId(id.slice(0, 8)),
-    intent: 'execute through the real owner', timeoutMs: 60_000, maxSteps: 3,
+    intent: 'execute through the real owner', timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS, maxSteps: 3,
     parentClawId: 'parent', createdAt: new Date().toISOString(),
     ...(executionInput ? { executionInput } : {}),
   };
@@ -144,7 +145,7 @@ function runOptions(
   llm: LLMOrchestrator,
   registry: ToolRegistryImpl,
   agentId: string,
-  timeoutMs = 5_000,
+  timeoutMs = SUBAGENT_WAIT_TIMEOUT_MS,
 ): RunSubagentOptions {
   return {
     agentId, clawDir: root, fs, llm, registry,
@@ -164,8 +165,8 @@ describe('Phase 2248 K execution delivery composition', () => {
       clawDir: root, workspaceDir: path.join(root, 'clawspace'),
       syncDir: path.join(root, 'tasks/sync'), fs,
     });
-    const ref = await new ToolExecutorImpl(registry, 60_000).begin({
-      toolName: 'noncooperative', args: {}, ctx, timeoutMs: 20,
+    const ref = await new ToolExecutorImpl(registry, SUBAGENT_DEFAULT_TIMEOUT_MS).begin({
+      toolName: 'noncooperative', args: {}, ctx, timeoutMs: 20, // time-fixture: bounded tool timeout for late-settlement timing
     });
     await gate.entered;
     let settled = false;
@@ -285,7 +286,7 @@ describe('Phase 2248 K execution delivery composition', () => {
     });
     const input = prepareSubagentInput({
       prompt: 'ATS cancellation composition', tools: { manifest: registry.freeze() },
-      budget: { timeoutMs: 60_000, maxSteps: 3 },
+      budget: { timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS, maxSteps: 3 },
     });
     const item = task({ schema_version: 1, input });
     const deliver = vi.fn(async () => ({ kind: 'delivered' as const }));
@@ -329,7 +330,7 @@ describe('Phase 2248 K execution delivery composition', () => {
     });
     const input = prepareSubagentInput({
       prompt: 'shared dependency composition', tools: { manifest: registry.freeze() },
-      budget: { timeoutMs: 60_000, maxSteps: 1 },
+      budget: { timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS, maxSteps: 1 },
     });
     const item = task({ schema_version: 1, input });
     const nextProbeAt = Date.now() + 30_000;
@@ -414,7 +415,7 @@ describe('Phase 2248 K execution delivery composition', () => {
       fs, llm: controlled.llm, registry,
     });
     const result = await runSpawnSync({
-      intent: 'direct caller composition', timeoutMs: 5_000, maxSteps: 1,
+      intent: 'direct caller composition', timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS, maxSteps: 1,
       systemPrompt: 'controlled spawn system', ctx, subagentRunner: execution,
     });
     expect(result).toMatchObject({ success: true, content: 'direct spawn final body' });

@@ -442,21 +442,31 @@ export class ToolExecutorImpl implements IToolExecutor {
     // Invariant: readonly tools are sync-only by design.
     // executeParallel only invokes readonly tools (filter line below); they
     // never enter async dispatch, so toolUseId is intentionally not forwarded here.
-    const promises = batch.map(({ toolName, args }) => {
+    const promises: Promise<ToolResult | null>[] = [];
+    for (const { toolName, args } of batch) {
       const tool = this.registry.get(toolName);
-      if (tool?.readonly !== true) return Promise.resolve(null);
-      return this.execute({
-        toolName,
-        args,
-        ctx,
-        timeoutMs: toSafeNumber((args as Record<string, unknown>)?.timeoutMs),
-      }).catch(err => enforceToolResultBounds(
+      if (tool?.readonly !== true) {
+        promises.push(Promise.resolve(null));
+        continue;
+      }
+      const onError = (err: unknown) => enforceToolResultBounds(
         ctx,
         toolName,
         { success: false, content: formatErr(err) },
         tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
-      ));
-    });
+      );
+      try {
+        const execution = await this.begin({
+          toolName,
+          args,
+          ctx,
+          timeoutMs: toSafeNumber((args as Record<string, unknown>)?.timeoutMs),
+        });
+        promises.push(execution.completion.then(final => final.presentedResult, onError));
+      } catch (err) {
+        promises.push(onError(err));
+      }
+    }
 
     return Promise.all(promises);
   }

@@ -159,7 +159,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
       mode: 'standard',
       intent: 'persisted prompt and skill summary',
       correlation: { source: 'retro', ref: contractId },
-      timeoutMs: 123_000,
+      timeoutMs: 123_000, // time-fixture: bounded persisted task payload for replay
       parentClawId: 'motion',
       originClawId: 'motion',
       toolProfile: 'subagent',

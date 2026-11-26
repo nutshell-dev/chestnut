@@ -24,6 +24,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
 import { completedOutcome, executionIdentity, executionRef, terminalFailure } from './execution-fixtures.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
@@ -154,7 +155,7 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(callArgs.input.systemPrompt).toMatchObject({ kind: 'text' });
       expect(callArgs.input.systemPrompt.text).toBeTruthy();
       expect(callArgs.input.toolProfile).toBe('subagent');
-      expect(callArgs.input.budget).toMatchObject({ timeoutMs: 60_000 });
+      expect(callArgs.input.budget).toMatchObject({ timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS });
     });
 
     it('sync path returns inline result', async () => {

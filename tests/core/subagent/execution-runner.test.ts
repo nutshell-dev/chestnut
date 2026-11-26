@@ -61,7 +61,7 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
       },
     };
     const runner = createSubagentExecutionRunner({ fs, driver });
-    const ref = await runner.start({ runId, resultDir, input, deadlineAtMs: 10_000 });
+    const ref = await runner.start({ runId, resultDir, input, deadlineAtMs: 10_000 }); // time-fixture: bounded absolute-deadline input
     const request = await created.promise;
     expect(request.input).toEqual(input);
     expect(request.deadlineAtMs).toBe(10_000);
@@ -69,7 +69,7 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
     expect(order).toEqual(['run']);
     expect(JSON.parse(await fs.read(path.join(resultDir, 'execution/input.json'))).input).toEqual(input);
     expect(JSON.parse(await fs.read(path.join(resultDir, 'execution/attempts/1/claim.json')))).toMatchObject({
-      deadlineAtMs: 10_000,
+      deadlineAtMs: 10_000, // time-fixture: bounded persisted-deadline assertion
       startBasis: { kind: 'start' },
     });
 
@@ -233,7 +233,7 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
         },
       },
     });
-    const first = await runner.start({ runId, resultDir, input, deadlineAtMs: 50_000 });
+    const first = await runner.start({ runId, resultDir, input, deadlineAtMs: 50_000 }); // time-fixture: bounded absolute-deadline input
     const uncertain = await first.completion;
     expect(uncertain).toMatchObject({ kind: 'failed', recovery: 'uncertain_side_effect' });
     expect(uncertain.cause).toBeInstanceOf(RecoveryUncertainSideEffectError);
@@ -246,16 +246,16 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
       resultDir,
       input,
       previousAttemptId: first.identity.attemptId,
-      deadlineAtMs: 999_999,
+      deadlineAtMs: 999_999, // time-fixture: ignored replacement deadline input
     });
     const recovered = await resumed.completion;
     expect(recovered).toMatchObject({ kind: 'completed', content: 'recovered without replay' });
     expect(requests).toHaveLength(2);
-    expect(requests[1]).toMatchObject({ resume: true, deadlineAtMs: 50_000 });
+    expect(requests[1]).toMatchObject({ resume: true, deadlineAtMs: 50_000 }); // time-fixture: bounded inherited-deadline assertion
     expect(toolsExecuted).toBe(0);
     expect(JSON.parse(await fs.read(path.join(resultDir, 'execution/attempts/2/claim.json')))).toMatchObject({
       parentAttemptId: first.identity.attemptId,
-      deadlineAtMs: 50_000,
+      deadlineAtMs: 50_000, // time-fixture: bounded persisted-deadline assertion
       startBasis: { kind: 'resume', previousAttemptId: first.identity.attemptId },
     });
   });
@@ -273,8 +273,8 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
       },
     });
 
-    const first = await runner.start({ runId: 'task-a', resultDir: 'results/a', input, deadlineAtMs: 11_000 });
-    const second = await runner.start({ runId: 'task-b', resultDir: 'results/b', input, deadlineAtMs: 22_000 });
+    const first = await runner.start({ runId: 'task-a', resultDir: 'results/a', input, deadlineAtMs: 11_000 }); // time-fixture: bounded absolute-deadline input
+    const second = await runner.start({ runId: 'task-b', resultDir: 'results/b', input, deadlineAtMs: 22_000 }); // time-fixture: bounded absolute-deadline input
     await expect(first.completion).resolves.toMatchObject({ content: 'task-a' });
     await expect(second.completion).resolves.toMatchObject({ content: 'task-b' });
     expect(requests.map(request => ({
@@ -282,8 +282,8 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
       resultDir: request.resultDir,
       deadlineAtMs: request.deadlineAtMs,
     }))).toEqual([
-      { runId: 'task-a', resultDir: 'results/a', deadlineAtMs: 11_000 },
-      { runId: 'task-b', resultDir: 'results/b', deadlineAtMs: 22_000 },
+      { runId: 'task-a', resultDir: 'results/a', deadlineAtMs: 11_000 }, // time-fixture: bounded deadline-forwarding assertion
+      { runId: 'task-b', resultDir: 'results/b', deadlineAtMs: 22_000 }, // time-fixture: bounded deadline-forwarding assertion
     ]);
   });
 

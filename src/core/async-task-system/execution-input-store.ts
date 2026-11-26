@@ -131,9 +131,11 @@ function decodeSidecar(raw: string, task: LocatedTask): PreparedExecutionInputRe
 }
 
 async function readExistingSidecar(fs: FileSystem, task: LocatedTask): Promise<PreparedExecutionInputRecord | undefined> {
+  const path = sidecarPath(task.task.id as FullTaskId);
+  if (!await fs.exists(path)) return undefined;
   let raw: string;
   try {
-    raw = await fs.read(sidecarPath(task.task.id as FullTaskId));
+    raw = await fs.read(path);
   } catch (error) {
     if (isFileNotFound(error)) return undefined;
     throw error;
@@ -147,6 +149,9 @@ async function locateTask(fs: FileSystem, taskId: FullTaskId): Promise<LocatedTa
     const sourcePath = `${dir}/${taskId}.json`;
     let raw: string;
     try {
+      // Preserve compatibility with narrow FileSystem implementations while
+      // retaining the read race below for files removed after this check.
+      if (!(await fs.exists(sourcePath))) continue;
       raw = await fs.read(sourcePath);
     } catch (error) {
       if (isFileNotFound(error)) continue;
@@ -178,7 +183,12 @@ async function listActiveTasks(fs: FileSystem): Promise<LocatedTask[]> {
       if (!entry.name.endsWith('.json') || entry.name.includes('.corrupt-')) continue;
       const raw = await fs.read(entry.path);
       const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== 'object' || parsed === null || typeof (parsed as Record<string, unknown>).id !== 'string') {
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new ExecutionInputStoreError('corrupt', `active task has no readable identity: ${entry.path}`);
+      }
+      // Tool tasks have their own execution records and never need this sidecar.
+      if ((parsed as Record<string, unknown>).kind === 'tool') continue;
+      if (typeof (parsed as Record<string, unknown>).id !== 'string') {
         throw new ExecutionInputStoreError('corrupt', `active task has no readable identity: ${entry.path}`);
       }
       const taskId = adoptLegacyFullTaskId((parsed as Record<string, unknown>).id as string);
