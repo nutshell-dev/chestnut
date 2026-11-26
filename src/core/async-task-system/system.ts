@@ -785,7 +785,9 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     // execution input before the first task write; prepared replay never passes
     // through here and therefore retains its original payload/hash unchanged.
     let effectivePayload = payload;
-    if (payload.executionInput === undefined
+    if (typeof payload.intent === 'string'
+        && typeof payload.timeoutMs === 'number' && Number.isFinite(payload.timeoutMs) && payload.timeoutMs >= 0
+        && payload.executionInput === undefined
         && payload.executorPayload === undefined && payload.summonDecision === undefined) {
       if (!this.options.prepareLegacyInput) {
         throw new Error('prepareLegacyInput is required for an ordinary legacy schedule');
