@@ -38,10 +38,6 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
     entries = entries.filter(e => e.kind === k);
   }
 
-  if (options.contract) {
-    entries = entries.filter(e => e.contractId && e.contractId === options.contract);
-  }
-
   if (options.from) {
     const fromDate = new Date(options.from);
     if (Number.isNaN(fromDate.getTime())) {
@@ -62,6 +58,18 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
     const tb = b.startedAt?.getTime() ?? 0;
     return tb - ta;
   });
+
+  const correlationIssues = entries
+    .filter(e => e.kind === 'verifier' && e.contractCorrelation?.kind !== 'known')
+    .map(e => ({
+      id: e.id,
+      reason: e.contractCorrelation?.kind === 'unknown'
+        ? e.contractCorrelation.reason
+        : 'contract association is unavailable',
+    }));
+  if (options.contract) {
+    entries = entries.filter(e => e.contractCorrelation?.kind === 'known' && e.contractId === options.contract);
+  }
 
   let limit = 20;
   if (options.limit !== undefined) {
@@ -89,7 +97,12 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
         error: e.error ?? null,
         started_at: e.startedAt ? e.startedAt.toISOString() : null,
         duration_ms: e.durationMs ?? null,
-        contract_id: e.contractId,
+        contract_id: e.contractId ?? null,
+        contract_correlation: e.contractCorrelation
+          ? e.contractCorrelation.kind === 'known'
+            ? { kind: e.contractCorrelation.kind, source: e.contractCorrelation.source }
+            : { kind: e.contractCorrelation.kind, reason: e.contractCorrelation.reason }
+          : null,
       })),
       total: entries.length,
       filters: {
@@ -102,6 +115,8 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
         limit,
       },
       as_of: new Date().toISOString(),
+      incomplete: options.contract !== undefined && correlationIssues.length > 0,
+      correlation_issues: options.contract !== undefined ? correlationIssues : [],
     };
     console.log(JSON.stringify(payload, null, 2));
     return;
@@ -109,21 +124,26 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
 
   if (entries.length === 0) {
     console.log('No subagent entries found.');
-    return;
+  } else {
+    console.log(`${'ID'.padEnd(36)} ${'KIND'.padEnd(14)} ${'STATUS'.padEnd(10)} ${'STARTED'.padEnd(19)} ${'DURATION'.padEnd(8)}`);
+    console.log('─'.repeat(92));
+
+    for (const e of entries) {
+      const id = truncateId(e.id, 36);
+      const kind = e.kind;
+      const status = e.status;
+      const started = e.startedAt ? formatDate(e.startedAt) : '-';
+      const duration = e.durationMs !== undefined ? formatDuration(e.durationMs) : '-';
+      console.log(`${id.padEnd(36)} ${kind.padEnd(14)} ${status.padEnd(10)} ${started.padEnd(19)} ${duration.padEnd(8)}`);
+    }
+
+    console.log('─'.repeat(92));
+    console.log(`\nTotal: ${entries.length} entries`);
   }
-
-  console.log(`${'ID'.padEnd(36)} ${'KIND'.padEnd(14)} ${'STATUS'.padEnd(10)} ${'STARTED'.padEnd(19)} ${'DURATION'.padEnd(8)}`);
-  console.log('─'.repeat(92));
-
-  for (const e of entries) {
-    const id = truncateId(e.id, 36);
-    const kind = e.kind;
-    const status = e.status;
-    const started = e.startedAt ? formatDate(e.startedAt) : '-';
-    const duration = e.durationMs !== undefined ? formatDuration(e.durationMs) : '-';
-    console.log(`${id.padEnd(36)} ${kind.padEnd(14)} ${status.padEnd(10)} ${started.padEnd(19)} ${duration.padEnd(8)}`);
+  for (const issue of correlationIssues) {
+    console.log(`Contract correlation unknown: ${issue.id}: ${issue.reason}`);
   }
-
-  console.log('─'.repeat(92));
-  console.log(`\nTotal: ${entries.length} entries`);
+  if (options.contract !== undefined && correlationIssues.length > 0) {
+    console.log('Warning: contract-filtered results may be incomplete.');
+  }
 }

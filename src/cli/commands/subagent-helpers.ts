@@ -17,6 +17,7 @@ import {
   type SubagentExecutionState,
   type SubagentExecutionDegraded,
   type SubagentFinalOutcome,
+  type SubagentResultDirObservation,
 } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
@@ -50,6 +51,10 @@ export const SUBAGENT_STATUS_VALUES = [
 ] as const;
 export type SubagentStatus = typeof SUBAGENT_STATUS_VALUES[number];
 export type SubagentStatusSource = 'execution' | 'legacy';
+
+export type SubagentContractCorrelation =
+  | { kind: 'known'; contractId: ContractId; source: 'execution_input' | 'legacy_name' }
+  | { kind: 'unknown'; reason: string };
 
 /** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
 function resolvePathTaskId(id: string, shortIdIndex?: TaskIdResolver): string {
@@ -187,12 +192,60 @@ export interface SubagentEntry {
   startedAt?: Date;
   durationMs?: number;
   contractId?: string;
+  contractCorrelation?: SubagentContractCorrelation;
 }
 
 type SubagentEntryObservation = Pick<
   SubagentEntry,
-  'status' | 'source' | 'identity' | 'sequence' | 'state' | 'reason' | 'outcome' | 'persistence' | 'degraded' | 'error'
+  'status' | 'source' | 'identity' | 'sequence' | 'state' | 'reason' | 'outcome' | 'persistence' | 'degraded' | 'error' | 'contractId' | 'contractCorrelation'
 >;
+
+function projectContractCorrelation(
+  observation: SubagentResultDirObservation,
+  kind: SubagentKind,
+  runId: string,
+): Pick<SubagentEntry, 'contractId' | 'contractCorrelation'> {
+  if (kind !== 'verifier') return {};
+  if (observation.kind === 'found') {
+    if (observation.correlation.kind === 'known') {
+      const contractId = makeContractId(observation.correlation.currentContractId);
+      return {
+        contractId,
+        contractCorrelation: { kind: 'known', contractId, source: 'execution_input' },
+      };
+    }
+    return {
+      contractCorrelation: {
+        kind: 'unknown',
+        reason: observation.correlation.kind === 'absent'
+          ? 'execution input has no currentContractId'
+          : observation.correlation.reason,
+      },
+    };
+  }
+  if (observation.kind === 'legacy') {
+    if (!runId.startsWith('verifier-attempt-')) {
+      const rest = runId.slice('verifier-'.length);
+      const lastDash = rest.lastIndexOf('-');
+      if (lastDash > 0 && lastDash < rest.length - 1) {
+        const contractId = makeContractId(rest.slice(0, lastDash));
+        return {
+          contractId,
+          contractCorrelation: { kind: 'known', contractId, source: 'legacy_name' },
+        };
+      }
+    }
+    return { contractCorrelation: { kind: 'unknown', reason: 'legacy verifier name has no reliable contract association' } };
+  }
+  return {
+    contractCorrelation: {
+      kind: 'unknown',
+      reason: observation.kind === 'corrupt'
+        ? observation.reason
+        : 'execution record was not found; contract association is unknown',
+    },
+  };
+}
 
 async function observeSubagentStatus(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -200,16 +253,19 @@ async function observeSubagentStatus(
   resultDir: string,
   relativeResultDir: string,
   runId: string,
+  kind: SubagentKind,
 ): Promise<SubagentEntryObservation> {
   const observation = await querySubagentExecution(deps.fsFactory(clawDir), { runId, resultDir: relativeResultDir });
+  const correlation = projectContractCorrelation(observation, kind, runId);
   if (observation.kind === 'legacy') {
-    return { status: inferStatus(deps, resultDir), source: 'legacy' };
+    return { status: inferStatus(deps, resultDir), source: 'legacy', ...correlation };
   }
   if (observation.kind === 'not_found') {
     return {
       status: 'error',
       source: 'execution',
       error: { reason: `subagent result directory disappeared during query: ${relativeResultDir}` },
+      ...correlation,
     };
   }
   if (observation.kind === 'corrupt') {
@@ -217,6 +273,7 @@ async function observeSubagentStatus(
       status: 'error',
       source: 'execution',
       error: { reason: observation.reason, ...(observation.path ? { path: observation.path } : {}) },
+      ...correlation,
     };
   }
 
@@ -233,6 +290,7 @@ async function observeSubagentStatus(
       persistence: view.outcome.persistence,
       degraded: view.outcome.degraded,
     } : { degraded: [] }),
+    ...correlation,
   };
 }
 
@@ -259,6 +317,7 @@ export async function scanSubagentResults(deps: { fsFactory: (baseDir: string) =
         resultDir,
         path.join(asyncRel, pathId),
         pathId,
+        kind,
       );
       const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
       let durationMs: number | undefined;
@@ -306,7 +365,7 @@ async function scanSyncDir(
     if (!stat.isDirectory) continue;
     if (filterPrefix && !id.startsWith(filterPrefix)) continue;
     const kind = defaultKind ?? await inferKind(deps, id, clawDir);
-    const observation = await observeSubagentStatus(deps, clawDir, resultDir, path.join(dirRel, id), id);
+    const observation = await observeSubagentStatus(deps, clawDir, resultDir, path.join(dirRel, id), id, kind);
     const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
     let durationMs: number | undefined;
     if (startedAt) {
@@ -316,14 +375,7 @@ async function scanSyncDir(
         durationMs = mtimeResult.value - startedAt.getTime();
       }
     }
-    // contractId only meaningful for verifier-<contractId>-<subtaskId>
-    let contractId: ContractId | undefined;
-    if (id.startsWith('verifier-')) {
-      const rest = id.slice('verifier-'.length);
-      const lastDash = rest.lastIndexOf('-');
-      if (lastDash > 0) contractId = makeContractId(rest.slice(0, lastDash));
-    }
-    results.push({ id, kind, ...observation, startedAt, durationMs, contractId });
+    results.push({ id, kind, ...observation, startedAt, durationMs });
   }
   return results;
 }

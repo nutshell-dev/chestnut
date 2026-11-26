@@ -7,6 +7,7 @@ import {
   type SubagentExecutionState,
 } from '../../src/core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/index.js';
+import { TASKS_SYNC_SUBAGENT_DIR } from '../../src/core/subagent/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { scanSubagentResults } from '../../src/cli/commands/subagent-helpers.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
@@ -50,8 +51,8 @@ describe('Phase 2248 Step J CLI execution status', () => {
     await cleanupTempDir(tempDir);
   });
 
-  async function createExecution(id: string) {
-    const resultDir = path.join(TASKS_SYNC_SPAWN_DIR, id);
+  async function createExecution(id: string, options: { resultDir?: string; input?: unknown } = {}) {
+    const resultDir = options.resultDir ?? path.join(TASKS_SYNC_SPAWN_DIR, id);
     const location = { runId: id, resultDir };
     const store = createSubagentExecutionStore({
       fs: clawFs,
@@ -59,7 +60,7 @@ describe('Phase 2248 Step J CLI execution status', () => {
       newAttemptId: () => `attempt-${id}`,
       now: () => 1_700_000_000_000,
     });
-    const input = await store.prepareInput(location, { prompt: `prompt-${id}` });
+    const input = await store.prepareInput(location, options.input ?? { prompt: `prompt-${id}` });
     const claimed = await store.claimAttempt({
       location,
       inputDigest: input.document.inputDigest,
@@ -195,5 +196,64 @@ describe('Phase 2248 Step J CLI execution status', () => {
 
     expect(first).toEqual(second);
     expect(snapshot(tempDir)).toEqual(before);
+  });
+
+  it('uses owner correlation for modern verifiers and never falls back to a misleading name', async () => {
+    const attemptOnly = 'verifier-attempt-11111111-1111-1111-1111-111111111111';
+    const misleading = 'verifier-contract-b-t1';
+    const absent = 'verifier-contract-c-t2';
+    const input = (currentContractId?: string) => ({
+      schema_version: 1,
+      kind: 'run_subagent_options',
+      prompt: 'private prompt',
+      ...(currentContractId !== undefined ? { currentContractId } : {}),
+    });
+    await createExecution(attemptOnly, {
+      resultDir: path.join(TASKS_SYNC_SUBAGENT_DIR, attemptOnly),
+      input: input('contract-a'),
+    });
+    await createExecution(misleading, {
+      resultDir: path.join(TASKS_SYNC_SUBAGENT_DIR, misleading),
+      input: input('contract-a'),
+    });
+    await createExecution(absent, {
+      resultDir: path.join(TASKS_SYNC_SUBAGENT_DIR, absent),
+      input: input(),
+    });
+
+    const entries = await scan();
+    for (const id of [attemptOnly, misleading]) {
+      expect(entries.find(e => e.id === id)).toMatchObject({
+        status: 'running',
+        contractId: 'contract-a',
+        contractCorrelation: { kind: 'known', contractId: 'contract-a', source: 'execution_input' },
+      });
+    }
+    expect(entries.find(e => e.id === absent)).toMatchObject({
+      status: 'running',
+      contractCorrelation: { kind: 'unknown', reason: 'execution input has no currentContractId' },
+    });
+    expect(entries.find(e => e.id === absent)?.contractId).toBeUndefined();
+  });
+
+  it('keeps a corrupt modern verifier association unknown without legacy-name recovery', async () => {
+    const id = 'verifier-contract-a-t1';
+    const { location } = await createExecution(id, {
+      resultDir: path.join(TASKS_SYNC_SUBAGENT_DIR, id),
+      input: { schema_version: 1, kind: 'run_subagent_options', currentContractId: 'contract-a' },
+    });
+    const inputPath = path.join(location.resultDir, 'execution/input.json');
+    const document = JSON.parse(await clawFs.read(inputPath));
+    document.runId = 'verifier-other';
+    await clawFs.writeAtomic(inputPath, JSON.stringify(document));
+
+    const [entry] = await scan();
+    expect(entry).toMatchObject({
+      id,
+      status: 'error',
+      source: 'execution',
+      contractCorrelation: { kind: 'unknown' },
+    });
+    expect(entry.contractId).toBeUndefined();
   });
 });

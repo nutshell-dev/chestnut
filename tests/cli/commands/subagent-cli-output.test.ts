@@ -185,6 +185,69 @@ describe('subagent-list', () => {
     expect(output).not.toContain('old-complete');
     expect(output).toContain('Total: 1 entries');
   });
+
+  it('keeps unknown verifier entries visible with explicit JSON correlation and text diagnostics', async () => {
+    const unknown: SubagentEntry = {
+      id: 'verifier-attempt-unknown',
+      kind: 'verifier',
+      status: 'running',
+      source: 'execution',
+      state: 'running',
+      contractCorrelation: { kind: 'unknown', reason: 'execution input has no currentContractId' },
+    };
+    vi.mocked(scanSubagentResults).mockResolvedValue([unknown]);
+
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw', json: true });
+    const parsed = JSON.parse(consoleLogSpy.mock.calls.flat().join('\n'));
+    expect(parsed.entries[0]).toMatchObject({
+      id: unknown.id,
+      status: 'running',
+      contract_id: null,
+      contract_correlation: { kind: 'unknown', reason: 'execution input has no currentContractId' },
+    });
+    expect(parsed.incomplete).toBe(false);
+
+    consoleLogSpy.mockClear();
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw' });
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toContain(unknown.id);
+    expect(output).toContain('Contract correlation unknown');
+    expect(output).toContain('execution input has no currentContractId');
+  });
+
+  it('collects unknown associations before contract filtering and limit, including empty text results', async () => {
+    const known: SubagentEntry = {
+      id: 'verifier-contract-a-new',
+      kind: 'verifier',
+      status: 'completed',
+      source: 'legacy',
+      startedAt: new Date('2026-06-01T00:00:00Z'),
+      contractId: 'contract-a',
+      contractCorrelation: { kind: 'known', contractId: 'contract-a', source: 'execution_input' },
+    };
+    const unknown: SubagentEntry = {
+      id: 'verifier-attempt-old',
+      kind: 'verifier',
+      status: 'completed',
+      source: 'legacy',
+      startedAt: new Date('2026-05-01T00:00:00Z'),
+      contractCorrelation: { kind: 'unknown', reason: 'legacy attempt-only name' },
+    };
+    vi.mocked(scanSubagentResults).mockResolvedValue([known, unknown]);
+
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw', contract: 'contract-a', limit: '1', json: true });
+    const parsed = JSON.parse(consoleLogSpy.mock.calls.flat().join('\n'));
+    expect(parsed.entries.map((entry: { id: string }) => entry.id)).toEqual([known.id]);
+    expect(parsed.incomplete).toBe(true);
+    expect(parsed.correlation_issues).toEqual([{ id: unknown.id, reason: 'legacy attempt-only name' }]);
+
+    consoleLogSpy.mockClear();
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw', contract: 'contract-missing' });
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('No subagent entries found.');
+    expect(output).toContain(unknown.id);
+    expect(output).toContain('contract-filtered results may be incomplete');
+  });
 });
 
 describe('subagent steps --json', () => {
