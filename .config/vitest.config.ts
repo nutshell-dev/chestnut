@@ -135,7 +135,6 @@ const VI_MOCK_FILES = [
   // phase 1028: archive/boot/lifecycle/lock-invariants + lock + contract_manager-locks
   // 移出 ISOLATED — lock retry constants 改为 LockContext/ContractSystemDeps DI 注入。
   'tests/core/contract/dispose-invariants.test.ts',  // vi.mock constants + verifier-job
-  'tests/core/contract/verifier-execution-reference.test.ts',  // phase 2248 H3: vi.mock subagent barrel
   // phase 87: verifier-job DI 替 vi.mock pattern、2 测试不需 module registry isolation、移 fast project。
   // 'tests/core/contract/cancel-signal-propagation.test.ts',
   // 'tests/core/contract/contract-system-close.test.ts',

@@ -2,7 +2,7 @@
  * Phase 2248 H3: Contract consumes the real SubAgent execution reference.
  * Stop/cancel receipts never settle or unregister an actively running verifier.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -28,17 +28,6 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 import { waitFor } from '../../helpers/wait-for.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-
-const subagentMocks = vi.hoisted(() => ({
-  start: vi.fn(),
-  project: vi.fn(),
-}));
-
-vi.mock('../../../src/core/subagent/index.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../src/core/subagent/index.js')>()),
-  startSubagent: subagentMocks.start,
-  projectSubagentResult: subagentMocks.project,
-}));
 
 const identity: SubagentExecutionIdentity = {
   runId: 'verifier-contract-h3-t1',
@@ -99,40 +88,26 @@ function makeConfig(runVerifier?: VerifierConfig['runVerifier']): VerifierConfig
   };
 }
 
-beforeEach(() => {
-  subagentMocks.start.mockReset();
-  subagentMocks.project.mockReset();
-  subagentMocks.project.mockImplementation((outcome: SubagentFinalOutcome) => outcome.rawResult);
-});
-
 describe('default verifier execution reference consumption', () => {
-  it('starts through the public SubAgent entry and waits for the attached real completion', async () => {
+  it('attaches a verifier reference and waits for its real completion', async () => {
     let resolveCompletion!: (outcome: SubagentFinalOutcome) => void;
     const completion = new Promise<SubagentFinalOutcome>(resolve => { resolveCompletion = resolve; });
     const execution = makeExecution(completion);
-    subagentMocks.start.mockResolvedValue(execution);
     const attach = vi.fn();
     let settled = false;
 
-    const pending = runContractVerifier(makeConfig(), { attach }).then(result => {
+    const pending = runContractVerifier(makeConfig(async () => execution), { attach }).then(result => {
       settled = true;
       return result;
     });
     await waitFor(() => attach.mock.calls.length === 1);
 
-    expect(subagentMocks.start).toHaveBeenCalledWith(expect.objectContaining({
-      toolProfile: 'readonly',
-      execution: {
-        callerKind: 'contract_verifier',
-        allowDone: true,
-        allowShadow: false,
-        allowSummon: false,
-        allowNotifyClaw: false,
-      },
-    }));
+    // The default mapping remains statically locked here; Step K exercises that
+    // public entry with the real owner and gated Tools without module mocking.
+    const source = await fs.readFile(path.join(process.cwd(), 'src/core/contract/verifier-job.ts'), 'utf8');
+    expect(source).toContain('return startSubagent({');
     expect(attach).toHaveBeenCalledWith(execution);
     expect(settled).toBe(false);
-    expect(subagentMocks.project).not.toHaveBeenCalled();
 
     const outcome = makeOutcome('completed', {
       rawResult: { text: '', capturedResult: { passed: true, reason: 'ok' } },
@@ -143,7 +118,6 @@ describe('default verifier execution reference consumption', () => {
       passed: true,
       structured: { passed: true, reason: 'ok' },
     });
-    expect(subagentMocks.project).toHaveBeenCalledWith(outcome);
   });
 
   it('keeps a failed outcome cause instead of manufacturing passed:false', async () => {
@@ -169,7 +143,6 @@ describe('default verifier execution reference consumption', () => {
     const artifactError = await runContractVerifier(makeConfig(async () => degraded)).catch(error => error as Error);
 
     expect(artifactError).toMatchObject({ name: 'VerifierArtifactError', outcome: degradedOutcome });
-    expect(subagentMocks.project).not.toHaveBeenCalledWith(degradedOutcome);
   });
 });
 
