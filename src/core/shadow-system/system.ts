@@ -1,6 +1,6 @@
 /**
  * phase 767 NEW
- * shadow-system runtime helper，调用 runSubagent 同步阻塞
+ * shadow-system runtime helper，同步路径持有 SubAgent 执行引用并等待真实完成
  * mirror verifier-job phase 750 加 spawn-system runSpawnSync phase 766 模板
  */
 
@@ -19,7 +19,21 @@ type ToolUseId = llmProviderProtocol.ToolUseId;
 import type { Message } from '../../foundation/dialog-store/index.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
-import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
+import {
+  runSubagent as defaultRunSubagent,
+  createPerTaskRegistry,
+  getDisplayResult,
+  DONE_TOOL_NAME,
+  prepareSubagentInput,
+  projectSubagentResult,
+  type RunSubagentOptions,
+  type RunSubagentResult,
+  type SubagentExecutionIdentity,
+  type SubagentExecutionRef,
+  type SubagentFinalOutcome,
+  type SubagentRunner,
+  type SubagentStartRequest,
+} from '../subagent/index.js';
 
 import { synthesizeFormB } from './_helpers.js';
 import { createShadowIdentity } from './payload.js';
@@ -67,6 +81,9 @@ function failShadow(
 
 
 
+/** Minimal structural port; SubAgent retains execution and persistence ownership. */
+export type ShadowSubagentRunner = Pick<SubagentRunner, 'start'>;
+
 interface RunShadowOptions {
   task: string;
   timeoutMs?: number;
@@ -82,7 +99,9 @@ interface RunShadowOptions {
     manifestRevision?: string;
     promptRevision?: string;
   };
-  /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
+  /** Execution-reference consumer port; Assembly binds the fixed SubAgent capability. */
+  subagentRunner?: ShadowSubagentRunner;
+  /** Transitional compatibility projection until Assembly completes the runner binding. */
   runSubagent?: typeof defaultRunSubagent;
 }
 
@@ -96,6 +115,43 @@ function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId)
     if (hasMarker) return i;
   }
   return -1;
+}
+
+function executionMetadata(final: SubagentFinalOutcome): Record<string, unknown> {
+  return {
+    execution: final.identity,
+    outcomeKind: final.kind,
+    ...(final.evidenceRef !== undefined ? { executionEvidenceRef: final.evidenceRef } : {}),
+    executionRecovery: final.recovery,
+    degraded: final.degraded,
+    ...(final.cause !== undefined ? { cause: final.cause } : {}),
+  };
+}
+
+function projectCompletedResult(final: SubagentFinalOutcome): RunSubagentResult {
+  return projectSubagentResult(final);
+}
+
+function failShadowOutcome(
+  ctx: ExecContext,
+  shadowId: string,
+  resultDir: string,
+  final: SubagentFinalOutcome,
+): ToolResult {
+  const cause = final.cause !== undefined ? final.cause : new Error(final.content);
+  const errMsg = formatErr(cause);
+  const classified = classifyTaskError(cause);
+  emitShadowFailed(ctx.auditWriter, shadowId, errMsg);
+  return {
+    success: false,
+    content: `[chestnut shadow] execution ${final.kind === 'interrupted' ? 'interrupted' : 'failed'}: ${errMsg}`,
+    error: final.kind === 'interrupted' && classified === 'unknown' ? 'abort' : classified,
+    metadata: {
+      shadowId,
+      shadowAuditPath: `${resultDir}/audit.tsv`,
+      ...executionMetadata(final),
+    },
+  };
 }
 
 export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
@@ -215,6 +271,9 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     );
   }
 
+  let execution: SubagentExecutionRef | undefined;
+  let finalOutcome: SubagentFinalOutcome | undefined;
+  let executionIdentity: SubagentExecutionIdentity | undefined;
   try {
 
     const shadowRegistry = createPerTaskRegistry(baseRegistry, 'full');
@@ -225,7 +284,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     // Phase 814/816: 各工具自声明 restrictedOverrides，foundation 通用 apply，不再硬编码具体工具名。
     applyRestrictedOverrides(shadowRegistry, opts.ctx.registry);
 
-    const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
+    const request: RunSubagentOptions = {
       agentId: shadowId,
       toolProfile: 'full',
       clawDir: opts.ctx.clawDir,
@@ -251,12 +310,47 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
       // phase 369 §4 (review-2026-06-13): 用 const、tool 重命名时 shadow-system 跟住
       resultTool: DONE_TOOL_NAME,
-      // phase 1162 r128 D fork DD2: shadow 独立 lifecycle (phase 1084 ratify 维持)。
-      // 显式不传 signal 字段而非 fake `new AbortController().signal` (M#9 显式表达 / honesty fix)。
-      // ratify chain: phase 874 (α-propagate) → phase 1084 (β-independent fake AC) → phase 1162 (β-independent honest omit)。
+      // Phase 2248 H2: only synchronous Shadow inherits the parent signal. The
+      // SubAgent runner keeps it attached until actual convergence; G4 async stays detached.
+      signal: opts.ctx.signal,
       permissionChecker: opts.ctx.permissionChecker,
-    });
+    };
 
+    let result: RunSubagentResult;
+    if (opts.subagentRunner) {
+      const timeoutMs = opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS;
+      const input = prepareSubagentInput({
+        prompt: '',
+        systemPrompt: restoredSystemPrompt,
+        messages: synthesizedMessages,
+        tools: { manifest: createCanonicalToolManifestFromDefinitions(restoredTools) },
+        execution: request.execution,
+        toolProfile: 'full',
+        budget: {
+          timeoutMs,
+          ...(opts.maxSteps !== undefined ? { maxSteps: opts.maxSteps } : {}),
+        },
+        resultCapture: { toolName: DONE_TOOL_NAME },
+      });
+      const startRequest: SubagentStartRequest = {
+        runId: shadowId,
+        resultDir: `${TASKS_SYNC_SHADOW_DIR}/${shadowId}`,
+        input,
+        signal: opts.ctx.signal,
+        deadlineAtMs: Date.now() + timeoutMs,
+      };
+      execution = await opts.subagentRunner.start(startRequest);
+      executionIdentity = execution.identity;
+      finalOutcome = await execution.completion;
+      executionIdentity = finalOutcome.identity;
+      if (finalOutcome.kind !== 'completed') {
+        return failShadowOutcome(opts.ctx, shadowId, resultDir, finalOutcome);
+      }
+      result = projectCompletedResult(finalOutcome);
+    } else {
+      result = await (opts.runSubagent ?? defaultRunSubagent)(request);
+    }
+    const { text, capturedResult } = result;
     const finalResult = getDisplayResult(text, capturedResult);
     emitShadowFinished(opts.ctx.auditWriter, shadowId);
     return {
@@ -267,6 +361,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
         source: capturedResult ? 'done' : 'text',
         manifestRevision,
         promptRevision,
+        ...(finalOutcome ? executionMetadata(finalOutcome) : {}),
       },
     };
   } catch (err) {
@@ -276,7 +371,14 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       success: false,
       content: `[chestnut shadow] execution failed: ${errMsg}`,
       error: classifyTaskError(err),
-      metadata: { shadowId, shadowAuditPath: `${resultDir}/audit.tsv` },
+      metadata: {
+        shadowId,
+        shadowAuditPath: `${resultDir}/audit.tsv`,
+        ...(finalOutcome
+          ? executionMetadata(finalOutcome)
+          : executionIdentity !== undefined ? { execution: executionIdentity } : {}),
+        cause: err,
+      },
     };
   }
 }

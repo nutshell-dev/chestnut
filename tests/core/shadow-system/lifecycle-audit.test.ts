@@ -21,6 +21,8 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { SubagentFinalOutcome } from '../../../src/core/subagent/index.js';
+import { completedOutcome, deferred, executionIdentity, executionRef } from './execution-fixtures.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -120,6 +122,41 @@ describe('shadow lifecycle audit (phase 1865 SH-D9)', () => {
       SHADOW_AUDIT_EVENTS.STARTED,
       SHADOW_AUDIT_EVENTS.PREFIX_RESTORED,
       SHADOW_AUDIT_EVENTS.FINISHED,
+    ]);
+  });
+
+  it('completion gate — start 返回不等于 FINISHED，真实终态后仅一次完成留痕', async () => {
+    const completion = deferred<SubagentFinalOutcome>();
+    const mockStart = vi.fn().mockImplementation(async request => {
+      const identity = executionIdentity(request);
+      return executionRef(identity, completion.promise);
+    });
+    const tool = createShadowTool({ getTurnSnapshot: snapshot, subagentRunner: { start: mockStart } });
+    let settled = 0;
+    const pending = tool.execute({ task: 'gated audit', async: false }, baseCtx)
+      .then(result => { settled += 1; return result; });
+
+    await vi.waitFor(() => { expect(mockStart).toHaveBeenCalledOnce(); });
+    expect(settled).toBe(0);
+    expect(audit.events.map(e => e[0])).toEqual([
+      SHADOW_AUDIT_EVENTS.STARTED,
+      SHADOW_AUDIT_EVENTS.PREFIX_RESTORED,
+    ]);
+
+    const request = mockStart.mock.calls[0][0];
+    const identity = executionIdentity(request);
+    completion.resolve(completedOutcome(identity, 'ok'));
+    const result = await pending;
+
+    expect(result.success).toBe(true);
+    expect(settled).toBe(1);
+    expect(audit.events.map(e => e[0])).toEqual([
+      SHADOW_AUDIT_EVENTS.STARTED,
+      SHADOW_AUDIT_EVENTS.PREFIX_RESTORED,
+      SHADOW_AUDIT_EVENTS.FINISHED,
+    ]);
+    expect(audit.events.filter(e => e[0] === SHADOW_AUDIT_EVENTS.FINISHED)).toEqual([
+      [SHADOW_AUDIT_EVENTS.FINISHED, `shadowId=${request.runId}`],
     ]);
   });
 

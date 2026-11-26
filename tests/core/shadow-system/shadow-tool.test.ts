@@ -29,6 +29,14 @@ import { createMockTaskSystem } from '../../helpers/task-system.js';
 import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
 import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';  // phase 262: hoist
+import type { SubagentFinalOutcome } from '../../../src/core/subagent/index.js';
+import {
+  completedOutcome,
+  deferred,
+  executionIdentity,
+  executionRef,
+  terminalFailure,
+} from './execution-fixtures.js';
 
 const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
@@ -222,6 +230,187 @@ describe('shadow tool (phase 767)', () => {
         expect(result.success).toBe(true);
         expect(result.content).toBe('structured result');
         expect(result.metadata?.source).toBe('done');
+      });
+    });
+
+    describe('execution reference consumption (phase 2248 H2)', () => {
+      it('holds the reference and awaits completion before projecting the original final text', async () => {
+        const completion = deferred<SubagentFinalOutcome>();
+        const mockStart = vi.fn();
+        let identity: ReturnType<typeof executionIdentity> | undefined;
+        mockStart.mockImplementation(async request => {
+          identity = executionIdentity(request);
+          return executionRef(identity, completion.promise);
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp',
+            tools: [] as ToolDefinition[],
+            messages: [
+              { role: 'user', content: 'hi' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+            ],
+          }),
+          subagentRunner: { start: mockStart },
+          runSubagent: mockRunSubagent,
+        });
+        let settled = 0;
+        const pending = tool.execute({ task: 'gated result', async: false }, baseCtx)
+          .then(result => { settled += 1; return result; });
+
+        await vi.waitFor(() => { expect(mockStart).toHaveBeenCalledOnce(); });
+        const request = mockStart.mock.calls[0][0];
+        expect(request.runId).toMatch(/^shadow-/);
+        expect(request.resultDir).toBe(`tasks/sync/shadow/${request.runId}`);
+        expect(request.input).toMatchObject({
+          prompt: '',
+          toolProfile: 'full',
+          execution: {
+            callerKind: 'shadow', allowDone: true, allowShadow: false,
+            allowSummon: false, allowNotifyClaw: false,
+          },
+          resultCapture: { toolName: 'done' },
+        });
+        expect(settled).toBe(0);
+        expect(mockRunSubagent).not.toHaveBeenCalled();
+        expect(audit.events.map(e => e[0])).not.toContain(SHADOW_AUDIT_EVENTS.FINISHED);
+
+        const degraded = [{ stage: 'artifact' as const, artifact: 'dialog:write', error: 'late EIO' }];
+        completion.resolve(completedOutcome(identity!, 'fallback text', { result: 'captured final text' }, degraded));
+        const result = await pending;
+
+        expect(settled).toBe(1);
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('captured final text');
+        expect(result.metadata).toMatchObject({
+          source: 'done', execution: identity, outcomeKind: 'completed', degraded,
+        });
+        expect(JSON.stringify(result)).not.toContain('completion');
+        expect(JSON.stringify(result)).not.toContain('requestStop');
+      });
+
+      it('keeps the parent signal attached and does not turn a stop receipt into a terminal failure', async () => {
+        const outerController = new AbortController();
+        const completion = deferred<SubagentFinalOutcome>();
+        const reason = { kind: 'user_stop' };
+        const degraded = [{ stage: 'artifact' as const, artifact: 'dialog:write', error: 'late EIO' }];
+        const mockStart = vi.fn();
+        let identity: ReturnType<typeof executionIdentity> | undefined;
+        let ref: ReturnType<typeof executionRef> | undefined;
+        mockStart.mockImplementation(async request => {
+          identity = executionIdentity(request);
+          ref = executionRef(identity, completion.promise);
+          vi.mocked(ref.requestStop).mockResolvedValue({
+            identity,
+            accepted: true,
+            state: 'stopping',
+            reason,
+            persisted: true,
+            durable: true,
+            persistence: {
+              path: `${identity.resultDir}/execution/attempts/1/stops/1.json`,
+              kind: 'durable', persisted: true, durable: true,
+            },
+          });
+          request.signal?.addEventListener(
+            'abort',
+            () => { void ref?.requestStop(request.signal?.reason); },
+            { once: true },
+          );
+          return ref;
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp', tools: [] as ToolDefinition[],
+            messages: [
+              { role: 'user', content: 'hi' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+            ],
+          }),
+          subagentRunner: { start: mockStart },
+        });
+        const ctxWithSignal = new ExecContextImpl({
+          clawId: 'test-claw', clawDir: tempDir, syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full', fs, auditWriter: audit.audit, llm: makeLLM(), registry: makeRegistry(),
+          currentToolUseId: 'tu-1', signal: outerController.signal,
+        });
+        let settled = 0;
+        const pending = tool.execute({ task: 'gated cancellation', async: false }, ctxWithSignal)
+          .then(result => { settled += 1; return result; });
+        await vi.waitFor(() => { expect(mockStart).toHaveBeenCalledOnce(); });
+        expect(mockStart.mock.calls[0][0].signal).toBe(outerController.signal);
+
+        outerController.abort(reason);
+        await vi.waitFor(() => { expect(ref?.requestStop).toHaveBeenCalledWith(reason); });
+        expect(await ref?.requestStop(reason)).toMatchObject({ accepted: true, state: 'stopping' });
+        expect(settled).toBe(0);
+        expect(audit.events.map(e => e[0])).not.toContain(SHADOW_AUDIT_EVENTS.FAILED);
+        expect(audit.events.map(e => e[0])).not.toContain(SHADOW_AUDIT_EVENTS.FINISHED);
+
+        completion.resolve(terminalFailure(identity!, 'interrupted', reason, degraded));
+        const result = await pending;
+        expect(settled).toBe(1);
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('abort');
+        expect(result.content).toContain('execution interrupted');
+        expect(result.metadata).toMatchObject({
+          execution: identity, outcomeKind: 'interrupted', cause: reason, degraded,
+        });
+        expect(audit.events.filter(e => e[0] === SHADOW_AUDIT_EVENTS.FAILED)).toHaveLength(1);
+        expect(audit.events.map(e => e[0])).not.toContain(SHADOW_AUDIT_EVENTS.FINISHED);
+        expect(JSON.stringify(result)).not.toContain('completion');
+      });
+
+      it('keeps final business failure cause, identity and degraded evidence distinct from interruption', async () => {
+        const cause = new Error('actual business execution failed');
+        const degraded = [{ stage: 'outcome' as const, artifact: 'outcome.json', error: 'commit EIO' }];
+        const mockStart = vi.fn().mockImplementation(async request => {
+          const identity = executionIdentity(request);
+          return executionRef(identity, Promise.resolve(terminalFailure(identity, 'failed', cause, degraded)));
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp', tools: [] as ToolDefinition[],
+            messages: [
+              { role: 'user', content: 'hi' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+            ],
+          }),
+          subagentRunner: { start: mockStart },
+        });
+
+        const result = await tool.execute({ task: 'failed outcome', async: false }, baseCtx);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Error');
+        expect(result.content).toContain('execution failed: actual business execution failed');
+        expect(result.content).not.toContain('interrupted');
+        expect(result.metadata).toMatchObject({ outcomeKind: 'failed', cause, degraded });
+        expect(result.metadata?.execution).toMatchObject({ attemptId: 'shadow-attempt-test' });
+      });
+
+      it('keeps timeout classification on an actual interrupted outcome', async () => {
+        const cause = new ToolTimeoutError('read', 5000);
+        const mockStart = vi.fn().mockImplementation(async request => {
+          const identity = executionIdentity(request);
+          return executionRef(identity, Promise.resolve(terminalFailure(identity, 'interrupted', cause)));
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp', tools: [] as ToolDefinition[],
+            messages: [
+              { role: 'user', content: 'hi' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+            ],
+          }),
+          subagentRunner: { start: mockStart },
+        });
+
+        const result = await tool.execute({ task: 'timeout outcome', async: false }, baseCtx);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('tool_timeout');
+        expect(result.metadata).toMatchObject({ outcomeKind: 'interrupted', cause });
       });
     });
 

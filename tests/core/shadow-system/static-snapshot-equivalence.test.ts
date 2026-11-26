@@ -3,11 +3,10 @@ import { runShadow } from '../../../src/core/shadow-system/system.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
-import { createCanonicalToolManifestFromDefinitions, type Tool } from '../../../src/foundation/tools/index.js';
-import { prepareSubagentInput } from '../../../src/core/subagent/execution-input.js';
+import type { Tool } from '../../../src/foundation/tools/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { runSubagent } from '../../../src/core/subagent/run.js';
+import { completedOutcome, executionIdentity, executionRef } from './execution-fixtures.js';
 
 const readTool: Tool = {
   name: 'read', description: 'read', schema: { type: 'object', properties: {} },
@@ -35,7 +34,10 @@ describe('shadow static parent snapshot equivalence', () => {
     const { registry, manifest, ctx } = setup();
     const tools = registry.formatForLLM(manifest);
     const mainMessages = [{ role: 'user' as const, content: 'parent request' }];
-    const run = vi.fn<typeof runSubagent>().mockResolvedValue({ text: 'shadow result' });
+    const start = vi.fn().mockImplementation(async request => {
+      const identity = executionIdentity(request);
+      return executionRef(identity, Promise.resolve(completedOutcome(identity, 'shadow result')));
+    });
 
     const result = await runShadow({
       task: 'branch task', ctx, mainMessages,
@@ -43,34 +45,25 @@ describe('shadow static parent snapshot equivalence', () => {
         systemPrompt: 'static parent prompt', tools, messages: mainMessages,
         manifestRevision: manifest.revision, promptRevision: 'prompt-revision',
       },
-      runSubagent: run,
+      subagentRunner: { start },
     });
 
     expect(result.success).toBe(true);
-    const call = run.mock.calls[0][0];
-    expect(call.systemPrompt).toBe('static parent prompt');
-    expect(call.toolsForLLM).toEqual(tools);
-    expect(call.toolsForLLM).not.toBe(tools);
-    expect(call.messages?.slice(0, -1)).toEqual(mainMessages);
-    expect(call.messages).toHaveLength(mainMessages.length + 1);
-    expect(call.execution).toMatchObject({
+    const call = start.mock.calls[0][0];
+    const explicitInput = call.input;
+    expect(explicitInput.systemPrompt).toEqual({ kind: 'text', text: 'static parent prompt' });
+    expect(explicitInput.tools.manifest.llmTools).toEqual(tools);
+    expect(explicitInput.tools.manifest.llmTools).not.toBe(tools);
+    expect(explicitInput.messages?.slice(0, -1)).toEqual(mainMessages);
+    expect(explicitInput.messages).toHaveLength(mainMessages.length + 1);
+    expect(explicitInput.execution).toMatchObject({
       callerKind: 'shadow', allowDone: true, allowShadow: false,
       allowSummon: false, allowNotifyClaw: false, manifestRevision: manifest.revision,
     });
-    const explicitInput = prepareSubagentInput({
-      prompt: call.prompt!,
-      systemPrompt: call.systemPrompt!,
-      messages: call.messages,
-      tools: { manifest: createCanonicalToolManifestFromDefinitions(call.toolsForLLM!) },
-      execution: call.execution!,
-      toolProfile: call.toolProfile,
-      budget: { timeoutMs: call.timeoutMs! },
-      resultCapture: { toolName: call.resultTool ?? DONE_TOOL_NAME },
-    });
-    expect(explicitInput.tools.manifest.llmTools).toEqual(call.toolsForLLM);
     expect(explicitInput.tools.manifest.revision).toBe(manifest.revision);
-    expect(explicitInput.messages).toEqual(call.messages);
-    expect(explicitInput.execution).toEqual(call.execution);
+    expect(explicitInput.resultCapture).toEqual({ toolName: DONE_TOOL_NAME });
+    expect(call.runId).toMatch(/^shadow-/);
+    expect(call.resultDir).toBe(`tasks/sync/shadow/${call.runId}`);
     expect(result.metadata).toMatchObject({
       manifestRevision: manifest.revision, promptRevision: 'prompt-revision',
     });
@@ -78,25 +71,25 @@ describe('shadow static parent snapshot equivalence', () => {
 
   it('fails on revision mismatch without running a subagent or rebuilding tools', async () => {
     const { registry, manifest, ctx } = setup();
-    const run = vi.fn<typeof runSubagent>();
+    const start = vi.fn();
     const result = await runShadow({
       task: 'branch task', ctx, mainMessages: [],
       turnSnapshot: {
         systemPrompt: 'static parent prompt', tools: registry.formatForLLM(manifest),
         messages: [], manifestRevision: 'not-the-parent-revision', promptRevision: 'p',
       },
-      runSubagent: run,
+      subagentRunner: { start },
     });
 
     expect(result).toMatchObject({ success: false, error: 'shadow_manifest_revision_mismatch' });
-    expect(run).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('fails explicitly when the parent snapshot is missing', async () => {
     const { ctx } = setup();
-    const run = vi.fn<typeof runSubagent>();
-    const result = await runShadow({ task: 'branch task', ctx, runSubagent: run });
+    const start = vi.fn();
+    const result = await runShadow({ task: 'branch task', ctx, subagentRunner: { start } });
     expect(result).toMatchObject({ success: false, error: 'no_main_context' });
-    expect(run).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
   });
 });

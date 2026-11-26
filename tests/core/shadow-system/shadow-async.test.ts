@@ -37,6 +37,7 @@ describe('shadow tool async (phase 1087)', () => {
   let audit: ReturnType<typeof makeAudit>;
   let shadowTool: ReturnType<typeof createShadowTool>;
   let taskSystem: ReturnType<typeof createMockTaskSystem>;
+  let parentController: AbortController;
 
   function makeRegistry(): ToolRegistryImpl {
     const registry = new ToolRegistryImpl();
@@ -79,6 +80,7 @@ describe('shadow tool async (phase 1087)', () => {
     ];
     taskSystem = createMockTaskSystem(fs, audit.audit);
     (taskSystem as any).schedule = mockSchedule;
+    parentController = new AbortController();
     baseCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -89,6 +91,7 @@ describe('shadow tool async (phase 1087)', () => {
       llm: makeLLM(),
       registry: makeRegistry(),
       currentToolUseId: 'tu-1',
+      signal: parentController.signal,
     });
     shadowTool = createShadowTool({
       getTurnSnapshot: () => ({
@@ -143,7 +146,8 @@ describe('shadow tool async (phase 1087)', () => {
       expect(callArgs.mode).toBeUndefined();
     });
 
-    it('async=true explicit takes async path', async () => {
+    it('async=true explicit stays detached even when the parent is aborted', async () => {
+      parentController.abort({ kind: 'user_stop' });
       mockSchedule.mockResolvedValue('task-yyy');
 
       const result = await shadowTool.execute({ task: 'test task', async: true }, baseCtx);
@@ -152,6 +156,7 @@ describe('shadow tool async (phase 1087)', () => {
       expect(mockSchedule).toHaveBeenCalledOnce();
       expect(mockRunSubagent).not.toHaveBeenCalled();
       expect(result.metadata).toMatchObject({ async: true, taskId: 'task-yyy' });
+      expect(mockSchedule.mock.calls[0][1]).not.toHaveProperty('signal');
     });
 
     it('async path returns taskId and async metadata', async () => {

@@ -15,7 +15,7 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { llmProviderProtocol } from '../../../foundation/llm-provider/index.js';
 type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../../foundation/dialog-store/index.js';
-import { runShadow } from '../system.js';
+import { runShadow, type ShadowSubagentRunner } from '../system.js';
 import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
 import { emitShadowRecursionRejected } from '../lifecycle-audit.js';
 import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
@@ -34,7 +34,9 @@ interface TurnSnapshot {
 /** 工具构造 deps（Assembly 注入面）。 */
 export interface ShadowToolDeps {
   getTurnSnapshot: () => TurnSnapshot | Promise<TurnSnapshot>;
-  /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
+  /** Static SubAgent execution-reference capability for the synchronous path. */
+  subagentRunner?: ShadowSubagentRunner;
+  /** Transitional compatibility projection until Assembly binds runner. */
   runSubagent?: typeof defaultRunSubagent;
   taskSystem?: SubAgentTaskScheduler;
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
@@ -111,6 +113,7 @@ async function runShadowSync(deps: ShadowToolDeps, args: ShadowCallArgs, ctx: Ex
       manifestRevision: snapshot.manifestRevision,
       promptRevision: snapshot.promptRevision,
     },
+    subagentRunner: deps.subagentRunner,
     runSubagent: deps.runSubagent,
   });
 }
