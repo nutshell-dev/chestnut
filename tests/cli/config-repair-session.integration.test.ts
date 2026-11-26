@@ -1602,6 +1602,82 @@ describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
     });
   });
 
+  it('2250 C13 real closed pipe preserves the system write and stream errors', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let caseFinished = false;
+    try {
+      await finishConfigRepairCase(workspace, async () => {
+        let child: ReturnType<typeof spawn> | undefined;
+        let writes = 0;
+        let writeCallbackError: Error | null | undefined;
+        const failure = await runConfigRepairSession(workspace, [], [
+          { prompt: /PROMPT>/, value: 'must-not-arrive' },
+        ], new AbortController().signal, false, {
+          mode: 'closed-stdin', lifetimeMs: 30_000,
+          spawnPty: (command, env, cwd) => {
+            child = spawn(command[0], command.slice(1), {
+              cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+            });
+            const originalWrite = child.stdin.write;
+            child.stdin.write = ((...args: any[]) => {
+              writes += 1;
+              const callbackIndex = args.findIndex(arg => typeof arg === 'function');
+              if (callbackIndex >= 0) {
+                const originalCallback = args[callbackIndex] as (error?: Error | null) => void;
+                args[callbackIndex] = (error?: Error | null) => {
+                  writeCallbackError = error;
+                  originalCallback(error);
+                };
+              }
+              return originalWrite.apply(child!.stdin, args);
+            }) as typeof child.stdin.write;
+            return child;
+          },
+          onReady: () => {
+            if (!child?.send) throw new Error('closed-stdin wrapper has no IPC channel');
+            child.send({ type: 'close-input' });
+          },
+        }).catch(error => error);
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        expect(writes).toBeGreaterThan(0);
+        expect(writeCallbackError).toBeInstanceOf(Error);
+        result = (failure as ConfigRepairSessionError).result;
+        const systemError = writeCallbackError as NodeJS.ErrnoException;
+        expect(['EPIPE', 'ECONNRESET', 'ERR_STREAM_DESTROYED']).toContain(systemError.code);
+        expect(result.firstStop).toEqual({
+          reason: 'PTY stdin write callback failed', cause: writeCallbackError,
+        });
+        expect(result.errors).toContainEqual({
+          operation: 'stdin.write_callback', error: writeCallbackError,
+        });
+        const streamErrors = result.errors.filter(entry => entry.operation === 'stdin.error');
+        expect(streamErrors.length).toBeGreaterThan(0);
+        expect(streamErrors.every(entry =>
+          (entry.error as NodeJS.ErrnoException).code === systemError.code)).toBe(true);
+        expect(failure.message).toContain('answer 0/1');
+        expect(result.execution.kind).toBe('gone');
+        expect(result.wrapper.observation?.kind).toBe('gone');
+        for (const role of ['wrapper', 'worker']) {
+          expect(JSON.parse(fs.readFileSync(
+            path.join(workspace.root, `${role}-input-closed.json`), 'utf8',
+          ))).toEqual({ replacement: 0, characterDevice: true });
+        }
+        expect(fs.existsSync(path.join(workspace.root, 'input-observed.json'))).toBe(false);
+        const evidence = fs.readFileSync(result.evidencePath, 'utf8');
+        expect(evidence).toContain('stdin.write_callback');
+        expect(evidence).toContain('stdin.error');
+        expect(evidence).toContain(systemError.code!);
+      });
+      caseFinished = true;
+    } finally {
+      await reapControlledSession(workspace, result);
+      if (caseFinished) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
   it('C13 matches a prompt split across stdout chunks and writes exactly one answer', async () => {
     const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
     await finishConfigRepairCase(workspace, async () => {

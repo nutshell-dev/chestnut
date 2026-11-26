@@ -223,7 +223,7 @@ export class ConfigRepairSessionError extends Error {
 export interface SessionOptions {
   readonly mode?: 'cli' | 'finite' | 'orphan' | 'final-output' | 'single-prompt'
     | 'split-prompt' | 'ignore-term' | 'hold-wrapper' | 'no-ready'
-    | 'bad-ready-json' | 'bad-ready-schema' | 'bad-ready-cwd';
+    | 'bad-ready-json' | 'bad-ready-schema' | 'bad-ready-cwd' | 'closed-stdin';
   readonly lifetimeMs?: number;
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;

@@ -47,6 +47,14 @@ const INPUT_EXIT_DELAY_MS = 20;
 const SPLIT_PROMPT_POLL_MS = 5;
 const WRAPPER_HOLD_INTERVAL_MS = 1_000;
 
+function closeOwnedInput(role) {
+  fs.closeSync(0);
+  const replacement = fs.openSync('/dev/null', 'r');
+  if (replacement !== 0) throw new Error('stdin replacement did not occupy fd 0');
+  const fact = { replacement, characterDevice: fs.fstatSync(replacement).isCharacterDevice() };
+  fs.writeFileSync(path.join(process.cwd(), `${role}-input-closed.json`), JSON.stringify(fact));
+}
+
 function finite(readyPath, exitedPath, mode, lifetimeArg) {
   if (mode === 'no-ready' || mode.startsWith('bad-ready-')) {
     publishInvalidReady(readyPath, exitedPath, mode);
@@ -66,6 +74,13 @@ function finite(readyPath, exitedPath, mode, lifetimeArg) {
     finish('SIGTERM');
   });
   process.on('SIGINT', () => finish('SIGINT'));
+  if (mode === 'closed-stdin') {
+    process.on('message', message => {
+      if (message?.type !== 'close-input') return;
+      closeOwnedInput('worker');
+      process.stdout.write('PROMPT>');
+    });
+  }
   if (mode === 'single-prompt' || mode === 'split-prompt') {
     const inputs = [];
     if (mode === 'split-prompt') {
@@ -117,6 +132,18 @@ if (first === '--worker') {
   child.once('message', message => {
     if (message?.type === 'ready' && mode === 'orphan') process.exit(0);
   });
+  if (mode === 'closed-stdin') {
+    process.on('message', message => {
+      if (message?.type !== 'close-input') return;
+      closeOwnedInput('wrapper');
+      child.send({ type: 'close-input' }, error => {
+        if (error) {
+          process.stderr.write(`${error.stack ?? error}\n`);
+          process.exitCode = 1;
+        }
+      });
+    });
+  }
   child.once('error', error => {
     process.stderr.write(`${error.stack ?? error}\n`);
     process.exitCode = 1;
