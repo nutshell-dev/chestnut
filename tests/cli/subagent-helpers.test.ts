@@ -39,6 +39,7 @@ describe('subagent-helpers SubagentKind', () => {
     const shadowEntry = entries.find(e => e.id === 'shadow-abc');
     expect(shadowEntry).toBeDefined();
     expect(shadowEntry!.kind).toBe('shadow');
+    expect(shadowEntry).toMatchObject({ status: 'completed', source: 'legacy' });
   });
 
   it('scanSyncDir 走 spawn path 返 kind spawn 不走 inferKind 错位', async () => {
@@ -57,5 +58,6 @@ describe('subagent-helpers SubagentKind', () => {
     const spawnEntry = entries.find(e => e.id === 'spawn-xyz');
     expect(spawnEntry).toBeDefined();
     expect(spawnEntry!.kind).toBe('spawn');
+    expect(spawnEntry).toMatchObject({ status: 'completed', source: 'legacy' });
   });
 });

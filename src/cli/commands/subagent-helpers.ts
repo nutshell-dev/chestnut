@@ -9,7 +9,15 @@ import * as path from 'path';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 // phase 1874 Step G: task 事实经 ATS owner 窄查询（目录布局 / shape 校验归 owner）
 import { loadSubAgentTask } from '../../core/async-task-system/index.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
+import {
+  querySubagentExecution,
+  TASKS_SYNC_SUBAGENT_DIR,
+  type SubagentExecutionIdentity,
+  type SubagentExecutionPersistence,
+  type SubagentExecutionState,
+  type SubagentExecutionDegraded,
+  type SubagentFinalOutcome,
+} from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
@@ -28,8 +36,20 @@ import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-s
 export const SUBAGENT_KIND_VALUES = ['summon', 'spawn', 'shadow', 'verifier', 'random_dream', 'cron'] as const;
 export type SubagentKind = typeof SUBAGENT_KIND_VALUES[number];
 
-export const SUBAGENT_STATUS_VALUES = ['completed', 'running', 'failed', 'error'] as const;
+export const SUBAGENT_STATUS_VALUES = [
+  'prepared',
+  'running',
+  'stopping',
+  'settling',
+  'recovery_required',
+  'settled',
+  'completed',
+  'interrupted',
+  'failed',
+  'error',
+] as const;
 export type SubagentStatus = typeof SUBAGENT_STATUS_VALUES[number];
+export type SubagentStatusSource = 'execution' | 'legacy';
 
 /** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
 function resolvePathTaskId(id: string, shortIdIndex?: TaskIdResolver): string {
@@ -91,6 +111,7 @@ export async function inferKind(deps: { fsFactory: (baseDir: string) => FileSyst
   return 'spawn';
 }
 
+/** Infer only directories confirmed legacy by querySubagentExecution. */
 export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string): SubagentStatus {
   const resultFs = deps.fsFactory(resultDir);
   if (resultFs.existsSync('result.txt')) return 'completed';
@@ -154,9 +175,65 @@ export interface SubagentEntry {
   id: string;
   kind: SubagentKind;
   status: SubagentStatus;
+  source: SubagentStatusSource;
+  identity?: SubagentExecutionIdentity;
+  sequence?: number;
+  state?: SubagentExecutionState;
+  reason?: unknown;
+  outcome?: SubagentFinalOutcome;
+  persistence?: SubagentExecutionPersistence;
+  degraded?: readonly SubagentExecutionDegraded[];
+  error?: { readonly reason: string; readonly path?: string };
   startedAt?: Date;
   durationMs?: number;
   contractId?: string;
+}
+
+type SubagentEntryObservation = Pick<
+  SubagentEntry,
+  'status' | 'source' | 'identity' | 'sequence' | 'state' | 'reason' | 'outcome' | 'persistence' | 'degraded' | 'error'
+>;
+
+async function observeSubagentStatus(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  clawDir: string,
+  resultDir: string,
+  relativeResultDir: string,
+  runId: string,
+): Promise<SubagentEntryObservation> {
+  const observation = await querySubagentExecution(deps.fsFactory(clawDir), { runId, resultDir: relativeResultDir });
+  if (observation.kind === 'legacy') {
+    return { status: inferStatus(deps, resultDir), source: 'legacy' };
+  }
+  if (observation.kind === 'not_found') {
+    return {
+      status: 'error',
+      source: 'execution',
+      error: { reason: `subagent result directory disappeared during query: ${relativeResultDir}` },
+    };
+  }
+  if (observation.kind === 'corrupt') {
+    return {
+      status: 'error',
+      source: 'execution',
+      error: { reason: observation.reason, ...(observation.path ? { path: observation.path } : {}) },
+    };
+  }
+
+  const { view } = observation;
+  return {
+    status: view.state === 'settled' && view.outcome ? view.outcome.kind : view.state,
+    source: 'execution',
+    identity: view.identity,
+    sequence: view.sequence,
+    state: view.state,
+    ...(view.reason !== undefined ? { reason: view.reason } : {}),
+    ...(view.outcome ? {
+      outcome: view.outcome,
+      persistence: view.outcome.persistence,
+      degraded: view.outcome.degraded,
+    } : { degraded: [] }),
+  };
 }
 
 export async function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, clawDir: string): Promise<SubagentEntry[]> {
@@ -176,7 +253,13 @@ export async function scanSubagentResults(deps: { fsFactory: (baseDir: string) =
       const stat = resultFs.statSync('.');
       if (!stat.isDirectory) continue;
       const kind = await inferKind(deps, id, clawDir);
-      const status = inferStatus(deps, resultDir);
+      const observation = await observeSubagentStatus(
+        deps,
+        clawDir,
+        resultDir,
+        path.join(asyncRel, pathId),
+        pathId,
+      );
       const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
       let durationMs: number | undefined;
       if (startedAt) {
@@ -192,7 +275,7 @@ export async function scanSubagentResults(deps: { fsFactory: (baseDir: string) =
           }
         }
       }
-      entries.push({ id: displayId, kind, status, startedAt, durationMs });
+      entries.push({ id: displayId, kind, ...observation, startedAt, durationMs });
     }
   }
 
@@ -223,7 +306,7 @@ async function scanSyncDir(
     if (!stat.isDirectory) continue;
     if (filterPrefix && !id.startsWith(filterPrefix)) continue;
     const kind = defaultKind ?? await inferKind(deps, id, clawDir);
-    const status = inferStatus(deps, resultDir);
+    const observation = await observeSubagentStatus(deps, clawDir, resultDir, path.join(dirRel, id), id);
     const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
     let durationMs: number | undefined;
     if (startedAt) {
@@ -240,7 +323,7 @@ async function scanSyncDir(
       const lastDash = rest.lastIndexOf('-');
       if (lastDash > 0) contractId = makeContractId(rest.slice(0, lastDash));
     }
-    results.push({ id, kind, status, startedAt, durationMs, contractId });
+    results.push({ id, kind, ...observation, startedAt, durationMs, contractId });
   }
   return results;
 }

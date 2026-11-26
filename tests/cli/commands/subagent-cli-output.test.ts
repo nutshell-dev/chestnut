@@ -16,7 +16,7 @@ import { subagentListCommand } from '../../../src/cli/commands/subagent-list.js'
 import { subagentStepsCommand, subagentStepCommand } from '../../../src/cli/commands/subagent-steps.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 // phase 277: hoist 4 dyn imports of 2 unique modules
-import { resolveClawDir } from '../../../src/cli/commands/subagent-helpers.js';
+import { resolveClawDir, scanSubagentResults, type SubagentEntry } from '../../../src/cli/commands/subagent-helpers.js';
 import { loadSessionFromFile, parseMessagesFromSession, renderSteps, renderStepFull } from '../../../src/cli/commands/_message-renderer.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -40,6 +40,7 @@ vi.mock('../../../src/cli/commands/subagent-helpers.js', () => ({
       id: 'task-1',
       kind: 'spawn',
       status: 'completed',
+      source: 'legacy',
       startedAt: new Date('2026-05-15T10:00:00Z'),
       durationMs: 120_000,
     },
@@ -98,6 +99,91 @@ describe('subagent-list', () => {
     await expect(
       subagentListCommand({ fsFactory }, { claw: 'test-claw', to: 'not-a-date' })
     ).rejects.toThrow('--to must be a valid date');
+  });
+
+  it('preserves execution identity, sequence, persistence, degradation and original outcome in JSON', async () => {
+    const identity = {
+      runId: 'run-failed',
+      attemptId: 'attempt-failed',
+      resultDir: 'tasks/sync/spawn/run-failed',
+    };
+    const persistence = {
+      executionDir: 'tasks/sync/spawn/run-failed/execution',
+      outcome: {
+        path: 'tasks/sync/spawn/run-failed/execution/attempts/1/outcome.json',
+        kind: 'unknown' as const,
+        persisted: true,
+        durable: false,
+      },
+      events: [],
+      stops: [],
+    };
+    const degraded = [{ stage: 'artifact' as const, artifact: 'result.txt', error: 'original artifact failure' }];
+    const outcome = {
+      identity,
+      kind: 'failed' as const,
+      content: 'failure content',
+      cause: { message: 'original failure' },
+      recovery: 'uncertain_side_effect' as const,
+      artifacts: [],
+      degraded,
+      persistence,
+    };
+    const entry: SubagentEntry = {
+      id: 'run-failed',
+      kind: 'spawn',
+      status: 'failed',
+      source: 'execution',
+      identity,
+      sequence: 9,
+      state: 'settled',
+      outcome,
+      persistence,
+      degraded,
+    };
+    vi.mocked(scanSubagentResults).mockResolvedValue([entry]);
+
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw', status: 'failed', json: true });
+
+    const parsed = JSON.parse(consoleLogSpy.mock.calls.flat().join('\n'));
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed.entries[0]).toMatchObject({
+      id: 'run-failed',
+      status: 'failed',
+      source: 'execution',
+      identity,
+      sequence: 9,
+      state: 'settled',
+      persistence,
+      degraded,
+      outcome,
+      error: null,
+    });
+  });
+
+  it('filters the new stopping lifecycle status without changing text output fields', async () => {
+    const stopping: SubagentEntry = {
+      id: 'run-stopping',
+      kind: 'spawn',
+      status: 'stopping',
+      source: 'execution',
+      identity: { runId: 'run-stopping', attemptId: 'attempt-1', resultDir: 'tasks/sync/spawn/run-stopping' },
+      sequence: 4,
+      state: 'stopping',
+      degraded: [],
+    };
+    vi.mocked(scanSubagentResults).mockResolvedValue([
+      stopping,
+      { id: 'old-complete', kind: 'spawn', status: 'completed', source: 'legacy' },
+    ]);
+
+    await subagentListCommand({ fsFactory }, { claw: 'test-claw', status: 'stopping' });
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('run-stopping');
+    expect(output).toContain('stopping');
+    expect(output).not.toContain('old-complete');
+    expect(output).toContain('Total: 1 entries');
   });
 });
 
