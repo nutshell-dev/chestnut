@@ -102,7 +102,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       'T1',
       'evidence',
       [],
-      'attempt-close',
+      '44444444-4444-4444-4444-444444444444',
     ).catch(() => { /* silent: shutdown */ });
 
     await verifierRegistered;
@@ -147,7 +147,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       'T1',
       'evidence',
       [],
-      'attempt-close',
+      '44444444-4444-4444-4444-444444444444',
     ).catch(() => { /* silent: shutdown */ });
 
     await verifierRegistered;

@@ -459,7 +459,7 @@ describe('verification-execution 系统失败上抛', () => {
       runVerifierWithCancel: vi.fn().mockRejectedValue(providerErr),
     });
     await expect(
-      runLLMVerification(ctx, 'prompt.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], 'attempt-1'),
+      runLLMVerification(ctx, 'prompt.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], '66666666-6666-6666-6666-666666666666'),
     ).rejects.toBe(providerErr);
   });
 
@@ -480,7 +480,7 @@ describe('verification-execution 系统失败上抛', () => {
       llm: {} as VerificationContext['llm'],
     });
     await expect(
-      runLLMVerification(ctx, 'prompt.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], 'attempt-1'),
+      runLLMVerification(ctx, 'prompt.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], '66666666-6666-6666-6666-666666666666'),
     ).rejects.toBe(eioErr);
 
     const ctxMissing = makeCtx({
@@ -488,7 +488,7 @@ describe('verification-execution 系统失败上抛', () => {
       clawDir: contractDir,
       llm: {} as VerificationContext['llm'],
     });
-    const result = await runLLMVerification(ctxMissing, 'missing.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], 'attempt-1');
+    const result = await runLLMVerification(ctxMissing, 'missing.md', contractDir, 'c1' as any, 'st1' as any, 'desc', 'evidence', [], '66666666-6666-6666-6666-666666666666');
     expect(result.passed).toBe(false);
   });
 });

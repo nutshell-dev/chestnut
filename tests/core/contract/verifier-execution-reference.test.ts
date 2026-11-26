@@ -223,7 +223,7 @@ describe('ContractSystem verifier control lifetime', () => {
       'T1',
       'evidence',
       [],
-      'attempt-h3-business',
+      '33333333-3333-3333-3333-333333333333',
     ).then(result => {
       settled = true;
       return result;
@@ -250,7 +250,7 @@ describe('ContractSystem verifier control lifetime', () => {
 
     expect(runVerifier).toHaveBeenCalledTimes(1);
     expect(runVerifier).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'verifier-attempt-attempt-h3-business',
+      agentId: `verifier-${contractId}-33333333333333333333333333333333`,
     }));
     expect(manager.hasActiveVerifiers(contractId)).toBe(false);
   });
@@ -273,7 +273,7 @@ describe('ContractSystem verifier control lifetime', () => {
     const acceptedAttemptId = inProgress?.subtasks.t1.verification_attempt_id;
     expect(acceptedAttemptId).toEqual(expect.any(String));
     expect(runVerifier).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: `verifier-attempt-${acceptedAttemptId}`,
+      agentId: `verifier-${contractId}-${acceptedAttemptId?.replaceAll('-', '')}`,
     }));
 
     const backgroundDone = waitForNextAuditEvent(

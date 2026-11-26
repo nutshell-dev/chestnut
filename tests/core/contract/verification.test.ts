@@ -168,7 +168,7 @@ describe('runLLMVerification (phase 963)', () => {
         runVerifierWithCancel: vi.fn().mockRejectedValue(new Error('AbortError')),
       });
       await expect(
-        runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], 'attempt-abort'),
+        runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], '11111111-1111-1111-1111-111111111111'),
       ).rejects.toThrow('AbortError');
     } finally {
       nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
@@ -187,9 +187,9 @@ describe('runLLMVerification (phase 963)', () => {
         llm: {} as VerificationContext['llm'],
         runVerifierWithCancel,
       });
-      await runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], 'accepted-attempt');
+      await runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], '22222222-2222-2222-2222-222222222222');
       expect(runVerifierWithCancel).toHaveBeenCalledWith('c1', expect.objectContaining({
-        agentId: 'verifier-attempt-accepted-attempt',
+        agentId: 'verifier-c1-22222222222222222222222222222222',
       }));
     } finally {
       nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
@@ -197,17 +197,20 @@ describe('runLLMVerification (phase 963)', () => {
     }
   });
 
-  it('rejects a missing verification attempt identity before starting a verifier', async () => {
-    const runVerifierWithCancel = vi.fn();
-    const ctx = makeCtx({
-      llm: {} as VerificationContext['llm'],
-      runVerifierWithCancel,
-    });
-    await expect(
-      runLLMVerification(ctx, 'prompt.md', '/tmp/contract', 'c1', 'st1', 'desc', 'evidence', [], '  '),
-    ).rejects.toThrow('verification attempt identity is required');
-    expect(runVerifierWithCancel).not.toHaveBeenCalled();
-  });
+  it.each(['  ', 'not-a-uuid', '11111111-1111-1111-1111-11111111111'])(
+    'rejects invalid verification attempt identity %j before starting a verifier',
+    async (verificationAttemptId) => {
+      const runVerifierWithCancel = vi.fn();
+      const ctx = makeCtx({
+        llm: {} as VerificationContext['llm'],
+        runVerifierWithCancel,
+      });
+      await expect(
+        runLLMVerification(ctx, 'prompt.md', '/tmp/contract', 'c1', 'st1', 'desc', 'evidence', [], verificationAttemptId),
+      ).rejects.toThrow('accepted verification attempt identity must be a UUID');
+      expect(runVerifierWithCancel).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('runVerificationInBackground (Phase 965)', () => {

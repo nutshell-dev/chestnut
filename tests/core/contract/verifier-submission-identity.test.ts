@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { subagentListCommand } from '../../../src/cli/commands/subagent-list.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import {
@@ -15,6 +16,7 @@ import {
   type SubagentExecutionLocation,
 } from '../../../src/core/subagent/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { getClawDir } from '../../../src/foundation/claw-identity/index.js';
 import type {
   LLMCallOptions,
   LLMOrchestrator,
@@ -105,6 +107,7 @@ async function queryFound(fs: NodeFileSystem, location: SubagentExecutionLocatio
 const tempDirs: string[] = [];
 const managers: ContractSystem[] = [];
 const gates: Array<ReturnType<typeof gatedTool>> = [];
+let savedChestnutRoot: string | undefined;
 
 afterEach(async () => {
   for (const gate of gates.splice(0)) {
@@ -113,6 +116,8 @@ afterEach(async () => {
   try {
     await Promise.all(managers.splice(0).map(manager => manager.close()));
   } finally {
+    if (savedChestnutRoot === undefined) delete process.env.CHESTNUT_ROOT;
+    else process.env.CHESTNUT_ROOT = savedChestnutRoot;
     await Promise.all(tempDirs.splice(0).map(cleanupTempDir));
   }
 });
@@ -120,7 +125,9 @@ afterEach(async () => {
 async function fixture(tag: string, scripts: readonly (readonly LLMStreamChunk[])[], gate?: ReturnType<typeof gatedTool>) {
   const root = await createTrackedTempDir(`chestnut-phase2249-identity-${tag}-`);
   tempDirs.push(root);
-  const clawDir = path.join(root, 'claw');
+  savedChestnutRoot = process.env.CHESTNUT_ROOT;
+  process.env.CHESTNUT_ROOT = root;
+  const clawDir = getClawDir('phase2249-claw');
   await fsp.mkdir(clawDir, { recursive: true });
   const fs = new NodeFileSystem({ baseDir: clawDir });
   const registry = new ToolRegistryImpl();
@@ -170,7 +177,8 @@ async function currentExecution(manager: ContractSystem, contractId: ContractId)
   const progress = await manager.getProgress(contractId);
   const attemptId = progress?.subtasks.t1.verification_attempt_id;
   if (!attemptId) throw new Error('submission did not persist its verification attempt id');
-  return { attemptId, location: executionLocation(`verifier-attempt-${attemptId}`), progress };
+  const compactAttemptId = attemptId.replaceAll('-', '');
+  return { attemptId, location: executionLocation(`verifier-${contractId}-${compactAttemptId}`), progress };
 }
 
 async function submitAndWait(
@@ -219,6 +227,53 @@ describe('Phase 2249 Step C verifier submission identity', () => {
     expect(f.controlled.calls()).toBe(2);
     expect(await f.fs.read(`${first.location.resultDir}/execution/input.json`)).toBe(firstInput);
     expect(await f.fs.read(`${first.location.resultDir}/execution/attempts/1/outcome.json`)).toBe(firstOutcome);
+    expect(JSON.parse(firstInput).input.currentContractId).toBe(f.contractId);
+    expect((await queryFound(f.fs, first.location)).correlation).toEqual({
+      kind: 'known', currentContractId: f.contractId,
+    });
+    expect((await queryFound(f.fs, second.location)).correlation).toEqual({
+      kind: 'known', currentContractId: f.contractId,
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await subagentListCommand({
+        fsFactory: baseDir => new NodeFileSystem({ baseDir }),
+      }, { claw: 'phase2249-claw', contract: f.contractId, json: true });
+      const filtered = JSON.parse(consoleLog.mock.calls[0][0]);
+      expect(filtered.entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: first.location.runId,
+          contract_id: f.contractId,
+          contract_correlation: { kind: 'known', source: 'execution_input' },
+        }),
+        expect.objectContaining({
+          id: second.location.runId,
+          contract_id: f.contractId,
+          contract_correlation: { kind: 'known', source: 'execution_input' },
+        }),
+      ]));
+      expect(filtered.entries).toHaveLength(2);
+      expect(filtered.incomplete).toBe(false);
+
+      consoleLog.mockClear();
+      await subagentListCommand({
+        fsFactory: baseDir => new NodeFileSystem({ baseDir }),
+      }, { claw: 'phase2249-claw', contract: 'contract-other', json: true });
+      const excluded = JSON.parse(consoleLog.mock.calls[0][0]);
+      expect(excluded.entries).toEqual([]);
+      expect(excluded.incomplete).toBe(false);
+
+      consoleLog.mockClear();
+      await subagentListCommand({
+        fsFactory: baseDir => new NodeFileSystem({ baseDir }),
+      }, { claw: 'phase2249-claw', contract: f.contractId });
+      const text = consoleLog.mock.calls.flat().join('\n');
+      expect(text).toContain('Total: 2 entries');
+      expect(text).not.toContain('contract-filtered results may be incomplete');
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it('V03: changed evidence starts an independent execution without an input conflict', async () => {
@@ -265,7 +320,7 @@ describe('Phase 2249 Step C verifier submission identity', () => {
     expect(f.controlled.calls()).toBe(1);
     expect(gate.execute).toHaveBeenCalledTimes(1);
     const runDirs = await fsp.readdir(path.join(f.clawDir, TASKS_SYNC_SUBAGENT_DIR));
-    expect(runDirs.filter(name => name.startsWith('verifier-attempt-'))).toEqual([current.location.runId]);
+    expect(runDirs.filter(name => name.startsWith(`verifier-${f.contractId}-`))).toEqual([current.location.runId]);
 
     const backgroundDone = waitForNextAuditEvent(
       f.emitter,

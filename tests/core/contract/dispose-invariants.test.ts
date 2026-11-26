@@ -143,7 +143,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       'T1',
       'evidence',
       [],
-      'attempt-dispose',
+      '55555555-5555-5555-5555-555555555555',
     ).catch(() => { /* silent: shutdown */ });
 
     await verifierRegistered;
@@ -438,7 +438,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         'T1',
         'evidence',
         [],
-        'attempt-dispose',
+        '55555555-5555-5555-5555-555555555555',
       );
 
       await verifierRegistered;
@@ -485,7 +485,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         'T1',
         'evidence',
         [],
-        'attempt-dispose',
+        '55555555-5555-5555-5555-555555555555',
       );
 
       await verifierRegistered;
@@ -550,7 +550,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         'T1',
         'evidence',
         [],
-        'attempt-dispose',
+        '55555555-5555-5555-5555-555555555555',
       );
       const p2 = (manager as any).runLLMVerification(
         'verification/t2.prompt.txt',
@@ -560,7 +560,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         'T2',
         'evidence',
         [],
-        'attempt-dispose',
+        '55555555-5555-5555-5555-555555555555',
       );
 
       await twoVerifiersRegistered;

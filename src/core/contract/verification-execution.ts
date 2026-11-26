@@ -111,8 +111,9 @@ export async function runLLMVerification(
   artifacts: string[],
   verificationAttemptId: string,
 ): Promise<VerificationResult> {
-  if (typeof verificationAttemptId !== 'string' || verificationAttemptId.trim() === '') {
-    throw new Error('verification attempt identity is required');
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (typeof verificationAttemptId !== 'string' || !uuidPattern.test(verificationAttemptId)) {
+    throw new Error('accepted verification attempt identity must be a UUID');
   }
   if (!ctx.llm) {
     return { passed: false, feedback: llmNotConfiguredFeedback() };
@@ -145,8 +146,9 @@ export async function runLLMVerification(
     .replace(/\{\{artifacts\}\}/g, artifacts.join(', '))
     .replace(/\{\{subtask_description\}\}/g, subtaskDesc);
 
+  const compactAttemptId = verificationAttemptId.replaceAll('-', '');
   return ctx.runVerifierWithCancel(contractId, {
-    agentId: `verifier-attempt-${verificationAttemptId}`,
+    agentId: `verifier-${contractId}-${compactAttemptId}`,
     contractId,
     prompt: filledPrompt,
     clawDir: contractAbsDir,

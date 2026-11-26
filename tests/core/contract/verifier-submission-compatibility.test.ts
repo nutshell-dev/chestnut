@@ -1,8 +1,9 @@
 /**
- * Phase 2249 Step C: legacy verifier result directories stay isolated from new submissions.
+ * Phase 2249 Step C/F: legacy verifier result directories stay isolated from new submissions.
  *
  * Contract 自有旧 verification outcome / boot replay 已由 verification-outcome-recovery.test.ts
- * 覆盖；本文件不重复伪造 Contract outcome 私有记录，只经 SubAgent store 预置旧执行目录。
+ * 覆盖；本文件不重复伪造 Contract outcome 私有记录。Step F 另以真实默认 verifier 执行链
+ * 生成 attempt-only 历史，验证三个命名代际的 owner/CLI 关联与只读兼容性。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -11,6 +12,9 @@ import * as path from 'node:path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import { runContractVerifier } from '../../../src/core/contract/verifier-job.js';
+import { subagentListCommand } from '../../../src/cli/commands/subagent-list.js';
+import { scanSubagentResults } from '../../../src/cli/commands/subagent-helpers.js';
 import {
   createSubagentExecutionStore,
   querySubagentExecution,
@@ -18,6 +22,7 @@ import {
   type SubagentExecutionLocation,
   type SubagentSettlementInput,
 } from '../../../src/core/subagent/index.js';
+import { getClawDir } from '../../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type {
   LLMCallOptions,
@@ -91,6 +96,9 @@ function executionLocation(runId: string): SubagentExecutionLocation {
   return { runId, resultDir: `${TASKS_SYNC_SUBAGENT_DIR}/${runId}` };
 }
 
+const CLAW_ID = 'phase2249-claw';
+const nodeFsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
+
 function rawVerdict(passed: boolean, reason: string) {
   return { text: '', capturedResult: { result: JSON.stringify({ passed, reason }) } };
 }
@@ -149,8 +157,19 @@ async function hashFiles(root: string, relativeDir: string): Promise<Record<stri
 const tempDirs: string[] = [];
 const managers: ContractSystem[] = [];
 const gates: Array<ReturnType<typeof gatedTool>> = [];
+let originalChestnutRoot: string | undefined;
+let chestnutRootOverridden = false;
+let consoleLog: ReturnType<typeof vi.spyOn> | undefined;
 
 afterEach(async () => {
+  consoleLog?.mockRestore();
+  consoleLog = undefined;
+  if (chestnutRootOverridden) {
+    if (originalChestnutRoot === undefined) delete process.env.CHESTNUT_ROOT;
+    else process.env.CHESTNUT_ROOT = originalChestnutRoot;
+    originalChestnutRoot = undefined;
+    chestnutRootOverridden = false;
+  }
   for (const gate of gates.splice(0)) {
     gate.release({ success: false, content: 'released by afterEach cleanup' });
   }
@@ -164,10 +183,19 @@ afterEach(async () => {
   }
 });
 
-async function fixture(tag: string, verdict: { passed: boolean; reason: string }) {
+async function fixture(
+  tag: string,
+  verdict: { passed: boolean; reason: string },
+  options: { realClawPath?: boolean } = {},
+) {
   const root = await createTrackedTempDir(`chestnut-phase2249-${tag}-`);
   tempDirs.push(root);
-  const clawDir = path.join(root, 'claw');
+  if (options.realClawPath) {
+    originalChestnutRoot = process.env.CHESTNUT_ROOT;
+    chestnutRootOverridden = true;
+    process.env.CHESTNUT_ROOT = root;
+  }
+  const clawDir = options.realClawPath ? getClawDir(CLAW_ID) : path.join(root, 'claw');
   await fsp.mkdir(clawDir, { recursive: true });
   const fs = new NodeFileSystem({ baseDir: clawDir });
   const gate = gatedTool(`compat_gate_${tag}`);
@@ -181,12 +209,12 @@ async function fixture(tag: string, verdict: { passed: boolean; reason: string }
   const auditFixture = makeAudit();
   const manager = new ContractSystem({
     clawDir,
-    clawId: 'phase2249-claw',
+    clawId: CLAW_ID,
     fs,
     audit: auditFixture.audit,
     llm: controlled.llm,
     toolRegistry: registry,
-    fsFactory: baseDir => new NodeFileSystem({ baseDir }),
+    fsFactory: nodeFsFactory,
     deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // 不注入 runVerifier/runContractVerifier：走真实 defaultRunVerifier/startSubagent。
@@ -222,10 +250,11 @@ async function currentExecution(manager: ContractSystem, contractId: ReturnType<
   const progress = await manager.getProgress(contractId);
   const attemptId = progress?.subtasks.t1.verification_attempt_id;
   if (!attemptId) throw new Error('submission did not persist its verification attempt id');
-  return { attemptId, location: executionLocation(`verifier-attempt-${attemptId}`) };
+  const agentId = `verifier-${contractId}-${attemptId.replaceAll('-', '')}`;
+  return { attemptId, location: executionLocation(agentId) };
 }
 
-describe('Phase 2249 Step C verifier submission compatibility', () => {
+describe('Phase 2249 Step C/F verifier submission compatibility', () => {
   it('does not reuse a settled legacy verdict and preserves every legacy byte', async () => {
     const currentVerdict = { passed: true, reason: 'current independent pass' };
     const f = await fixture('settled', currentVerdict);
@@ -252,7 +281,9 @@ describe('Phase 2249 Step C verifier submission compatibility', () => {
     await f.gate.entered;
 
     const current = await currentExecution(f.manager, f.contractId);
-    expect(current.location.runId).toBe(`verifier-attempt-${current.attemptId}`);
+    expect(current.location.runId).toBe(
+      `verifier-${f.contractId}-${current.attemptId.replaceAll('-', '')}`,
+    );
     expect(current.location).not.toEqual(legacyLocation);
     expect((await queryFound(f.fs, legacyLocation)).view).toMatchObject({
       state: 'settled',
@@ -345,6 +376,150 @@ describe('Phase 2249 Step C verifier submission compatibility', () => {
       rawResult: rawVerdict(true, lateLegacyReason),
     });
     expect(await hashFiles(f.clawDir, legacyLocation.resultDir)).toEqual(lateHashes);
+    expect(f.controlled.calls()).toBe(2);
+    expect(f.gate.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('correlates real attempt-only history beside fixed-name and compact-name generations without rewriting it', async () => {
+    const currentVerdict = { passed: true, reason: 'current compact-name pass' };
+    const f = await fixture('generations', currentVerdict, { realClawPath: true });
+    expect(f.clawDir).toBe(getClawDir(CLAW_ID));
+
+    // 真正的旧固定名只有历史 result，不带可伪造归属的现代 execution input。
+    const legacyLocation = executionLocation(`verifier-${f.contractId}-t1`);
+    const legacyResult = 'fixed-name legacy result bytes\n旧记录不得改变\n';
+    await f.fs.writeAtomic(`${legacyLocation.resultDir}/result.txt`, legacyResult);
+    const legacyResultPath = path.join(f.clawDir, legacyLocation.resultDir, 'result.txt');
+    const originalLegacyBytes = await fsp.readFile(legacyResultPath);
+    await expect(querySubagentExecution(f.fs, legacyLocation)).resolves.toMatchObject({ kind: 'legacy' });
+
+    // F 之前的 attempt-only 记录也必须由真实默认执行链产生，不能用 prepareInput 拼 fixture。
+    const historicalAttemptId = '10000000-0000-4000-8000-000000000001';
+    const historicalAgentId = `verifier-attempt-${historicalAttemptId}`;
+    const historicalLocation = executionLocation(historicalAgentId);
+    const historicalVerdict = { passed: false, reason: 'persisted attempt-only rejection' };
+    const historicalLlm = fakeLlm([
+      toolChunks('done', { result: JSON.stringify(historicalVerdict) }),
+    ]);
+    await expect(runContractVerifier({
+      agentId: historicalAgentId,
+      clawId: CLAW_ID,
+      clawDir: f.clawDir,
+      contractId: f.contractId,
+      fs: f.fs,
+      llm: historicalLlm.llm,
+      audit: f.audit,
+      prompt: 'verify the historical attempt through the real default runner',
+      toolRegistry: new ToolRegistryImpl(),
+      fsFactory: nodeFsFactory,
+      // 不注入 runVerifier：必须经默认 startSubagent 持久化真实 execution input。
+    })).resolves.toMatchObject({
+      passed: false,
+      structured: historicalVerdict,
+    });
+    expect(historicalLlm.calls()).toBe(1);
+
+    const historicalInput = JSON.parse(
+      await f.fs.read(`${historicalLocation.resultDir}/execution/input.json`),
+    ) as Record<string, unknown>;
+    expect(historicalInput).toMatchObject({
+      input: {
+        agentId: historicalAgentId,
+        currentContractId: f.contractId,
+        resultDir: historicalLocation.resultDir,
+      },
+    });
+    expect((await queryFound(f.fs, historicalLocation))).toMatchObject({
+      correlation: { kind: 'known', currentContractId: f.contractId },
+      view: { state: 'settled', outcome: { rawResult: rawVerdict(false, historicalVerdict.reason) } },
+    });
+    const originalLegacyHashes = await hashFiles(f.clawDir, legacyLocation.resultDir);
+    const originalHistoricalHashes = await hashFiles(f.clawDir, historicalLocation.resultDir);
+
+    await expect(f.manager.createSubmitSubtaskTool().execute({
+      subtask: 't1', evidence: 'new compact-name work remains independent',
+    }, f.ctx)).resolves.toMatchObject({ success: true, metadata: { async: true } });
+    await f.gate.entered;
+    const current = await currentExecution(f.manager, f.contractId);
+    expect(current.location.runId).toBe(
+      `verifier-${f.contractId}-${current.attemptId.replaceAll('-', '')}`,
+    );
+    expect(new Set([legacyLocation.runId, historicalLocation.runId, current.location.runId]).size).toBe(3);
+    expect((await queryFound(f.fs, current.location))).toMatchObject({
+      correlation: { kind: 'known', currentContractId: f.contractId },
+      view: { state: 'running' },
+    });
+
+    const backgroundDone = waitForNextAuditEvent(
+      f.emitter,
+      CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
+    );
+    f.gate.release({ success: true, content: 'current compact-name gate settled' });
+    await backgroundDone;
+
+    const scanned = await scanSubagentResults({ fsFactory: nodeFsFactory }, f.clawDir);
+    const expectedIds = [legacyLocation.runId, historicalLocation.runId, current.location.runId];
+    expect(scanned.filter(entry => entry.kind === 'verifier').map(entry => entry.id).sort())
+      .toEqual([...expectedIds].sort());
+    expect(scanned.find(entry => entry.id === legacyLocation.runId)).toMatchObject({
+      source: 'legacy',
+      contractId: f.contractId,
+      contractCorrelation: { kind: 'known', source: 'legacy_name' },
+    });
+    for (const runId of [historicalLocation.runId, current.location.runId]) {
+      expect(scanned.find(entry => entry.id === runId)).toMatchObject({
+        source: 'execution',
+        contractId: f.contractId,
+        contractCorrelation: { kind: 'known', source: 'execution_input' },
+      });
+    }
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleLog = logSpy;
+    interface ListPayload {
+      entries: Array<{
+        id: string;
+        contract_id: string | null;
+        contract_correlation: { kind: string; source?: string } | null;
+      }>;
+      total: number;
+      incomplete: boolean;
+      correlation_issues: unknown[];
+    }
+    const listJson = async (contract?: string): Promise<ListPayload> => {
+      logSpy.mockClear();
+      await subagentListCommand(
+        { fsFactory: nodeFsFactory },
+        { claw: CLAW_ID, json: true, ...(contract === undefined ? {} : { contract }) },
+      );
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      return JSON.parse(String(logSpy.mock.calls[0][0])) as ListPayload;
+    };
+
+    const ordinary = await listJson();
+    expect(ordinary.total).toBe(3);
+    expect(ordinary.entries.map(entry => entry.id).sort()).toEqual([...expectedIds].sort());
+    for (const entry of ordinary.entries) {
+      expect(entry.contract_id).toBe(f.contractId);
+      expect(entry.contract_correlation).toMatchObject({
+        kind: 'known',
+        source: entry.id === legacyLocation.runId ? 'legacy_name' : 'execution_input',
+      });
+    }
+
+    const filtered = await listJson(f.contractId);
+    expect(filtered.entries.map(entry => entry.id).sort()).toEqual([...expectedIds].sort());
+    expect(filtered.total).toBe(3);
+    expect(filtered.incomplete).toBe(false);
+    expect(filtered.correlation_issues).toEqual([]);
+    const excluded = await listJson(makeContractId('phase2249-other-contract'));
+    expect(excluded.entries).toEqual([]);
+    expect(excluded.total).toBe(0);
+    expect(excluded.incomplete).toBe(false);
+
+    expect(await fsp.readFile(legacyResultPath)).toEqual(originalLegacyBytes);
+    expect(await hashFiles(f.clawDir, legacyLocation.resultDir)).toEqual(originalLegacyHashes);
+    expect(await hashFiles(f.clawDir, historicalLocation.resultDir)).toEqual(originalHistoricalHashes);
     expect(f.controlled.calls()).toBe(2);
     expect(f.gate.execute).toHaveBeenCalledTimes(1);
   });
