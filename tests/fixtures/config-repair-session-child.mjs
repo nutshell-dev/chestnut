@@ -81,6 +81,18 @@ function finite(readyPath, exitedPath, mode, lifetimeArg) {
       process.stdout.write('PROMPT>');
     });
   }
+  if (mode === 'controlled-input') {
+    const inputs = [];
+    const inputPath = path.join(process.cwd(), 'input-observed.json');
+    fs.writeFileSync(inputPath, JSON.stringify(inputs));
+    process.stdin.on('data', chunk => {
+      inputs.push(chunk.toString());
+      fs.writeFileSync(inputPath, JSON.stringify(inputs));
+    });
+    process.on('message', message => {
+      if (message?.type === 'prompt') process.stdout.write(message.value);
+    });
+  }
   if (mode === 'single-prompt' || mode === 'split-prompt') {
     const inputs = [];
     if (mode === 'split-prompt') {
@@ -141,6 +153,20 @@ if (first === '--worker') {
           process.stderr.write(`${error.stack ?? error}\n`);
           process.exitCode = 1;
         }
+      });
+    });
+  }
+  if (mode === 'controlled-input') {
+    process.on('message', message => {
+      if (message?.type !== 'prompt') return;
+      child.send(message, error => {
+        if (!error) return;
+        const fact = { message: error.message, code: error.code };
+        fs.writeFileSync(
+          path.join(process.cwd(), 'controlled-input-ipc-error.json'), JSON.stringify(fact),
+        );
+        process.send?.({ type: 'controlled-input-error', ...fact }, () => {});
+        process.stderr.write(`${error.stack ?? error}\n`);
       });
     });
   }

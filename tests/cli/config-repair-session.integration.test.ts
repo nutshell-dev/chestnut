@@ -33,6 +33,8 @@ const EXTERNAL_CONSUMER_TIMEOUT_MS = 10_000;
 const RECLAIM_STALE_AGE_MS = 11 * 60 * 1000;
 // Finite lifetime for detached startup-error fixtures; independent cleanup must finish first.
 const DETACHED_CHILD_LIFETIME_MS = 30_000;
+const LATE_PROMPT_GUARD_TIMEOUT_MS = 5_000;
+const CONTROLLED_INPUT_GUARD_TIMEOUT_MS = 5_000;
 const isolatedHosts: Array<{ host: string; runRoot: string }> = [];
 const originalRunRoot = process.env.CHESTNUT_RUN_ROOT;
 
@@ -233,6 +235,66 @@ async function waitForExitFile(filePath: string): Promise<void> {
     if (Date.now() >= deadline) throw new Error(`finite child did not publish exit: ${filePath}`);
     await new Promise<void>(resolve => setTimeout(resolve, EXIT_POLL_MS));
   }
+}
+
+type ControlledSessionTimerKind = 'work' | 'answer';
+type ControlledSessionTimerEvent = Readonly<{
+  sequence: number;
+  action: 'schedule' | 'cancel' | 'fire' | 'fire-ignored';
+  kind: ControlledSessionTimerKind;
+  delayMs?: number;
+}>;
+
+function createSessionTimerController(logPath: string) {
+  const timers: Array<{
+    kind: ControlledSessionTimerKind;
+    callback: () => void;
+    active: boolean;
+    cancelled: boolean;
+    fired: number;
+  }> = [];
+  const events: ControlledSessionTimerEvent[] = [];
+  fs.writeFileSync(logPath, '');
+  const record = (event: ControlledSessionTimerEvent): void => {
+    events.push(event);
+    fs.appendFileSync(logPath, `${JSON.stringify(event)}\n`);
+  };
+  return {
+    events,
+    entry(kind: ControlledSessionTimerKind) {
+      return timers.find(timer => timer.kind === kind);
+    },
+    registrations(kind: ControlledSessionTimerKind): number {
+      return events.filter(event => event.action === 'schedule' && event.kind === kind).length;
+    },
+    schedule(kind: ControlledSessionTimerKind, callback: () => void, delayMs: number): () => void {
+      const timer = { kind, callback, active: true, cancelled: false, fired: 0 };
+      timers.push(timer);
+      record({ sequence: events.length, action: 'schedule', kind, delayMs });
+      let cancelCalled = false;
+      return () => {
+        if (cancelCalled) return;
+        cancelCalled = true;
+        if (timer.active) {
+          timer.active = false;
+          timer.cancelled = true;
+        }
+        record({ sequence: events.length, action: 'cancel', kind });
+      };
+    },
+    fire(kind: ControlledSessionTimerKind): boolean {
+      const timer = timers.find(candidate => candidate.kind === kind);
+      if (!timer?.active) {
+        record({ sequence: events.length, action: 'fire-ignored', kind });
+        return false;
+      }
+      timer.active = false;
+      timer.fired += 1;
+      record({ sequence: events.length, action: 'fire', kind });
+      timer.callback();
+      return true;
+    },
+  };
 }
 
 afterEach(async () => {
@@ -1701,6 +1763,300 @@ describe('Phase 2237 Z04 PTY lifecycle regressions', () => {
       expect(input).toHaveLength(1);
       expect(input[0]).toBe('split-answer\n');
     });
+  });
+
+  async function verifyOrderedStop(order: 'abort-first' | 'timeout-first'): Promise<void> {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let caseFinished = false;
+    try {
+      await finishConfigRepairCase(workspace, async () => {
+        const controller = new AbortController();
+        const primary = new Error(`controlled ${order} abort`);
+        const timers = createSessionTimerController(path.join(workspace.root, 'session-timer-events.jsonl'));
+        let workerTerminations = 0;
+        let wrapperTerminations = 0;
+        const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
+          mode: 'finite', lifetimeMs: 30_000,
+          scheduleSessionTimer: timers.schedule,
+          onReady: () => {
+            if (order === 'abort-first') {
+              controller.abort(primary);
+              expect(timers.fire('work')).toBe(true);
+            } else {
+              expect(timers.fire('work')).toBe(true);
+              controller.abort(primary);
+            }
+          },
+          terminateTarget: async (...args) => {
+            workerTerminations += 1;
+            return terminateExecutionTarget(...args);
+          },
+          terminateWrapper: async (...args) => {
+            wrapperTerminations += 1;
+            return terminateExecutionTarget(...args);
+          },
+        }).catch(error => error);
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        result = (failure as ConfigRepairSessionError).result;
+        const expectedFirst = order === 'abort-first' ? 'session cancelled by caller' : 'interactive session timed out';
+        const expectedLater = order === 'abort-first' ? 'interactive session timed out' : 'session cancelled by caller';
+        expect(result.firstStop?.reason).toBe(expectedFirst);
+        expect(result.laterStops.some(stop => stop.reason === expectedLater)).toBe(true);
+        if (order === 'abort-first') expect(failure.cause).toBe(primary);
+        else expect(result.firstStop?.cause).toMatchObject({ message: 'session timeout' });
+        expect(timers.entry('work')?.fired).toBe(1);
+        expect(workerTerminations).toBe(1);
+        expect(wrapperTerminations).toBe(1);
+        expect(result.execution.kind).toBe('gone');
+        expect(result.wrapper.observation?.kind).toBe('gone');
+      });
+      caseFinished = true;
+    } finally {
+      await reapControlledSession(workspace, result);
+      if (caseFinished) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  }
+
+  it('2250 C14 V02 preserves abort before an effective work timeout', async () => {
+    await verifyOrderedStop('abort-first');
+  });
+
+  it('2250 C14 V03 preserves an effective work timeout before abort', async () => {
+    await verifyOrderedStop('timeout-first');
+  });
+
+  it('2250 C14 V04 cancels work during abort cleanup', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let caseFinished = false;
+    try {
+      await finishConfigRepairCase(workspace, async () => {
+        const controller = new AbortController();
+        const primary = new Error('controlled cancellation-before-work cleanup');
+        const timers = createSessionTimerController(path.join(workspace.root, 'session-timer-events.jsonl'));
+        const failure = await runConfigRepairSession(workspace, [], [], controller.signal, false, {
+          mode: 'finite', lifetimeMs: 30_000,
+          scheduleSessionTimer: timers.schedule,
+          onReady: () => controller.abort(primary),
+        }).catch(error => error);
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        result = (failure as ConfigRepairSessionError).result;
+        expect(result.firstStop).toEqual({ reason: 'session cancelled by caller', cause: primary });
+        expect(timers.entry('work')).toMatchObject({ cancelled: true, fired: 0 });
+        expect(timers.fire('work')).toBe(false);
+        expect(timers.entry('work')?.fired).toBe(0);
+        expect(result.laterStops.some(stop => stop.reason === 'interactive session timed out')).toBe(false);
+        expect(result.execution.kind).toBe('gone');
+        expect(result.wrapper.observation?.kind).toBe('gone');
+      });
+      caseFinished = true;
+    } finally {
+      await reapControlledSession(workspace, result);
+      if (caseFinished) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('2250 C14 V05 cancels a pending answer before any real input write', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let caseFinished = false;
+    try {
+      await finishConfigRepairCase(workspace, async () => {
+        const controller = new AbortController();
+        const primary = new Error('controlled pending-answer cancellation');
+        const timers = createSessionTimerController(path.join(workspace.root, 'session-timer-events.jsonl'));
+        let child: ReturnType<typeof spawn> | undefined;
+        let writes = 0;
+        const watchdogCause = new Error('controlled prompt did not register an answer before the guard deadline');
+        const watchdog = setTimeout(() => controller.abort(watchdogCause), CONTROLLED_INPUT_GUARD_TIMEOUT_MS);
+        const failure = await runConfigRepairSession(workspace, [], [
+          { prompt: /PROMPT>/, value: 'must-not-be-written' },
+        ], controller.signal, false, {
+          mode: 'controlled-input', lifetimeMs: 30_000,
+          spawnPty: (command, env, cwd) => {
+            child = spawn(command[0], command.slice(1), {
+              cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+            });
+            const originalWrite = child.stdin.write;
+            child.stdin.write = ((...args: any[]) => {
+              writes += 1;
+              return originalWrite.apply(child!.stdin, args);
+            }) as typeof child.stdin.write;
+            child.on('message', (message: { type?: string; message?: string }) => {
+              if (message?.type === 'controlled-input-error') {
+                controller.abort(new Error(`controlled IPC forwarding failed: ${message.message}`));
+              }
+            });
+            return child;
+          },
+          onReady: () => {
+            if (!child?.send) throw new Error('controlled-input wrapper has no IPC channel');
+            child.send({ type: 'prompt', value: 'PROMPT>' }, error => {
+              if (error) controller.abort(error);
+            });
+          },
+          scheduleSessionTimer: (kind, callback, delayMs) => {
+            const cancel = timers.schedule(kind, callback, delayMs);
+            if (kind === 'answer') {
+              clearTimeout(watchdog);
+              controller.abort(primary);
+            }
+            return cancel;
+          },
+        }).catch(error => error);
+        clearTimeout(watchdog);
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        result = (failure as ConfigRepairSessionError).result;
+        expect(result.firstStop).toEqual({ reason: 'session cancelled by caller', cause: primary });
+        expect(result.stdout).toContain('PROMPT>');
+        expect(timers.registrations('answer')).toBe(1);
+        expect(timers.entry('answer')).toMatchObject({ cancelled: true, fired: 0 });
+        expect(timers.fire('answer')).toBe(false);
+        expect(writes).toBe(0);
+        expect(JSON.parse(fs.readFileSync(
+          path.join(workspace.root, 'input-observed.json'), 'utf8',
+        ))).toEqual([]);
+        expect(result.execution.kind).toBe('gone');
+        expect(result.wrapper.observation?.kind).toBe('gone');
+      });
+      caseFinished = true;
+    } finally {
+      await reapControlledSession(workspace, result);
+      if (caseFinished) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
+  });
+
+  it('2250 C14 V06 freezes late prompt input but preserves actual output', async () => {
+    const runRoot = useIsolatedRunRoot();
+    const workspace = createConfigRepairWorkspace('http://127.0.0.1:1/v1');
+    let result: ConfigRepairSessionResult | undefined;
+    let caseFinished = false;
+    try {
+      await finishConfigRepairCase(workspace, async () => {
+        const controller = new AbortController();
+        const primary = new Error('controlled late-prompt stop');
+        const timers = createSessionTimerController(path.join(workspace.root, 'session-timer-events.jsonl'));
+        let child: ReturnType<typeof spawn> | undefined;
+        let writes = 0;
+        let workerTerminations = 0;
+        let wrapperTerminations = 0;
+        let gateSettled = false;
+        let observedGateError: Error | undefined;
+        let observedStdout = '';
+        let resolveGate!: () => void;
+        let rejectGate!: (error: Error) => void;
+        const gate = new Promise<void>((resolve, reject) => {
+          resolveGate = resolve;
+          rejectGate = reject;
+        });
+        const guard = setTimeout(() => {
+          releaseGate(new Error('late prompt was not observed on real parent stdout'));
+        }, LATE_PROMPT_GUARD_TIMEOUT_MS);
+        function releaseGate(error?: Error): void {
+          if (gateSettled) return;
+          gateSettled = true;
+          if (error) observedGateError = error;
+          clearTimeout(guard);
+          if (error) rejectGate(error);
+          else resolveGate();
+        }
+        const terminateAfterGate = async (
+          target: Parameters<typeof terminateExecutionTarget>[0],
+          reason: 'caller_requested',
+        ) => {
+          let gateError: unknown;
+          try {
+            await gate;
+          } catch (error) {
+            gateError = error;
+          }
+          try {
+            const terminal = await terminateExecutionTarget(target, reason);
+            if (gateError !== undefined) throw gateError;
+            return terminal;
+          } catch (error) {
+            if (gateError !== undefined && error !== gateError) {
+              throw new AggregateError([gateError, error], 'Late prompt gate and real termination failed');
+            }
+            throw error;
+          }
+        };
+        const failure = await runConfigRepairSession(workspace, [], [
+          { prompt: /LATE_PROMPT>/, value: 'late-answer-must-not-be-written' },
+        ], controller.signal, false, {
+          mode: 'controlled-input', lifetimeMs: 30_000,
+          scheduleSessionTimer: timers.schedule,
+          spawnPty: (command, env, cwd) => {
+            child = spawn(command[0], command.slice(1), {
+              cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+            });
+            const originalWrite = child.stdin.write;
+            child.stdin.write = ((...args: any[]) => {
+              writes += 1;
+              return originalWrite.apply(child!.stdin, args);
+            }) as typeof child.stdin.write;
+            child.stdout.on('data', (chunk: Buffer | string) => {
+              observedStdout += String(chunk);
+              if (observedStdout.includes('LATE_PROMPT>')) releaseGate();
+            });
+            child.on('message', (message: { type?: string; message?: string }) => {
+              if (message?.type === 'controlled-input-error') {
+                releaseGate(new Error(`controlled IPC forwarding failed: ${message.message}`));
+              }
+            });
+            return child;
+          },
+          onReady: () => controller.abort(primary),
+          terminateTarget: async target => {
+            workerTerminations += 1;
+            if (!child?.send) releaseGate(new Error('controlled-input wrapper has no IPC channel'));
+            else {
+              try {
+                child.send({ type: 'prompt', value: 'LATE_PROMPT>' }, error => {
+                  if (error) releaseGate(error);
+                });
+              } catch (error) {
+                releaseGate(error instanceof Error ? error : new Error(String(error)));
+              }
+            }
+            return terminateAfterGate(target, 'caller_requested');
+          },
+          terminateWrapper: async target => {
+            wrapperTerminations += 1;
+            return terminateAfterGate(target, 'caller_requested');
+          },
+        }).catch(error => error);
+        releaseGate();
+        expect(failure).toBeInstanceOf(ConfigRepairSessionError);
+        result = (failure as ConfigRepairSessionError).result;
+        expect(observedGateError).toBeUndefined();
+        expect(result.firstStop).toEqual({ reason: 'session cancelled by caller', cause: primary });
+        expect(result.stdout).toContain('LATE_PROMPT>');
+        expect(fs.readFileSync(result.evidencePath, 'utf8')).toContain('LATE_PROMPT>');
+        expect(timers.registrations('answer')).toBe(0);
+        expect(timers.fire('answer')).toBe(false);
+        expect(writes).toBe(0);
+        expect(JSON.parse(fs.readFileSync(
+          path.join(workspace.root, 'input-observed.json'), 'utf8',
+        ))).toEqual([]);
+        expect(workerTerminations).toBe(1);
+        expect(wrapperTerminations).toBe(1);
+        expect(result.execution.kind).toBe('gone');
+        expect(result.wrapper.observation?.kind).toBe('gone');
+      });
+      caseFinished = true;
+    } finally {
+      await reapControlledSession(workspace, result);
+      if (caseFinished) discardControlledWorkspace(workspace);
+      await cleanupTempDir(path.dirname(runRoot));
+    }
   });
 
   it('C14 preserves deterministic abort then child-error ordering', async () => {

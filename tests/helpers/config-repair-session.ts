@@ -220,10 +220,22 @@ export class ConfigRepairSessionError extends Error {
   }
 }
 
+type SessionTimerKind = 'work' | 'answer';
+type CancelSessionTimer = () => void;
+type ScheduleSessionTimer = (
+  kind: SessionTimerKind, callback: () => void, delayMs: number,
+) => CancelSessionTimer;
+
+const scheduleNative: ScheduleSessionTimer = (_kind, callback, delayMs) => {
+  const handle = setTimeout(callback, delayMs);
+  return () => clearTimeout(handle);
+};
+
 export interface SessionOptions {
   readonly mode?: 'cli' | 'finite' | 'orphan' | 'final-output' | 'single-prompt'
     | 'split-prompt' | 'ignore-term' | 'hold-wrapper' | 'no-ready'
-    | 'bad-ready-json' | 'bad-ready-schema' | 'bad-ready-cwd' | 'closed-stdin';
+    | 'bad-ready-json' | 'bad-ready-schema' | 'bad-ready-cwd' | 'closed-stdin'
+    | 'controlled-input';
   readonly lifetimeMs?: number;
   readonly timeoutMs?: number;
   readonly onReady?: (ready: ReadyFact) => void;
@@ -237,6 +249,8 @@ export interface SessionOptions {
   readonly terminateTarget?: typeof terminateExecutionTarget;
   /** Test-only wrapper boundary; worker termination remains independently injectable. */
   readonly terminateWrapper?: typeof terminateExecutionTarget;
+  /** Test-only ordering boundary for the two session-owned timers, never L1 or cleanup timers. */
+  readonly scheduleSessionTimer?: ScheduleSessionTimer;
 }
 
 function shellQuote(value: string): string {
@@ -453,13 +467,14 @@ export async function runConfigRepairSession(
   const observeTarget = options.observeTarget ?? observeExecutionTarget;
   const terminateTarget = options.terminateTarget ?? terminateExecutionTarget;
   const terminateWrapper = options.terminateWrapper ?? terminateExecutionTarget;
+  const scheduleSessionTimer = options.scheduleSessionTimer ?? scheduleNative;
   let stdout = '';
   let stderr = '';
   let status: number | null = null;
   let exitSignal: NodeJS.Signals | null = null;
   let answerIndex = 0;
   let promptTail = '';
-  let responseTimer: NodeJS.Timeout | undefined;
+  let cancelAnswer: CancelSessionTimer | undefined;
   let pendingAnswer: { index: number } | undefined;
   let writing = false;
   let acceptInput = true;
@@ -667,8 +682,8 @@ export async function runConfigRepairSession(
     // consumed prompt eligible for the next answer.
     promptTail = promptTail.slice(match.index + match[0].length);
     pendingAnswer = { index: answerIndex };
-    responseTimer = setTimeout(() => {
-      responseTimer = undefined;
+    cancelAnswer = scheduleSessionTimer('answer', () => {
+      cancelAnswer = undefined;
       const pending = pendingAnswer;
       if (!acceptInput || firstStop !== undefined || pending === undefined) return;
       writing = true;
@@ -700,7 +715,8 @@ export async function runConfigRepairSession(
 
   const onAbort = (): void => requestStop('session cancelled by caller', signal.reason);
   signal.addEventListener('abort', onAbort, { once: true });
-  const timeout = setTimeout(
+  const cancelWork = scheduleSessionTimer(
+    'work',
     () => requestStop('interactive session timed out', new Error('session timeout')),
     Math.max(1, deadline - Date.now()),
   );
@@ -760,10 +776,10 @@ export async function runConfigRepairSession(
 
   // The single cleanup entry begins here. Work cancellation never cancels it.
   acceptInput = false;
-  clearTimeout(timeout);
+  cancelWork();
   signal.removeEventListener('abort', onAbort);
-  if (responseTimer) clearTimeout(responseTimer);
-  responseTimer = undefined;
+  cancelAnswer?.();
+  cancelAnswer = undefined;
   pendingAnswer = undefined;
 
   const observeWorker = (): void => {
