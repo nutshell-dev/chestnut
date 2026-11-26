@@ -56,6 +56,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
   ContractRuntimeLifecycle, ContractCloseOutcome,
+  VerifierExecutionIdentity, VerifierExecutionRef,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
@@ -223,7 +224,11 @@ export class ContractSystem implements ContractRuntimeLifecycle {
    * cancelContract 触发后 abort 所有 controller / 真 propagate verifier subagent abort
    * 反 phase 993 D.1 dead field
    */
-  private _activeContractControllers = new Map<string, Set<{ controller: AbortController; promise: Promise<unknown> }>>();
+  private _activeContractControllers = new Map<string, Set<{
+    controller: AbortController;
+    promise: Promise<unknown>;
+    identity?: VerifierExecutionIdentity;
+  }>>();
 
   // phase 687 (audit T2.4): _closed 幂等 guard、与 Runtime._stopped / AsyncTaskSystem._shuttingDown / CronRunner._stopped 同模式
   // 防 close() 双调时 duplicate CONTRACT_SYSTEM_CLOSED audit emit
@@ -251,12 +256,37 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     s.add({ controller: ctrl, promise });
   }
 
-  private _unregisterVerifierController(contractId: ContractId, ctrl: AbortController): void {
+  /** Phase 2248 H3: attach the already-registered control entry to the real execution. */
+  private _attachVerifierExecution(
+    contractId: ContractId,
+    ctrl: AbortController,
+    execution: VerifierExecutionRef,
+  ): void {
+    const entries = this._activeContractControllers.get(contractId);
+    if (!entries) return;
+    for (const entry of entries) {
+      if (entry.controller !== ctrl) continue;
+      entry.identity = execution.identity;
+      entry.promise = execution.completion;
+      return;
+    }
+  }
+
+  private _unregisterVerifierController(
+    contractId: ContractId,
+    ctrl: AbortController,
+    identity?: VerifierExecutionIdentity,
+  ): void {
     // Phase 970: remove from tracking FIRST so audit failures never leave stale controllers.
     const s = this._activeContractControllers.get(contractId);
     if (!s) return;
     for (const entry of s) {
-      if (entry.controller === ctrl) {
+      const identityMatches = identity === undefined || (
+        entry.identity?.runId === identity.runId
+        && entry.identity.attemptId === identity.attemptId
+        && entry.identity.resultDir === identity.resultDir
+      );
+      if (entry.controller === ctrl && identityMatches) {
         s.delete(entry);
         break;
       }
@@ -911,12 +941,23 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         const effectiveSignal = signal
           ? AbortSignal.any([controller.signal, signal])
           : controller.signal;
-        const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runVerifier: self.runVerifier });
+        let identity: VerifierExecutionIdentity | undefined;
+        const promise = self.runContractVerifier(
+          { ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runVerifier: self.runVerifier },
+          {
+            attach: execution => {
+              identity = execution.identity;
+              self._attachVerifierExecution(contractId, controller, execution);
+            },
+          },
+        );
         self._registerVerifierController(contractId, controller, promise);
         try {
+          // The runner awaits the attached reference's real completion. Stop receipts
+          // only abort the signal; neither cancel nor this finally can settle it early.
           return await promise;
         } finally {
-          self._unregisterVerifierController(contractId, controller);
+          self._unregisterVerifierController(contractId, controller, identity);
         }
       },
     };

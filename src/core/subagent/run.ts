@@ -27,6 +27,7 @@ import { createSubagentExecutionRunner, type SubagentAttemptResult } from './exe
 import type {
   SubagentExecutionDegraded,
   SubagentFinalOutcome,
+  SubagentExecutionRef,
   SubagentJsonValue,
 } from './execution-types.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
@@ -404,7 +405,7 @@ function createRunDriver(opts: RunSubagentOptions, auditWriter: ReturnType<typeo
   };
 }
 
-function projectResult(outcome: SubagentFinalOutcome): RunSubagentResult {
+export function projectSubagentResult(outcome: SubagentFinalOutcome): RunSubagentResult {
   const raw = outcome.rawResult;
   if (!isRecord(raw) || typeof raw.text !== 'string') {
     throw new Error(`completed subagent outcome has no valid RunSubagentResult: ${outcome.identity.attemptId}`);
@@ -417,8 +418,8 @@ function projectResult(outcome: SubagentFinalOutcome): RunSubagentResult {
   };
 }
 
-/** Compatibility convenience: start + completion, with no independent execution logic. */
-export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
+/** Start a fixed-capability execution without waiting for its real completion. */
+export async function startSubagent(opts: RunSubagentOptions): Promise<SubagentExecutionRef> {
   const prepared = opts.executionInput === undefined ? undefined : decodeSubagentInput(opts.executionInput);
   if (prepared) {
     const legacyFields = [
@@ -439,18 +440,23 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     auditWriter,
     driver: createRunDriver(opts, auditWriter),
   });
-  const execution = await runner.start({
+  return runner.start({
     runId: opts.agentId,
     resultDir: executionResultDir(opts),
     input,
     signal: opts.signal,
     deadlineAtMs: Date.now() + timeoutMs,
   });
+}
+
+/** Compatibility convenience: start + completion, with no independent execution logic. */
+export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
+  const execution = await startSubagent(opts);
   const outcome = await execution.completion;
   if (outcome.kind !== 'completed') {
     throw outcome.cause ?? new Error(outcome.content);
   }
-  return projectResult(outcome);
+  return projectSubagentResult(outcome);
 }
 
 /** Uniform display projection for the result-capture protocol. */

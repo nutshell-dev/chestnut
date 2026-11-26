@@ -3,13 +3,14 @@
  * Run contract verification verifier subagent — 自由函数 / 0 class state 依赖
  *
  * Migrated from manager.ts:_runVerifierSubagent (phase 427 内联后 / phase 480 抽出)
- * phase 750: 改调 runSubagent helper、删 NoopWriter + audit/stream/workspace 自治模板
+ * phase 750: 改调 SubAgent helper、删 NoopWriter + audit/stream/workspace 自治模板
+ * phase 2248 H3: 默认 runner 交付真实执行引用，Contract 等待 completion 后解释验收结果
  */
 
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 
-import { runSubagent as defaultRunSubagent } from '../subagent/index.js';
+import { projectSubagentResult, startSubagent } from '../subagent/index.js';
 
 import {
   emitContractVerifierSkipped,
@@ -29,9 +30,20 @@ import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 // phase 1488: TASKS_SYNC_DIR namespace name owned by ClawIdentity
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import type { VerifierConfig, VerifierResult, VerifierRunRequest, VerifierRunRawResult } from './types.js';
+import type {
+  VerifierConfig,
+  VerifierExecutionControl,
+  VerifierExecutionRef,
+  VerifierResult,
+  VerifierRunRequest,
+  VerifierRunRawResult,
+} from './types.js';
+import type { SubagentFinalOutcome } from '../subagent/index.js';
 
-export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
+export async function runContractVerifier(
+  config: VerifierConfig,
+  executionControl?: VerifierExecutionControl,
+): Promise<VerifierResult> {
   // phase 19 Step D: explicit runtime check replaces non-null assertion (LSP/M#4).
   // Assembler is expected to inject fsFactory; absence is a programming error in the
   // ContractSystem assembly path, not a runtime fallback case.
@@ -92,6 +104,9 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     );
   }
 
+  // Only this phase may turn SubAgent outcomes into execution interruptions/errors.
+  // Result parsing below keeps its historical business-rejection behavior.
+  let executionPhase = true;
   try {
     const doneTool = createDoneTool();
     const registry = createToolRegistry();
@@ -111,7 +126,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     // 调 typed verifier runner（phase 1862 Step D / CT-D4：owner 语义 request；
     // SubAgent opts 映射归 defaultRunVerifier 唯一映射点）
     const runVerifier = config.runVerifier ?? defaultRunVerifier;
-    const { text, capturedResult } = await runVerifier({
+    const runResult = await runVerifier({
       agentId: config.agentId,
       prompt: config.prompt,
       clawDir: config.clawDir,
@@ -128,6 +143,8 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       toolTimeoutMs: config.toolTimeoutMs, // phase 1029 / F-2
       resultTool: DONE_TOOL_NAME,
     });
+    const { text, capturedResult } = await resolveVerifierRunResult(runResult, executionControl);
+    executionPhase = false;
 
     // 结果解析（既有 fallback 逻辑保留）
     // phase 1056: done tool 返回 { result: string }，需先解析 result 字段中的 JSON
@@ -240,6 +257,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
           kind: 'timeout',
         },
       );
+      if (executionPhase) throw err;
       return { passed: false, feedback: '验收子代理超时' };
     }
     const msg = formatErr(err);
@@ -253,9 +271,10 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         reason: msg,
       },
     );
+    if (executionPhase) throw err;
     return { passed: false, feedback: `LLM 验收失败: ${msg}` };
   }
-  // 不需要 finally cleanup（runSubagent 现 0 创建 subagent workspace dir / phase 805 sub-3 闭环）
+  // 不需要 finally cleanup（SubAgent 现 0 创建 subagent workspace dir / phase 805 sub-3 闭环）
 }
 
 // phase 21: verifier 结果 schema check（playbook 静默失败 §8）
@@ -273,13 +292,58 @@ function isValidVerifierResult(
   return true;
 }
 
+function isVerifierExecutionRef(
+  value: VerifierRunRawResult | VerifierExecutionRef,
+): value is VerifierExecutionRef {
+  const candidate = value as Partial<VerifierExecutionRef>;
+  return typeof candidate.identity === 'object' && candidate.identity !== null
+    && typeof candidate.completion?.then === 'function';
+}
+
+function interruptionError(outcome: SubagentFinalOutcome): Error {
+  if (outcome.cause instanceof Error && outcome.cause.name === 'AbortError') return outcome.cause;
+  const error = outcome.cause === undefined
+    ? new Error(outcome.content)
+    : new Error(outcome.content, { cause: outcome.cause });
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Preserve the complete final outcome as evidence instead of converting artifact loss to rejection. */
+class VerifierArtifactError extends Error {
+  constructor(readonly outcome: SubagentFinalOutcome) {
+    const degraded = outcome.degraded.map(item => `${item.artifact}:${item.error}`);
+    if (!outcome.persistence.outcome.persisted) {
+      degraded.push(`outcome:${outcome.persistence.outcome.error ?? 'not persisted'}`);
+    }
+    super(`Verifier execution artifacts degraded: ${degraded.join('; ')}`);
+    this.name = 'VerifierArtifactError';
+  }
+}
+
+async function resolveVerifierRunResult(
+  runResult: VerifierRunRawResult | VerifierExecutionRef,
+  executionControl?: VerifierExecutionControl,
+): Promise<VerifierRunRawResult> {
+  if (!isVerifierExecutionRef(runResult)) return runResult;
+
+  executionControl?.attach(runResult);
+  const outcome = await runResult.completion;
+  if (outcome.kind === 'interrupted') throw interruptionError(outcome);
+  if (outcome.kind === 'failed') throw outcome.cause ?? new Error(outcome.content);
+  if (outcome.degraded.length > 0 || !outcome.persistence.outcome.persisted) {
+    throw new VerifierArtifactError(outcome);
+  }
+  return projectSubagentResult(outcome);
+}
+
 /**
  * phase 1862 Step D (CT-D4): 默认 verifier runner——VerifierRunRequest → SubAgent opts
- * 的唯一映射点（Contract-owned request 到 L3 runSubagent 的 adapter）。
- * 注入 runVerifier 时本默认实现被整体替换（测试 mock 到 owner 语义层）。
+ * 的唯一映射点（Contract-owned request 到 L3 startSubagent 的 adapter）。
+ * Phase 2248 H3: 交付真实执行引用；completion/结果解释由 Contract 消费。
  */
-async function defaultRunVerifier(req: VerifierRunRequest): Promise<VerifierRunRawResult> {
-  return defaultRunSubagent({
+async function defaultRunVerifier(req: VerifierRunRequest): Promise<VerifierExecutionRef> {
+  return startSubagent({
     agentId: req.agentId,
     toolProfile: 'readonly',
     execution: {

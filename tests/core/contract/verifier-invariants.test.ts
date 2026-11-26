@@ -100,15 +100,13 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
     expect(failedRow).toBeUndefined();
   });
 
-  it('ToolTimeoutError → VERIFIER_FAILED audit emit (kind=timeout)', async () => {
+  it('ToolTimeoutError → execution error propagates with VERIFIER_FAILED audit (kind=timeout)', async () => {
     const { audit, events } = makeAudit();
+    const cause = new ToolTimeoutError('timeout', { timeoutMs: 100 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
 
-    mockRunSubagentSignalAudit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 })); // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    mockRunSubagentSignalAudit.mockRejectedValue(cause);
 
-    const result = await runContractVerifier(makeConfig({ audit }));
-
-    expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('超时');
+    await expect(runContractVerifier(makeConfig({ audit }))).rejects.toBe(cause);
 
     const failedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED);
     expect(failedRow).toBeDefined();
@@ -117,15 +115,13 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
     expect(failedRow).toContain('kind=timeout');
   });
 
-  it('generic error → VERIFIER_FAILED audit emit (kind=other) with reason', async () => {
+  it('generic execution error → original cause propagates with VERIFIER_FAILED audit (kind=other)', async () => {
     const { audit, events } = makeAudit();
+    const cause = new Error('boom');
 
-    mockRunSubagentSignalAudit.mockRejectedValue(new Error('boom'));
+    mockRunSubagentSignalAudit.mockRejectedValue(cause);
 
-    const result = await runContractVerifier(makeConfig({ audit }));
-
-    expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('boom');
+    await expect(runContractVerifier(makeConfig({ audit }))).rejects.toBe(cause);
 
     const failedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED);
     expect(failedRow).toBeDefined();
@@ -324,7 +320,7 @@ describe('verifier-job no-workspace-dir invariant (phase 1371 sub-6 count baseli
     return results;
   }
 
-  it('subagent source baseline: ensureDir is only used for resultDir (count = 2)', () => {
+  it('subagent source baseline: ensureDir is only used for resultDir (count = 1)', () => {
     const files = readSrcFiles('src/core/subagent');
     let ensureDirCount = 0;
 
@@ -334,10 +330,11 @@ describe('verifier-job no-workspace-dir invariant (phase 1371 sub-6 count baseli
       if (matches) ensureDirCount += matches.length;
     }
 
-    // Current baseline: run.ts (1) + agent.ts (1) = 2 ensureDir calls for resultDir
-    // If this number increases, a human must verify it's not workspace dir creation.
+    // Phase 2248 D: execution records create their parent directories atomically;
+    // agent.ts retains the sole explicit resultDir ensureDir call. Any increase still
+    // requires human review against workspace-dir creation.
     // (NEW workspace dir ensureDir 已由 ESLint `no-subagent-ensuredir-workspace` 守 phase 402)
-    expect(ensureDirCount).toBe(2);
+    expect(ensureDirCount).toBe(1);
   });
 });
 
@@ -666,18 +663,16 @@ describe('runContractVerifier (phase 990)', () => {
     expect(result.feedback).toContain('格式错误');
   });
 
-  it('returns timeout feedback on ToolTimeoutError', async () => {
-    mockRunSubagentUnit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 })); // time-fixture: configuration/payload round-trip input, not an independent wait budget
-    const result = await runContractVerifier(makeUnitConfig());
-    expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('超时');
+  it('propagates ToolTimeoutError without manufacturing a business rejection', async () => {
+    const cause = new ToolTimeoutError('timeout', { timeoutMs: 100 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
+    mockRunSubagentUnit.mockRejectedValue(cause);
+    await expect(runContractVerifier(makeUnitConfig())).rejects.toBe(cause);
   });
 
-  it('returns failure feedback on generic error', async () => {
-    mockRunSubagentUnit.mockRejectedValue(new Error('boom'));
-    const result = await runContractVerifier(makeUnitConfig());
-    expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('boom');
+  it('propagates the original generic execution error', async () => {
+    const cause = new Error('boom');
+    mockRunSubagentUnit.mockRejectedValue(cause);
+    await expect(runContractVerifier(makeUnitConfig())).rejects.toBe(cause);
   });
 
   it('rejects legacy result with non-boolean passed field', async () => {

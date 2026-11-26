@@ -16,6 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Priority } from '../../foundation/messaging/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
+import type { SubagentExecutionRef, SubagentFinalOutcome } from '../subagent/index.js';
 import { z } from 'zod';
 
 
@@ -234,11 +235,10 @@ interface VerifierRuntimeConfig {
   fsFactory?: (baseDir: string) => FileSystem;
   /**
    * phase 1862 Step D (CT-D4): typed verifier runner injection（owner 语义 request /
-   * raw result）。替代原 unknown-opts 泄漏面（untyped opts 与 raw
-   * { text, capturedResult } 均为 SubAgent 内部面）。SubAgent opts 映射归默认实现
-   *（verifier-job.ts defaultRunVerifier，唯一映射点）。
+   * raw result）。Phase 2248 H3 同时接受真实执行引用；旧 raw runner 仅作迁移兼容。
+   * SubAgent opts 映射归默认实现（verifier-job.ts defaultRunVerifier，唯一映射点）。
    */
-  runVerifier?: (req: VerifierRunRequest) => Promise<VerifierRunRawResult>;
+  runVerifier?: (req: VerifierRunRequest) => Promise<VerifierRunRawResult | VerifierExecutionRef>;
 }
 
 /**
@@ -266,11 +266,24 @@ export interface VerifierRunRequest {
   readonly resultTool: string;
 }
 
-/** Contract-owned raw run result：runner 返回的原始事实（final text + done-tool capturedResult）。 */
+/** Contract-owned raw run result：已完成执行的 final text + done-tool capturedResult。 */
 export interface VerifierRunRawResult {
   readonly text: string;
   readonly capturedResult?: unknown;
 }
+
+/** Phase 2248 H3: Contract 只消费执行身份与真实 completion，不取得 SubAgent writer。 */
+export interface VerifierExecutionRef {
+  readonly identity: SubagentExecutionRef['identity'];
+  readonly completion: Promise<SubagentFinalOutcome>;
+}
+
+/** Manager 在 runner 交付引用后，把既有控制登记关联到真实 completion。 */
+export interface VerifierExecutionControl {
+  attach(execution: VerifierExecutionRef): void;
+}
+
+export type VerifierExecutionIdentity = VerifierExecutionRef['identity'];
 
 export type VerifierConfig = VerifierIdentityConfig & VerifierRuntimeConfig;
 
