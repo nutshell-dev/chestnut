@@ -17,21 +17,22 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { LLM_WAIT_FILE, loadLLMWait, type LLMWaitFact } from '../../../src/core/async-task-system/llm-wait-state.js';
-import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async-task-system/types.js';
+import type { SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
+import { createSubagentExecutionRunner } from '../../../src/core/subagent/index.js';
+import { consumeTaskExecution } from '../../../src/core/async-task-system/execution-consumer.js';
+import { makePreparedInputStore } from '../../helpers/task-system.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
   LLMAllProvidersFailedError,
-  type LLMOrchestratorOwner,
   type SharedRecoveryDecision,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 const { LLMContextExceededError } = llmProviderCall;
 import { llmProviderAbort } from '../../../src/foundation/llm-provider/index.js';
 const { makeExternalAbortError } = llmProviderAbort;
-import { makeTaskSystemDeps, makeTestRegistry } from '../../helpers/task-system.js';
+import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { testProviderConnection, testProviderFactory } from '../../helpers/llm-provider.js';
 
@@ -61,6 +62,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
     maxSteps: 1,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
+    executionInput: { schema_version: 1, input: { kind: 'llm-wait-test-input' } },
     ...overrides,
   };
 }
@@ -111,12 +113,24 @@ function makeMapFs(seed: Record<string, string> = {}): { fs: FileSystem; fileMap
     }),
     writeAtomic: vi.fn().mockImplementation((p: string, content: string) => {
       fileMap.set(p, content);
-      return Promise.resolve(undefined);
+      return Promise.resolve({ kind: 'durable' as const });
     }),
     exists: vi.fn().mockImplementation((p: string) => Promise.resolve(fileMap.has(p))),
     ensureDir: vi.fn().mockResolvedValue(undefined),
     ensureDirSync: vi.fn(),
     appendSync: vi.fn(),
+    writeAtomicSync: vi.fn((p: string, content: string) => {
+      fileMap.set(p, content);
+      return { kind: 'durable' as const };
+    }),
+    linkExclusiveSync: vi.fn((from: string, to: string) => {
+      const content = fileMap.get(from);
+      if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      if (fileMap.has(to)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      fileMap.set(to, content);
+    }),
+    syncSync: vi.fn(),
+    resolve: vi.fn((p: string) => p),
   } as unknown as FileSystem;
   return { fs, fileMap };
 }
@@ -159,17 +173,23 @@ describe('Step E-1: executor waiting outcome → 事实落盘、任务留 runnin
   it('persistLLMWait 落盘字段完整；不投递、不终态、不写 post-process input', async () => {
     const { fs, fileMap } = makeMapFs();
     const { audit, events } = makeMockAudit();
-    const task = makeValidTask();
     const fact = makeFact();
+    const task = makeValidTask({ timeoutMs: fact.expiresAt - fact.recordedAt });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
     const deliver = vi.fn();
-    const outcome: TaskExecutionOutcome = {
-      content: fact.reason,
-      sourceIsError: true,
-      errorCategory: 'LLMAllProvidersFailedError',
-      waiting: fact,
-    };
+    const execution = createSubagentExecutionRunner({
+      fs,
+      driver: {
+        createAttempt: () => ({
+          completion: Promise.reject(new LLMAllProvidersFailedError([
+            { provider: 'p1', error: new Error(fact.reason) },
+          ])),
+          close: () => {},
+        }),
+        recoveryFor: error => error instanceof LLMAllProvidersFailedError ? 'shared_dependency' : 'none',
+      },
+    });
 
     await executeSubAgentTask(task, new AbortController().signal, {
       fs,
@@ -179,7 +199,9 @@ describe('Step E-1: executor waiting outcome → 事实落盘、任务留 runnin
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      taskExecutor: { execute: vi.fn().mockResolvedValue(outcome) },
+      execution,
+      inputStore: makePreparedInputStore(),
+      sharedRecovery: { getSharedRecoveryDecision: () => ({ kind: 'at', nextProbeAt: fact.nextProbeAt }) },
       deliverySink: { deliver },
     });
 
@@ -189,11 +211,11 @@ describe('Step E-1: executor waiting outcome → 事实落盘、任务留 runnin
     expect(persisted).toMatchObject({
       schema_version: 1,
       orchestrator_instance: fact.orchestratorInstance,
-      nextProbeAt: fact.nextProbeAt,
-      recordedAt: fact.recordedAt,
-      expiresAt: fact.expiresAt,
-      reason: fact.reason,
     });
+    expect(persisted.reason).toContain(fact.reason);
+    expect(typeof persisted.recordedAt).toBe('number');
+    expect(persisted.expiresAt - persisted.recordedAt).toBe(task.timeoutMs);
+    expect(persisted.nextProbeAt).toBeGreaterThanOrEqual(persisted.recordedAt);
     expect(persisted.scope).toBeUndefined();
     // 留 running：不终态、不投递、不写 post-process input
     expect(moveTaskToDone).not.toHaveBeenCalled();
@@ -382,41 +404,25 @@ describe('Step E-5: waiting 任务 cancelDetailed → 通知 + failed，不 not_
   });
 });
 
-// ─── 6. executor 分类（createSubagentTaskExecutor 直测） ────────────────────
+// ─── 6. SubAgent outcome + ATS waiting 分类 ────────────────────────────────
 // Phase 1934 Step C：nextProbeAt 语义从「snapshot max(probeAllowedAtMs)/cooldown」
 // 改为「消费 owner getSharedRecoveryDecision() 结论」——本组断言随之迁移（不断言
 // 被移除的 Assembly 侧计算）。
-describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决定），abort/context_exceeded 不携带', () => {
-  function makeOwnerLlm(decision: SharedRecoveryDecision): LLMOrchestratorOwner {
-    return {
-      call: vi.fn(),
-      stream: vi.fn(),
-      close: vi.fn(),
-      healthCheck: vi.fn().mockResolvedValue(true),
-      getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      getFailureDisposition: vi.fn().mockReturnValue('unknown'),
-      reloadConfig: vi.fn(),
-      snapshot: vi.fn(),
-      probe: vi.fn(),
-      callWithinRecovery: vi.fn(),
-      streamWithinRecovery: vi.fn(),
-      getSharedRecoveryDecision: vi.fn().mockReturnValue(decision),
-    } as unknown as LLMOrchestratorOwner;
-  }
-
+describe('Step E-6: owner outcome 分类——共享故障携带 waiting，abort/context_exceeded 不携带', () => {
   function makeExecutorRun(error: unknown, decision: SharedRecoveryDecision) {
-    const executor = createSubagentTaskExecutor({
-      llm: makeOwnerLlm(decision),
-      registry: makeTestRegistry(),
-      runSubagent: vi.fn().mockRejectedValue(error) as never,
-    });
-    const { audit } = makeMockAudit();
     const { fs } = makeMapFs();
-    return executor.execute(makeValidTask(), new AbortController().signal, {
+    const execution = createSubagentExecutionRunner({
       fs,
-      fsFactory: () => fs,
-      auditWriter: audit,
-      clawDir: '/tmp/claw',
+      driver: {
+        createAttempt: () => ({ completion: Promise.reject(error), close: () => {} }),
+        recoveryFor: cause => cause instanceof LLMAllProvidersFailedError ? 'shared_dependency' : 'none',
+      },
+    });
+    return consumeTaskExecution(makeValidTask(), new AbortController().signal, {
+      fs,
+      execution,
+      inputStore: makePreparedInputStore(),
+      sharedRecovery: { getSharedRecoveryDecision: () => decision },
     });
   }
 

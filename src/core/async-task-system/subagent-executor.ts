@@ -28,7 +28,7 @@ import type { OwnedExecutionInputStore } from './execution-input-store.js';
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask, FullTaskId, TaskExecutor, DeliverySink, TaskExecutionPort, TaskExecutionRef, TaskSharedRecovery } from './types.js';
+import type { SubAgentTask, FullTaskId, DeliverySink, TaskExecutionPort, TaskExecutionRef, TaskSharedRecovery } from './types.js';
 import { taskShortId } from './types.js';
 import type { TaskId } from './types.js';
 
@@ -38,23 +38,19 @@ import type { TaskId } from './types.js';
 
 /**
  * phase 1863 (AT-D5)：deps 收窄为最小执行/交付面 + ATS 自有生命周期面。
- * 执行业务装配（LLM/registry/runSubagent/payload 解释）归 TaskExecutor 实现方；
- * 交付归 DeliverySink；本接口只留 ATS 自有的持久化/处理器/生命周期能力。
+ * 执行引用归注入的 TaskExecutionPort；交付归 DeliverySink；
+ * 本接口只留 ATS 自有的持久化/处理器/生命周期能力。
  */
 interface ExecuteSubAgentTaskDeps {
   fs: FileSystem;
-  fsFactory: (baseDir: string) => FileSystem;
   auditWriter: AuditLog;
-  clawDir: string;
   parentStreamLog?: StreamLog;
   postProcessors: Map<string, PostProcessor>;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
-  /** Legacy execution surface (constructor-time alternative to execution). */
-  taskExecutor?: TaskExecutor;
-  /** Phase 2248 F: true completion/reference consumption. */
-  execution?: TaskExecutionPort;
-  inputStore?: OwnedExecutionInputStore;
+  /** True completion/reference consumption. */
+  execution: TaskExecutionPort;
+  inputStore: OwnedExecutionInputStore;
   sharedRecovery?: TaskSharedRecovery;
   onExecutionReference?: (ref: TaskExecutionRef) => void;
   /** phase 1863 (AT-D5)：最小交付面（装配注入）。 */
@@ -196,7 +192,7 @@ export async function executeSubAgentTask(
   signal: AbortSignal,
   deps: ExecuteSubAgentTaskDeps,
 ): Promise<void> {
-  const { fs, fsFactory, auditWriter, clawDir, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
+  const { fs, auditWriter, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
 
   // outcome: 'done'|'failed' = terminal move performed; undefined = leave in
@@ -223,25 +219,15 @@ export async function executeSubAgentTask(
   });
 
   try {
-    // Phase 1 — execution：经最小执行面（TaskExecutor）产出 {content, sourceIsError}。
-    // 执行失败在 executor 实现方留痕（handler_failed）并成为 processor input，
-    // 不经本层投递、不被后续阶段的失败重新分类。
-    // phase 1863 (AT-D5)：LLM/registry/runSubagent/payload 解释装配归 executor 实现方。
-    const execution = deps.execution
-      ? await consumeTaskExecution(task, signal, {
-          fs,
-          execution: deps.execution,
-          inputStore: deps.inputStore ?? (() => { throw new Error('execution inputStore is required with execution'); })(),
-          sharedRecovery: deps.sharedRecovery,
-          onReference: deps.onExecutionReference,
-        })
-      : await deps.taskExecutor!.execute(task, signal, {
-          fs,
-          fsFactory,
-          auditWriter,
-          clawDir,
-        });
-    if (deps.execution && execution.sourceIsError) {
+    // Phase 1 — consume the real owner reference and its final outcome.
+    const execution = await consumeTaskExecution(task, signal, {
+      fs,
+      execution: deps.execution,
+      inputStore: deps.inputStore,
+      sharedRecovery: deps.sharedRecovery,
+      onReference: deps.onExecutionReference,
+    });
+    if (execution.sourceIsError) {
       // Failure facts now arrive from SubAgent; ATS owns this task audit emission.
       emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,

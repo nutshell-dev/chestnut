@@ -31,10 +31,14 @@ import {
   LLM_WAIT_DEADLINE_FILE,
   type LLMWaitFact,
 } from '../../../src/core/async-task-system/llm-wait-state.js';
-import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async-task-system/types.js';
+import type { SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { makeTaskSystemDeps } from '../../helpers/task-system.js';
+import {
+  makePreparedInputStore,
+  makeTaskExecutionStub,
+  makeTaskSystemDeps,
+} from '../../helpers/task-system.js';
 
 const FULL_ID_A = '550e8400-e29b-41d4-a716-446655440000';
 
@@ -137,12 +141,13 @@ function makeExecDeps(
   waiting: LLMWaitFact,
   onWaitScheduled?: (fact: LLMWaitFact) => void,
 ) {
-  const outcome: TaskExecutionOutcome = {
+  const execution = makeTaskExecutionStub(identity => ({
+    identity,
+    kind: 'failed',
     content: waiting.reason,
-    sourceIsError: true,
-    errorCategory: 'LLMAllProvidersFailedError',
-    waiting,
-  };
+    recovery: 'shared_dependency',
+    cause: new Error(waiting.reason),
+  }));
   return {
     fs,
     fsFactory: () => fs,
@@ -151,7 +156,9 @@ function makeExecDeps(
     postProcessors: new Map(),
     moveTaskToDone: vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-    taskExecutor: { execute: vi.fn().mockResolvedValue(outcome) },
+    execution,
+    inputStore: makePreparedInputStore(),
+    sharedRecovery: { getSharedRecoveryDecision: () => ({ kind: 'at' as const, nextProbeAt: waiting.nextProbeAt }) },
     deliverySink: { deliver: vi.fn() },
     ...(onWaitScheduled ? { onWaitScheduled } : {}),
   };
@@ -197,7 +204,12 @@ describe('Phase 1934 Z-D1：等待预算帽（首次持久 deadline 不重置）
     const deadline = readDeadlineRecord(fileMap, task);
     expect(deadline.expiresAt).toBe(T0 + TASK_TIMEOUT_MS);
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
-    expect(onWaitScheduled).toHaveBeenCalledWith(proposal);
+    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({
+      nextProbeAt: proposal.nextProbeAt,
+      expiresAt: proposal.expiresAt,
+      reason: proposal.reason,
+      execution: expect.objectContaining({ runId: task.id }),
+    }));
   });
 
   it('两轮等待 + 中间重启：第二轮提案完整新预算 → 钳制到首次 deadline，deadline 记录不改写', async () => {

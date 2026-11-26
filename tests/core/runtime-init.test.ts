@@ -107,7 +107,7 @@ describe('Runtime Init', () => {
       expect(startSpy).not.toHaveBeenCalled();
     });
 
-    it('Runtime 调序：taskSystem.initialize() 先于 startDispatch()', async () => {
+    it('Runtime 调序：initialize → prepareTaskExecutionInputs → startDispatch', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         clawId: 'test-claw',
@@ -119,12 +119,16 @@ describe('Runtime Init', () => {
       vi.spyOn(deps.taskSystem, 'initialize').mockImplementation(async () => {
         methodOrder.push('initialize');
       });
+      const prepare = vi.spyOn(deps, 'prepareTaskExecutionInputs').mockImplementation(async () => {
+        methodOrder.push('prepareTaskExecutionInputs');
+      });
       vi.spyOn(deps.taskSystem, 'startDispatch').mockImplementation(() => {
         methodOrder.push('startDispatch');
       });
 
       await runtime.initialize();
-      expect(methodOrder).toEqual(['initialize', 'startDispatch']);
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(methodOrder).toEqual(['initialize', 'prepareTaskExecutionInputs', 'startDispatch']);
     });
 
     it('audit 写发生在 throw 之前（时机契约）', async () => {

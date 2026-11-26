@@ -21,7 +21,6 @@ import {
   type TaskSourceOutcome,
 } from '../../../src/core/async-task-system/types.js';
 import type { SubagentRunner } from '../../../src/core/subagent/index.js';
-import { bindSubagentTaskExecutionPort } from '../../../src/assembly/subagent-task-executor.js';
 import { createMockWatcherFactory } from '../../helpers/task-system.js';
 import { createTempDir } from '../../utils/temp.js';
 
@@ -84,7 +83,7 @@ async function scheduleExisting(system: AsyncTaskSystem, item: SubAgentTask): Pr
 }
 
 // Compile-time structural handoff: SubAgent never imports this ATS port.
-const asTaskExecutionPort = (runner: SubagentRunner): TaskExecutionPort => bindSubagentTaskExecutionPort(runner);
+const asTaskExecutionPort = (runner: SubagentRunner): TaskExecutionPort => runner;
 
 describe('Phase 2248 F execution references', () => {
   it('SubagentRunner is structurally assignable to the ATS port', () => {

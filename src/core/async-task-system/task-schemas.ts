@@ -97,7 +97,7 @@ const commonSubAgentFields = {
 
 // phase 1863 (AT-D7): 去 standard/shadow discriminated union——mode 降为 opaque 可选字符串
 // （ATS 不枚举上层模式；legacy 'standard'/'shadow' 值读取容忍），执行语义经 executorPayload
-// + 装配注入的 ExecutorPayloadAdapter 归 owner。
+// + 专用旧 payload 的迁移解释归对应业务 owner。
 const subAgentTaskSchema = z.object({
   ...commonSubAgentFields,
   mode: z.string().optional(),

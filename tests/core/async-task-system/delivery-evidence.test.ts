@@ -20,6 +20,7 @@ import type { SubAgentTask, ToolTask } from '../../../src/core/async-task-system
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+import { makePreparedInputStore, makeTaskExecutionStub } from '../../helpers/task-system.js';
 
 function makeMockAudit(): AuditLog {
   return { write: vi.fn(), preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s };
@@ -69,6 +70,8 @@ describe('delivery evidence (phase 1863 AT-D12)', () => {
       }),
       ensureDir: vi.fn().mockResolvedValue(undefined),
       ensureDirSync: vi.fn(),
+      read: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+      exists: vi.fn().mockResolvedValue(false),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem & { writeAtomic: ReturnType<typeof vi.fn> };
     audit = makeMockAudit();
@@ -122,7 +125,8 @@ describe('delivery evidence (phase 1863 AT-D12)', () => {
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      taskExecutor: { execute: async () => ({ content: 'ran', sourceIsError: false }) },
+      execution: makeTaskExecutionStub(identity => ({ identity, kind: 'completed', content: 'ran', recovery: 'none' })),
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver: async () => ({ kind: 'resend_window', atLeastOnceWindow: true, reason: 'inbox_unavailable' }) },
     });
 

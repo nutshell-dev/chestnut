@@ -278,6 +278,7 @@ export async function createMotionAddons(
           motionFs: systemFs,
           audit: auditWriter,
           taskSystem: business.taskSystem,
+          prepareSubagentInput: business.prepareSubagentInput,
           llmService: llm,
           llmConfig,
           maxCompressionTokens: globalConfig.cron.jobs.dream_trigger.max_compression_tokens,

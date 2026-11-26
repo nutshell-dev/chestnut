@@ -1028,9 +1028,11 @@ async function _recoverSubAgentTask(
       emitRecoveryFailed(deps.auditWriter, {
         taskId: task.id,
         context: 'execution_input_not_prepared',
-        error: 'task remains running pending owner input preparation',
+        error: 'task requeued pending owner input preparation; dispatch remains paused',
       });
-      return 0;
+      // Startup has no live owner to reconnect for an unprepared legacy task. Requeue
+      // only its queue file; owner preparation must succeed before dispatch can start.
+      return await _recoverWithoutResult(deps, filePath, task);
     }
     // open is the only startup admission: never infer not-started from missing new
     // files and never create a successor without an explicit LLM resume intent.

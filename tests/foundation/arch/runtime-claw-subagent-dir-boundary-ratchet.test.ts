@@ -31,13 +31,10 @@ describe('phase 1491: TASKS_SUBAGENTS_DIR namespace owned by SubAgent', () => {
     expect(barrel).not.toContain('TASKS_SUBAGENTS_DIR');
   });
 
-  it('Assembly, Permissions, and SubagentTaskExecutor import TASKS_SUBAGENTS_DIR from SubAgent', () => {
-    // phase 1863 (AT-D5)：执行装配（含 TASKS_SUBAGENTS_DIR 使用）迁至 assembly/subagent-task-executor.ts
+  it('Assembly layout and Permissions import TASKS_SUBAGENTS_DIR from SubAgent', () => {
     const layout = read('src/assembly/claw-subdirs.ts');
     const perms = read('src/core/permissions/claw-permissions.ts');
-    const executor = read('src/assembly/subagent-task-executor.ts');
     expect(layout).toMatch(/import\s+\{[^}]*TASKS_SUBAGENTS_DIR[^}]*\}\s+from\s+['"]\.\.\/core\/subagent\/index\.js['"]/);
     expect(perms).toMatch(/import\s+\{[^}]*TASKS_SUBAGENTS_DIR[^}]*\}\s+from\s+['"]\.\.\/subagent\/index\.js['"]/);
-    expect(executor).toMatch(/TASKS_SUBAGENTS_DIR/);
   });
 });

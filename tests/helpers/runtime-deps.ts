@@ -15,6 +15,8 @@ import { initializeClawLayout } from '../../src/assembly/index.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
+import { createStandardDeliverySink } from '../../src/core/async-task-system/index.js';
+import { createDefaultSubagentExecutionRunner } from '../../src/core/subagent/index.js';
 import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
 import { ContextInjector } from '../../src/core/runtime/injector.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
@@ -103,7 +105,17 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     deliverCancellation: async () => {},
     notifyClaw: () => {},});
   const taskSystem = new AsyncTaskSystem(clawDir, systemFs, {
-    auditWriter, llm, contractManager, registry: toolRegistry,
+    auditWriter,
+    execution: createDefaultSubagentExecutionRunner({
+      clawDir,
+      syncDir: `${clawDir}/tasks/sync`,
+      fs: systemFs,
+      llm,
+      registry: toolRegistry,
+    }),
+    deliverySink: createStandardDeliverySink(),
+    contractManager,
+    registry: toolRegistry,
     shortIdIndex: new InMemoryShortIdIndex(),
   });
   const toolExecutor = new ToolExecutorImpl(toolRegistry, TEST_TOOL_TIMEOUT_MS);
@@ -127,6 +139,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     systemFs, clawFs, auditWriter, snapshot, sessionManager,
     inboxReader, llm, llmOrchestrator: llm, toolRegistry, toolExecutor,
     skillRegistry, contractManager, taskSystem,
+    prepareTaskExecutionInputs: async () => {},
     permissionChecker,
     // phase 521 mock
     dialogStoreFactory: (systemPrompt: string) => {

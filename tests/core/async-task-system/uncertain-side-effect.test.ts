@@ -15,13 +15,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async-task-system/types.js';
+import type { SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
-import { RecoveryUncertainSideEffectError } from '../../../src/core/subagent/index.js';
-import type { LLMOrchestratorOwner, SharedRecoveryDecision } from '../../../src/foundation/llm-orchestrator/index.js';
-import { makeTestRegistry } from '../../helpers/task-system.js';
+import { createSubagentExecutionRunner, RecoveryUncertainSideEffectError } from '../../../src/core/subagent/index.js';
+import { consumeTaskExecution } from '../../../src/core/async-task-system/execution-consumer.js';
+import { makePreparedInputStore } from '../../helpers/task-system.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const FULL_ID = '550e8400-e29b-41d4-a716-446655440000';
@@ -50,6 +49,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
     maxSteps: 1,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
+    executionInput: { schema_version: 1, input: { kind: 'uncertain-test-input' } },
     ...overrides,
   };
 }
@@ -88,12 +88,24 @@ function makeMapFs(seed: Record<string, string> = {}): { fs: FileSystem; fileMap
     }),
     writeAtomic: vi.fn().mockImplementation((p: string, content: string) => {
       fileMap.set(p, content);
-      return Promise.resolve(undefined);
+      return Promise.resolve({ kind: 'durable' as const });
     }),
     exists: vi.fn().mockImplementation((p: string) => Promise.resolve(fileMap.has(p))),
     ensureDir: vi.fn().mockResolvedValue(undefined),
     ensureDirSync: vi.fn(),
     appendSync: vi.fn(),
+    writeAtomicSync: vi.fn((p: string, content: string) => {
+      fileMap.set(p, content);
+      return { kind: 'durable' as const };
+    }),
+    linkExclusiveSync: vi.fn((from: string, to: string) => {
+      const content = fileMap.get(from);
+      if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      if (fileMap.has(to)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      fileMap.set(to, content);
+    }),
+    syncSync: vi.fn(),
+    resolve: vi.fn((p: string) => p),
   } as unknown as FileSystem;
   return { fs, fileMap };
 }
@@ -111,12 +123,15 @@ describe('1951B-1: executor uncertain outcome → 留 running（不投递不终�
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
     const deliver = vi.fn();
-    const outcome: TaskExecutionOutcome = {
-      content: 'uncertain side effect: tool tu-1 started without committed result',
-      sourceIsError: true,
-      errorCategory: 'RecoveryUncertainSideEffectError',
-      uncertain: { reason: 'uncertain side effect: tool tu-1 started without committed result' },
-    };
+    const execution = createSubagentExecutionRunner({
+      fs,
+      driver: {
+        createAttempt: () => ({
+          completion: Promise.reject(new RecoveryUncertainSideEffectError('tu-1')),
+          close: () => {},
+        }),
+      },
+    });
 
     await executeSubAgentTask(task, new AbortController().signal, {
       fs,
@@ -126,7 +141,8 @@ describe('1951B-1: executor uncertain outcome → 留 running（不投递不终�
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      taskExecutor: { execute: vi.fn().mockResolvedValue(outcome) },
+      execution,
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver },
     });
 
@@ -144,37 +160,19 @@ describe('1951B-1: executor uncertain outcome → 留 running（不投递不终�
 });
 
 // ─── 2. Assembly executor 分类 ──────────────────────────────────────────────
-describe('1951B-2: createSubagentTaskExecutor 分类——uncertain typed outcome', () => {
-  function makeOwnerLlm(decision: SharedRecoveryDecision): LLMOrchestratorOwner {
-    return {
-      call: vi.fn(),
-      stream: vi.fn(),
-      close: vi.fn(),
-      healthCheck: vi.fn().mockResolvedValue(true),
-      getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      getFailureDisposition: vi.fn().mockReturnValue('unknown'),
-      reloadConfig: vi.fn(),
-      snapshot: vi.fn(),
-      probe: vi.fn(),
-      callWithinRecovery: vi.fn(),
-      streamWithinRecovery: vi.fn(),
-      getSharedRecoveryDecision: vi.fn().mockReturnValue(decision),
-    } as unknown as LLMOrchestratorOwner;
-  }
-
+describe('1951B-2: SubAgent owner 分类——uncertain typed outcome', () => {
   function makeExecutorRun(error: unknown) {
-    const executor = createSubagentTaskExecutor({
-      llm: makeOwnerLlm({ kind: 'ready' }),
-      registry: makeTestRegistry(),
-      runSubagent: vi.fn().mockRejectedValue(error) as never,
-    });
-    const { audit } = makeMockAudit();
     const { fs } = makeMapFs();
-    return executor.execute(makeValidTask(), new AbortController().signal, {
+    const execution = createSubagentExecutionRunner({
       fs,
-      fsFactory: () => fs,
-      auditWriter: audit,
-      clawDir: '/tmp/claw',
+      driver: {
+        createAttempt: () => ({ completion: Promise.reject(error), close: () => {} }),
+      },
+    });
+    return consumeTaskExecution(makeValidTask(), new AbortController().signal, {
+      fs,
+      execution,
+      inputStore: makePreparedInputStore(),
     });
   }
 

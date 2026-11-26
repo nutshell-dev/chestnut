@@ -31,9 +31,13 @@ import { sendResult, sendFallbackResult, sendToolResult, createStandardDeliveryS
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
-import { loadLLMWait, clearLLMWait } from './llm-wait-state.js';
+import { loadLLMWait } from './llm-wait-state.js';
 import { executeSubAgentTask } from './subagent-executor.js';
-import { createExecutionInputStore, type OwnedExecutionInputStore } from './execution-input-store.js';
+import {
+  createExecutionInputStore,
+  ExecutionInputStoreError,
+  type OwnedExecutionInputStore,
+} from './execution-input-store.js';
 import { executeToolTask } from './tool-executor.js';
 import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
@@ -66,7 +70,7 @@ import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
-import type { TaskExecutor, DeliverySink, TaskDispatchFn, RunningTaskView, TaskExecutionPort, TaskExecutionRef, UnpreparedExecutionInput, CommitPreparedExecutionInput, PreparedExecutionInputRecord } from './types.js';
+import type { DeliverySink, TaskDispatchFn, RunningTaskView, TaskExecutionPort, TaskExecutionRef, UnpreparedExecutionInput, CommitPreparedExecutionInput, PreparedExecutionInputRecord } from './types.js';
 import { type TaskId, makeFullTaskId, readShortTaskId, adoptLegacyShortTaskId, deriveShortIdFromTaskId, taskShortId, adoptLegacyFullTaskId } from './types.js';
 
 
@@ -120,9 +124,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private _wakeupResolve: (() => void) | null = null;
   private readonly maxConcurrent: number;
   private readonly registry: ToolRegistry;
-  /** Legacy execution surface; constructor-time alternative to execution. */
-  private readonly taskExecutor?: TaskExecutor;
-  private readonly execution?: TaskExecutionPort;
+  private readonly execution: TaskExecutionPort;
   private readonly executionInputStore: OwnedExecutionInputStore;
   /** phase 1863 (AT-D5)：最小交付面（装配注入；缺省走标准 sendResult 实现）。 */
   private readonly deliverySink: DeliverySink;
@@ -205,7 +207,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private readonly executors: Record<TaskKind, TaskDispatchFn>;
 
   constructor(
-    private readonly clawDir: string,
+    _clawDir: string,
     private readonly fs: FileSystem,
     private readonly options: AsyncTaskSystemOptions,
   ) {
@@ -213,10 +215,6 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.auditWriter = options.auditWriter;
     this.parentStreamLog = options.parentStreamLog;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
-    if ((options.taskExecutor === undefined) === (options.execution === undefined)) {
-      throw new Error('AsyncTaskSystem requires exactly one of taskExecutor or execution');
-    }
-    this.taskExecutor = options.taskExecutor;
     this.execution = options.execution;
     this.executionInputStore = createExecutionInputStore(fs, {
       hasActiveExecution: taskId => this.executingTasks.has(taskId),
@@ -289,14 +287,11 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         // phase 1863 (AT-D5)：deps 收窄为最小执行/交付面 + ATS 自有生命周期面。
         await executeSubAgentTask(task, signal, {
           fs: this.fs,
-          fsFactory: this.fsFactory,
           auditWriter: this.auditWriter,
-          clawDir: this.clawDir,
           parentStreamLog: this.parentStreamLog,
           postProcessors: this.postProcessors,
           moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
-          taskExecutor: this.taskExecutor,
           execution: this.execution,
           inputStore: this.executionInputStore,
           sharedRecovery: this.options.sharedRecovery,
@@ -370,10 +365,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       // Phase 1933 Step E：LLM 等待 gate 透传（装配期注入；缺席时等待任务保持 waiting）
       waitGate: this.options.waitGate,
       execution: this.execution,
-      isExecutionInputPrepared: this.execution
-        ? taskId => this.executionInputStore.hasPreparedInput(taskId)
-        : undefined,
+      isExecutionInputPrepared: taskId => this.executionInputStore.hasPreparedInput(taskId),
     });
+
+    // Recovery requeues unprepared running legacy tasks without executing them.
+    // Re-scan their moved bytes so ordinary tasks can commit before Shadow/Runtime
+    // migration and before dispatch; unknown owner payloads remain pending.
+    await this._prepareOrdinaryLegacyInputs();
 
     // phase 1863 (AT-D4)：成功路径后冻结装配依赖面（三 setter 继续调用即 throw）。
     this.configFrozen = true;
@@ -384,16 +382,29 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   private async _prepareOrdinaryLegacyInputs(): Promise<void> {
-    if (!this.execution || !this.options.prepareLegacyInput) return;
+    if (!this.options.prepareLegacyInput) return;
     for (const item of await this.executionInputStore.listUnpreparedInputs()) {
       if (item.kind !== 'ordinary_legacy' || !item.sourcePath.startsWith(`${TASKS_QUEUES_PENDING_DIR}/`)) continue;
-      const input = await this.options.prepareLegacyInput(item.declaration);
-      await this.executionInputStore.commitPreparedInput({
-        taskId: item.taskId,
-        sourceHash: item.sourceHash,
-        migrationSource: 'ordinary_legacy',
-        input,
-      });
+      try {
+        const input = await this.options.prepareLegacyInput(item.declaration);
+        await this.executionInputStore.commitPreparedInput({
+          taskId: item.taskId,
+          sourceHash: item.sourceHash,
+          migrationSource: 'ordinary_legacy',
+          input,
+        });
+      } catch (error) {
+        const taskConflict = error instanceof ExecutionInputStoreError
+          && (error.code === 'source_changed' || error.code === 'conflict' || error.code === 'active_execution');
+        if (!(error instanceof TypeError) && !taskConflict) throw error;
+        // Owner validation/conditional-commit failure blocks only this task. The
+        // original failure remains observable; global scan/IO failures still throw.
+        emitRecoveryFailed(this.auditWriter, {
+          taskId: item.taskId,
+          context: 'ordinary_legacy_input_prepare_failed',
+          error: formatErr(error),
+        });
+      }
     }
   }
 
@@ -1455,7 +1466,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         // Phase 1934 Step D：resume 意图残留（move 成功但清事实失败/崩溃窗口）——
         // 确认清理完成再执行业务；清理失败本轮跳过（留 pending 下轮重试）。
         if (task.kind !== 'tool' && !(await this._clearResumedWaitIntent(task))) continue;
-        if (task.kind !== 'tool' && this.execution) {
+        if (task.kind !== 'tool') {
           // Unprepared/unknown input stays pending for the owner migration entry.
           if (!(await this.executionInputStore.hasPreparedInput(task.id as FullTaskId))) continue;
         }
@@ -1504,18 +1515,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     if (!load || load.kind !== 'ok' || !load.fact.resumeIntent) return true;
     // Reference mode consumes the durable resume identity in execution-consumer;
     // clearing here would lose the only explicit resume authorization after restart.
-    if (this.execution) return true;
-    try {
-      await clearLLMWait(this.fs, resultDir);
-      return true;
-    } catch (err) {
-      emitRecoveryFailed(this.auditWriter, {
-        taskId: task.id,
-        context: 'pending_wait_intent_clear_failed',
-        error: formatErr(err),
-      });
-      return false;
-    }
+    return true;
   }
 
   /**
@@ -1902,7 +1902,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       });
       // A reference-mode admission/observation error is not proof of physical
       // convergence. Keep running evidence and never emit a fictitious failed result.
-      if (this.execution && task.kind === 'subagent') return;
+      if (task.kind === 'subagent') return;
       // 通知 parent，避免永久挂起（legacy/tool path only）
       await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: `Task failed to start: ${errorMsg}`, isError: true }, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
         emitStartFailed(this.auditWriter, {

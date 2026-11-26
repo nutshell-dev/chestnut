@@ -59,6 +59,9 @@ export interface SubagentExecutionDriver {
     readonly signal: AbortSignal;
     readonly deadlineAtMs?: number;
     readonly resume: boolean;
+    /** Dynamic logical identity; fixed infrastructure must never reuse one task's values. */
+    readonly runId: string;
+    readonly resultDir: string;
   }): SubagentAttempt;
   /** Shared LLM dependency classification stays behind the fixed runtime capability. */
   recoveryFor?(error: unknown): SubagentRecoveryFact;
@@ -173,6 +176,8 @@ export class SubagentExecutionRunner implements SubagentRunner {
         signal: controller.signal,
         ...(request.deadlineAtMs !== undefined ? { deadlineAtMs: request.deadlineAtMs } : {}),
         resume: request.resume,
+        runId: ref.identity.runId,
+        resultDir: ref.identity.resultDir,
       });
       setAttempt(attempt);
       result = await attempt.completion;

@@ -673,7 +673,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       registry: {} as never,
       selfInbox: mockInbox,
       pendingQueueMax: 3,
-      taskExecutor: { execute: async () => { throw new Error('not used by overflow test'); } },
+      execution: { start: vi.fn(), open: vi.fn(), resume: vi.fn() },
     } as never);
     const writePending = (id: string) => {
       fsNative.writeFileSync(path.join(baseDir, 'tasks', 'queues', 'pending', `${id}.json`), JSON.stringify({

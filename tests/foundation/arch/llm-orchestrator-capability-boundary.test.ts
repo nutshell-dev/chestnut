@@ -7,7 +7,7 @@ import type {
   LLMOrchestratorOwner,
   LLMRuntimeCapability,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { SubagentTaskExecutorDeps } from '../../../src/assembly/subagent-task-executor.js';
+import type { SubagentExecutionInfrastructure } from '../../../src/core/subagent/index.js';
 import type { llmProviderCall, llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
 
 type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
@@ -70,10 +70,10 @@ describe('phase 2052 Step E: LLM execution, runtime management and owner capabil
     }
   });
 
-  it('Subagent 仅持执行面与共享恢复判据，不持完整 owner', () => {
-    type SubagentLLM = SubagentTaskExecutorDeps['llm'];
-    expectTypeOf<SubagentLLM>().toMatchTypeOf<LLMOrchestrator>();
-    expectTypeOf<SubagentLLM>().toHaveProperty('getSharedRecoveryDecision');
+  it('SubAgent 固定基础设施仅持执行面，共享恢复决定由 ATS 单独注入', () => {
+    type SubagentLLM = SubagentExecutionInfrastructure['llm'];
+    expectTypeOf<SubagentLLM>().toEqualTypeOf<LLMOrchestrator>();
+    expectTypeOf<SubagentLLM>().not.toHaveProperty('getSharedRecoveryDecision');
     for (const method of [
       'healthCheck',
       'getFailureDisposition',

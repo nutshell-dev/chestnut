@@ -2,20 +2,27 @@ import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import { DISPATCH_SKILLS_SUBDIR } from '../core/evolution-system/index.js';
-import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
+import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../foundation/claw-identity/index.js';
 import { getRelativeClawDir, makeClawId } from '../foundation/claw-identity/index.js';
 
 import { createClawPermissionChecker } from '../core/permissions/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
+import {
+  TASKS_SYNC_SUBAGENT_DIR,
+  createDefaultSubagentExecutionRunner,
+  prepareSubagentInput,
+  type PreparedSubagentInput,
+  type SubagentExecutionRunner,
+  type SubagentInputDeclaration,
+} from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
-import { TASKS_SYNC_SHADOW_DIR, interpretShadowExecutorPayload } from '../core/shadow-system/index.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { createInboxWriter } from '../foundation/messaging/index.js';
 import type { InboxWriter } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem, createStandardDeliverySink } from '../core/async-task-system/index.js';
 import { TASK_AUDIT_EVENTS } from '../core/async-task-system/index.js';
-import { createSubagentTaskExecutor } from './subagent-task-executor.js';
+import type { TaskExecutionPort } from '../core/async-task-system/index.js';
 import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
 // phase 1872 Step D: task 事实读取经 owner 窄查询（Assembly 不再直读 ATS 目录/schema）。
 import { loadSubAgentTask } from '../core/async-task-system/index.js';
@@ -51,7 +58,11 @@ import {
   MOTION_CLAW_ID,
   resolveClawDaemonDir,
 } from '../core/claw-topology/index.js';
-import { createToolExecutor, TOOL_EXECUTION_JOURNAL_ROOT } from '../foundation/tools/index.js';
+import {
+  createCanonicalToolManifest,
+  createToolExecutor,
+  TOOL_EXECUTION_JOURNAL_ROOT,
+} from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
 import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundation/dialog-store/index.js';
 import type { DialogStore } from '../foundation/dialog-store/index.js';
@@ -100,6 +111,10 @@ export interface BusinessSysOutput {
   toolExecutor: IToolExecutor;
   /** Phase 773: shared base registry with plain sync exec (used by subagents). */
   baseToolRegistry: ToolRegistry;
+  /** The same real owner serves ATS and both synchronous tool consumers. */
+  subagentRunner: SubagentExecutionRunner;
+  /** Fixed SubAgent mechanism with Assembly-bound canonical tools; no business defaults. */
+  prepareSubagentInput: (declaration: Omit<SubagentInputDeclaration, 'tools'>) => PreparedSubagentInput;
   sessionManager: DialogStore;
   makeDialogStore: () => DialogStore;
   inboxReader: InboxReader;
@@ -147,17 +162,26 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   });
   const selfClawRoot = clawDir;
   const selfInbox = createInboxWriter(systemFs, clawDir, auditWriter, messagingLimits);
+  const prepareBoundSubagentInput = (
+    declaration: Omit<SubagentInputDeclaration, 'tools'>,
+  ): PreparedSubagentInput => prepareSubagentInput({
+    ...declaration,
+    tools: { manifest: createCanonicalToolManifest(toolRegistry.getAll()) },
+  });
 
   // --- 9. AsyncTaskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
-  // phase 1863 (AT-D5)：执行/交付 adapter 在装配层构造（核心只持最小接口）
-  const subagentTaskExecutor = createSubagentTaskExecutor({
+  const subagentRunner = createDefaultSubagentExecutionRunner({
+    clawDir,
+    syncDir: path.join(clawDir, TASKS_SYNC_DIR),
+    fs: systemFs,
+    fsFactory,
     llm,
     registry: toolRegistry,
     toolTimeoutMs,
     permissionChecker,
-    // phase 1863 (AT-D7)：executor payload 语义归 shadow owner——装配注入解释面
-    executorPayloadAdapter: interpretShadowExecutorPayload,
   });
+  // Compile-time structural handoff: SubAgent does not import the ATS port.
+  const execution: TaskExecutionPort = subagentRunner;
   const deliverySink = createStandardDeliverySink();
   // Phase 849: dual-key shortId ↔ fullId index
   const shortIdIndex = new PersistentShortIdIndex(systemFs);
@@ -170,8 +194,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       selfInbox,
       fsFactory,
       shortIdIndex,
-      // phase 1863 (AT-D5)：最小执行/交付面——业务装配收口于 adapter
-      taskExecutor: subagentTaskExecutor,
+      execution,
+      sharedRecovery: llm,
+      prepareLegacyInput: prepareBoundSubagentInput,
       deliverySink,
       // phase 1872 Step F: parentStreamLog 构造参数一次固定（原
       // setParentStreamLog 构造后注入退役）；Phase 833 语义保持。
@@ -268,6 +293,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         fs: systemFs,
         audit: auditWriter,
         taskSystem,
+        prepareSubagentInput: prepareBoundSubagentInput,
         contractManager,
         motionReviewContext,
         skillVersions,
@@ -331,7 +357,12 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   // phase 757: spawn/summon 工具改由 DI 注入 taskSystem，不再从 ExecContext 读取。
   // 注册放在 AsyncTaskSystem 构造完成后，确保 taskSystem 可用。
-  toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId, subagentMaxSteps: maxSteps }));
+  toolRegistry.register(createSpawnTool({
+    taskSystem,
+    subagentRunner,
+    originClawId: clawId,
+    subagentMaxSteps: maxSteps,
+  }));
   toolRegistry.register(new SummonTool({ scheduler: taskSystem, correlation: { originClawId: clawId }, skillVersions }));
   if (!isMotion) {
     const clawNotifier = createClawNotifier({
@@ -420,6 +451,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     selfInbox,
     toolExecutor,
     baseToolRegistry: toolRegistry,
+    subagentRunner,
+    prepareSubagentInput: prepareBoundSubagentInput,
     sessionManager,
     makeDialogStore,
     inboxReader,

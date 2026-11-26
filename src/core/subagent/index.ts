@@ -4,10 +4,20 @@
  */
 
 export { NoopAuditWriter } from './noop-writers.js';
-export { runSubagent, startSubagent, projectSubagentResult, getDisplayResult } from './run.js';
+export {
+  runSubagent,
+  startSubagent,
+  createDefaultSubagentExecutionRunner,
+  projectSubagentResult,
+  getDisplayResult,
+} from './run.js';
 export type { DegradedArtifact } from './agent.js';
 // phase 1858 Step B (SA-D1): 命名输入与 typed outcome 显式导出、编译器检查唯一入口
-export type { RunSubagentOptions, RunSubagentResult } from './run.js';
+export type {
+  RunSubagentOptions,
+  RunSubagentResult,
+  SubagentExecutionInfrastructure,
+} from './run.js';
 export { createDoneTool, DONE_TOOL_NAME } from './tools/done.js';
 export { createPerTaskRegistry } from './registry-helper.js';
 export { SUBAGENT_TIMEOUT_MS, TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_SNAPSHOT_IGNORE, SUBAGENT_EXECUTION_DIR } from './constants.js';

@@ -153,6 +153,8 @@ export interface RuntimeDependencies {
   /** Optional only for narrow tests; daemon assembly binds the ContractSystem owner. */
   readonly cancellationStop?: RuntimeCancellationStop;
   readonly taskSystem: AsyncTaskRuntimeLifecycle;
+  /** Fixed Shadow-owner migration over ATS's narrow store; Runtime never reads payloads. */
+  readonly prepareTaskExecutionInputs: () => unknown | Promise<unknown>;
   readonly skillRegistry: SkillContextSource;
 
   // === L4 (phase 1273) ===

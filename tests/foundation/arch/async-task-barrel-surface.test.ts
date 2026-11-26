@@ -19,7 +19,7 @@ const BARREL = 'src/core/async-task-system/index.ts';
  * - schedule：AsyncTaskSystem/createAsyncTaskSystem + 调度 capability 类型族 + PostProcessor 注册面
  * - cancel：CancelOutcome/AbortRequestOutcome/TaskLifecycleOutcome + AsyncTaskRuntimeLifecycle
  * - query：listMigratedExecTasks 族 + readTaskQueueCounts(1758 最小只读能力) + RunningTaskView + TaskIdResolver
- * - lifecycle/执行交付面：TaskExecutor/DeliverySink 族 + ExecutorPayload* + ProcessedTaskResult + classifyTaskError
+ * - lifecycle/执行交付面：TaskExecutionPort/DeliverySink 族 + 输入迁移面 + ProcessedTaskResult + classifyTaskError
  * - id 契约：make/read/adopt/derive 工厂族 + taskShortId + brand 类型
  * - 装配接线：PersistentShortIdIndex/validateTaskShape/createStandardDeliverySink/emitHandlerFailed/常量
  * - 跨模块读路径：TASKS_QUEUES_* + TASK_SNAPSHOT_IGNORE（装配布局/权限/CLI；收窄候选，未收窄前锁内登记）
@@ -51,13 +51,38 @@ const ALLOWED_EXPORTS: readonly string[] = [
   'loadSubAgentTask', 'resolveTaskResultDir',
   // lifecycle / 执行交付面
   'DeliverySink',
-  'ExecutorPayloadAdapter',
-  'ExecutorPayloadInterpretation',
   'ProcessedTaskResult',
   'TaskDeliveryRuntime',
-  'TaskExecutionOutcome',
-  'TaskExecutionRuntime',
-  'TaskExecutor',
+  'TaskExecutionPort',
+  'TaskExecutionRef',
+  'TaskExecutionObserver',
+  'TaskExecutionObservation',
+  'TaskExecutionView',
+  'TaskExecutionIdentity',
+  'TaskExecutionQuery',
+  'TaskExecutionLocation',
+  'TaskExecutionStartRequest',
+  'TaskExecutionResumeRequest',
+  'TaskExecutionLink',
+  'TaskExecutionState',
+  'TaskSourceOutcome',
+  'TaskSourceOutcomeKind',
+  'TaskRecoveryFact',
+  'TaskStopReceipt',
+  'TaskSharedRecovery',
+  'TaskSharedRecoveryDecision',
+  'TaskExecutionInputEnvelope',
+  'TaskExecutionInputStore',
+  'LegacyExecutionInputDeclaration',
+  'LegacyExecutionInputPreparation',
+  'UnpreparedExecutionInput',
+  'CommitPreparedExecutionInput',
+  'PreparedExecutionInputRecord',
+  'EXECUTION_INPUT_FILE',
+  'ExecutionInputStoreError',
+  'ExecutionInputStoreErrorCode',
+  'createExecutionInputStore',
+  'EXECUTION_LINK_FILE',
   'classifyTaskError',
   // id 契约
   'FullTaskId',
@@ -89,7 +114,7 @@ const ALLOWED_EXPORTS: readonly string[] = [
   'TASK_AUDIT_EVENTS',
   'STREAM_TASK_EVENTS',
   // Phase 1933 Step E：持久等待事实面（装配注入 gate / executor 与测试消费）
-  'LLMWaitFact', 'LLMWaitGate', 'LLMWaitLoadResult', 'LLM_WAIT_FILE',
+  'LLMWaitExecutionIdentity', 'LLMWaitFact', 'LLMWaitGate', 'LLMWaitLoadResult', 'LLM_WAIT_FILE',
   'clearLLMWait', 'loadLLMWait', 'persistLLMWait',
   // legacy 契约
   'LegacySummonDecisionV1',

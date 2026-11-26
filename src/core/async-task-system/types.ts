@@ -6,11 +6,9 @@
 
 import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 type ToolUseId = llmProviderProtocol.ToolUseId;
-type ToolDefinition = llmProviderProtocol.ToolDefinition;
-import type { Message } from '../../foundation/dialog-store/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { ToolExecutionContext, ToolRegistry } from '../../foundation/tools/index.js';
+import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
@@ -157,10 +155,8 @@ export interface AsyncTaskSystemOptions {
   /**
    * phase 1863 (AT-D5)：最小执行面（装配期注入；LLM/registry/runSubagent 归实现方 adapter）。
    */
-  /** Legacy execution surface. Exactly one of taskExecutor/execution must be supplied. */
-  taskExecutor?: TaskExecutor;
-  /** Phase 2248 F: reference-based execution surface; production wiring remains Step I. */
-  execution?: TaskExecutionPort;
+  /** Reference-based execution surface, fixed at construction. */
+  execution: TaskExecutionPort;
   /** LLM-owned recovery decision; ATS calls this only for shared_dependency failures. */
   sharedRecovery?: TaskSharedRecovery;
   /** Lower-owner preparation for ordinary legacy declarations; no Shadow callback is retained. */
@@ -222,7 +218,7 @@ interface CommonSubAgentTaskFields {
   systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
   /**
    * phase 1863 (AT-D7)：执行 owner 的 opaque 执行 payload（形态归 owner，如 shadow-system 的
-   * ShadowExecutorPayload）；ATS 不枚举/解释其语义，经装配注入的 {@link ExecutorPayloadAdapter} 消费。
+   * ShadowExecutorPayload）；ATS 不枚举/解释其语义，专用旧值仅经 owner 迁移入口消费。
    */
   executorPayload?: unknown;
   /** Versioned outer envelope; the nested execution input remains owner-validated JSON. */
@@ -240,16 +236,6 @@ interface CommonSubAgentTaskFields {
 // phase 1863 (AT-D7): 去 standard/shadow discriminated union——mode 降为 opaque 可选字段
 // （ATS 不再枚举上层模式；legacy 'standard'/'shadow' 值读取容忍、不解释）。
 export type SubAgentTask = CommonSubAgentTaskFields & { intent: string; mode?: string };
-
-/**
- * phase 1863 (AT-D5)：执行/交付 runtime 上下文——核心基础设施（fs/audit/clawDir），由 ATS 转交。
- */
-export interface TaskExecutionRuntime {
-  readonly fs: FileSystem;
-  readonly fsFactory: (baseDir: string) => FileSystem;
-  readonly auditWriter: AuditLog;
-  readonly clawDir: string;
-}
 
 /** phase 1863 (AT-D5)：单次执行产出（成败经 typed outcome 返回、不抛控制流）。 */
 export interface TaskExecutionOutcome {
@@ -274,14 +260,6 @@ export interface TaskExecutionOutcome {
    * 未开始的工具。
    */
   readonly uncertain?: { readonly reason: string };
-}
-
-/**
- * phase 1863 (AT-D5)：最小执行面——ATS 只持有并调用；业务装配（LLM/registry/runSubagent/
- * payload 解释）归 executor 实现方（owner 侧 adapter，装配期注入）。
- */
-export interface TaskExecutor {
-  execute(task: SubAgentTask, signal: AbortSignal, runtime: TaskExecutionRuntime): Promise<TaskExecutionOutcome>;
 }
 
 // ─── Phase 2248 F: ATS-owned structural execution reference surface ──────────
@@ -465,34 +443,6 @@ export interface DeliverySink {
 }
 
 /**
- * phase 1863 (AT-D7)：executor payload 解释结果——owner 语义映射为通用执行参数。
- */
-export interface ExecutorPayloadInterpretation {
-  /** runSubagent prompt（缺省 = task.intent）。 */
-  readonly prompt?: string;
-  /** 覆盖默认 subagent systemPrompt。 */
-  readonly systemPrompt?: string;
-  /** 直接传给 runSubagent 的消息序列。 */
-  readonly messages?: Message[];
-  /** Frozen provider-facing definitions supplied by the parent turn. */
-  readonly toolsForLLM?: ToolDefinition[];
-  readonly manifestRevision?: string;
-  readonly promptRevision?: string;
-  /** Owner-declared execution capabilities for this subagent run. */
-  readonly execution?: ToolExecutionContext;
-  /** Legacy restricted clone defense; authorization remains executor-gated. */
-  readonly applyRestrictedOverrides?: boolean;
-  /** 结果捕获工具名（缺省走 runSubagent 默认）。 */
-  readonly resultTool?: string;
-}
-
-/**
- * phase 1863 (AT-D7)：executor payload 解释面——owner 提供、装配期注入；
- * 返回 undefined = 无 payload 语义（standard 路径）。
- */
-export type ExecutorPayloadAdapter = (payload: unknown) => ExecutorPayloadInterpretation | undefined;
-
-/**
  * Phase 1206 Step A: prepared identity submission input.
  * Caller provides the canonical full ID and payload; AsyncTaskSystem owns
  * shortId derivation, canonical hash, and lifecycle directory lookup.
@@ -571,7 +521,7 @@ export type TaskKind = SubAgentTask['kind'] | ToolTask['kind'];
 /**
  * Strategy entry: dispatches the body of a task after movePendingToRunning.
  * Stored in AsyncTaskSystem.executors: Record<TaskKind, TaskDispatchFn>.
- * （phase 1863 AT-D5：原名 TaskExecutor；执行面接口 TaskExecutor 为装配注入的最小执行面）
+ * （phase 1863 AT-D5：历史执行面已于 Phase 2248 I 清退）
  */
 export type TaskDispatchFn = (
   task: SubAgentTask | ToolTask,

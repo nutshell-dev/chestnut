@@ -7,7 +7,7 @@
  * 消费侧（ATS 侧 opaque executorPayload 形态迁移）归 phase 1863 E。
  */
 
-import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
+import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import { createCanonicalToolManifestFromDefinitions } from '../../foundation/tools/index.js';
 import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
 const { makeToolUseId } = llmProviderProtocol;
@@ -167,9 +167,10 @@ export function decodeLegacyShadowPayload(payload: unknown): LegacyShadowPayload
     prepareShadowInput(payload);
     return { kind: 'decoded', value: structuredClone(payload) };
   } catch (error) {
+    // silent: the original validation failure is returned as an explicit invalid fact.
     return {
       kind: 'invalid',
-      reason: error instanceof Error ? error.message : String(error),
+      reason: formatErr(error),
     };
   }
 }

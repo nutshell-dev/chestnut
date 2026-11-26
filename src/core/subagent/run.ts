@@ -23,7 +23,12 @@ import { createSubAgentRecoveryStore } from './recovery-state.js';
 import { DONE_TOOL_NAME, createResultCaptureChannel, parseCapturedResult } from './tools/done.js';
 import { createSubAgentLifecycleSink } from './lifecycle-sink.js';
 import { bindRunCapture } from './registry-helper.js';
-import { createSubagentExecutionRunner, type SubagentAttemptResult } from './execution-runner.js';
+import {
+  createSubagentExecutionRunner,
+  SubagentExecutionRunner,
+  type SubagentAttemptResult,
+  type SubagentExecutionDriver,
+} from './execution-runner.js';
 import type {
   SubagentExecutionDegraded,
   SubagentFinalOutcome,
@@ -38,32 +43,41 @@ import {
   type PreparedSubagentInput,
 } from './execution-input.js';
 
-export interface RunSubagentOptions {
-  agentId: string;
-  toolProfile?: ToolProfile;
-  execution?: ToolExecutionContext;
+/** Fixed process capabilities shared by all logical SubAgent executions. */
+export interface SubagentExecutionInfrastructure {
   clawDir: string;
+  syncDir: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
+  toolTimeoutMs?: number;
+  onIdleTimeout?: () => void;
+  permissionChecker?: PermissionChecker;
+}
+
+interface SubagentRunDriverOptions extends SubagentExecutionInfrastructure {
+  traceId?: TraceId;
+  currentContractId?: string;
+}
+
+export interface RunSubagentOptions extends SubagentExecutionInfrastructure {
+  agentId: string;
+  toolProfile?: ToolProfile;
+  execution?: ToolExecutionContext;
   /** Legacy transition fields; omit both when executionInput is supplied. */
   prompt?: string;
   systemPrompt?: string;
   /** New versioned declaration; runtime dependencies still come from this options object. */
   executionInput?: PreparedSubagentInput;
   resultDir: string;
-  syncDir: string;
   maxSteps?: number;
   idleTimeoutMs?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
   toolsForLLM?: ToolDefinition[];
-  onIdleTimeout?: () => void;
   resultTool?: string;
   messages?: Message[];
-  toolTimeoutMs?: number;
-  permissionChecker?: PermissionChecker;
   traceId?: TraceId;
   currentContractId?: string;
 }
@@ -214,16 +228,17 @@ function parseLegacyInput(value: SubagentJsonValue): PersistedRunSubagentInput {
 
 function resolveInput(
   persisted: PersistedRunSubagentInput | PreparedSubagentInput,
-  opts: RunSubagentOptions,
+  opts: SubagentRunDriverOptions,
+  identity: { readonly runId: string; readonly resultDir: string },
 ): ResolvedRunSubagentInput {
   if (persisted.kind === 'run_subagent_options') return persisted;
   return {
-    agentId: opts.agentId,
+    agentId: identity.runId,
     clawDir: opts.clawDir,
     syncDir: opts.syncDir,
-    resultDir: opts.resultDir,
+    resultDir: identity.resultDir,
     prompt: persisted.prompt,
-    systemPrompt: resolveSubagentSystemPrompt(persisted.systemPrompt, { taskId: opts.agentId }),
+    systemPrompt: resolveSubagentSystemPrompt(persisted.systemPrompt, { taskId: identity.runId }),
     ...(opts.traceId !== undefined ? { traceId: opts.traceId } : {}),
     toolProfile: persisted.toolProfile,
     execution: persisted.execution,
@@ -281,20 +296,17 @@ function jsonValue(value: unknown, label = 'capturedResult'): SubagentJsonValue 
   return JSON.parse(serialized) as SubagentJsonValue;
 }
 
-function createRunDriver(opts: RunSubagentOptions, auditWriter: ReturnType<typeof createAuditWriter>) {
+function createRunDriver(opts: SubagentRunDriverOptions): SubagentExecutionDriver {
   return {
     recoveryFor(error: unknown) {
       return error instanceof LLMAllProvidersFailedError
         ? 'shared_dependency' as const
         : 'none' as const;
     },
-    createAttempt(request: {
-      input: SubagentJsonValue;
-      signal: AbortSignal;
-      deadlineAtMs?: number;
-    }) {
-      const input = resolveInput(parseInput(request.input), opts);
+    createAttempt(request) {
+      const input = resolveInput(parseInput(request.input), opts, request);
       const resultDir = input.resultDir;
+      const auditWriter = createAuditWriter(opts.fs, `${resultDir}/audit.tsv`);
       const traceId = input.traceId ?? makeTraceId(randomHex(8));
       const streamPath = `${resultDir}/${STREAM_FILE}`;
       const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
@@ -316,7 +328,7 @@ function createRunDriver(opts: RunSubagentOptions, auditWriter: ReturnType<typeo
       });
       const toolExecutor = new ToolExecutor({
         registry: runRegistry,
-        defaultTimeoutMs: input.toolTimeoutMs,
+        defaultTimeoutMs: input.toolTimeoutMs ?? opts.toolTimeoutMs,
         clawDir: input.clawDir,
         syncDir: input.syncDir,
         workspaceDir: path.join(input.clawDir, CLAWSPACE_DIR),
@@ -418,6 +430,16 @@ export function projectSubagentResult(outcome: SubagentFinalOutcome): RunSubagen
   };
 }
 
+/**
+ * Create the real shared execution owner from fixed infrastructure only.
+ * Every start/resume supplies its own logical runId/resultDir to the driver.
+ */
+export function createDefaultSubagentExecutionRunner(
+  opts: SubagentExecutionInfrastructure,
+): SubagentExecutionRunner {
+  return createSubagentExecutionRunner({ fs: opts.fs, driver: createRunDriver(opts) });
+}
+
 /** Start a fixed-capability execution without waiting for its real completion. */
 export async function startSubagent(opts: RunSubagentOptions): Promise<SubagentExecutionRef> {
   const prepared = opts.executionInput === undefined ? undefined : decodeSubagentInput(opts.executionInput);
@@ -434,12 +456,9 @@ export async function startSubagent(opts: RunSubagentOptions): Promise<SubagentE
   const input = jsonValue(prepared ?? serializeInput(opts), 'runSubagent input');
   if (input === undefined) throw new TypeError('runSubagent input must be JSON serializable');
   const timeoutMs = prepared?.budget.timeoutMs ?? opts.timeoutMs ?? SUBAGENT_TIMEOUT_MS;
-  const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
-  const runner = createSubagentExecutionRunner({
-    fs: opts.fs,
-    auditWriter,
-    driver: createRunDriver(opts, auditWriter),
-  });
+  // Direct starts retain their optional correlation fields; the public shared
+  // infrastructure factory above deliberately has no per-task identity fields.
+  const runner = createSubagentExecutionRunner({ fs: opts.fs, driver: createRunDriver(opts) });
   return runner.start({
     runId: opts.agentId,
     resultDir: executionResultDir(opts),

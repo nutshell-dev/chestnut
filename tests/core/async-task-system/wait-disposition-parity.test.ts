@@ -26,12 +26,18 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { LLM_WAIT_FILE, type LLMWaitFact, type LLMWaitGate } from '../../../src/core/async-task-system/llm-wait-state.js';
+import { EXECUTION_LINK_FILE } from '../../../src/core/async-task-system/execution-consumer.js';
 import { decideWait } from '../../../src/core/async-task-system/wait-disposition.js';
 import type { SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { makeTaskSystemDeps, createTestTaskSystem, createMockWatcherFactory } from '../../helpers/task-system.js';
+import {
+  makeTaskSystemDeps,
+  makeTaskExecutionStub,
+  createTestTaskSystem,
+  createMockWatcherFactory,
+} from '../../helpers/task-system.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { waitFor } from '../../helpers/wait-for.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -830,9 +836,20 @@ describe('pending 消费确认 resume 意图清理完成再执行业务', () => 
     const { factory: createWatcher } = createMockWatcherFactory(fs);
     const task = makeValidTask();
     const now = Date.now();
-    const fact = makeFact({ recordedAt: now, nextProbeAt: now, expiresAt: now + 3_600_000 });
+    const previous = {
+      runId: task.id,
+      resultDir: `tasks/queues/results/${task.id}`,
+      attemptId: 'previous-attempt',
+    };
+    const fact = makeFact({
+      recordedAt: now,
+      nextProbeAt: now,
+      expiresAt: now + 3_600_000,
+      execution: previous,
+    });
     await fs.ensureDir('tasks/queues/pending');
     await fs.ensureDir(`tasks/queues/results/${task.id}`);
+    await fs.writeAtomic(`${previous.resultDir}/${EXECUTION_LINK_FILE}`, JSON.stringify({ schema_version: 1, ...previous }));
     // 崩溃窗口形态：move 已成功（任务在 pending）但清事实失败 → 意图残留
     await fs.writeAtomic(pendingPath(task.id), JSON.stringify(task));
     await fs.writeAtomic(waitPath(task.id), waitFileContent(fact, {
@@ -851,14 +868,15 @@ describe('pending 消费确认 resume 意图清理完成再执行业务', () => 
 
     const { audit, events } = makeAudit();
     let factPresentAtExec: boolean | undefined;
-    const exec = vi.fn().mockImplementation(async () => {
-      // 业务执行起点观察：意图清理必须先完成
+    const execution = makeTaskExecutionStub(async identity => {
+      // Reference mode preserves resume authorization until the owner consumes it.
       factPresentAtExec = await fs.exists(waitPath(task.id));
-      return { content: 'ok', sourceIsError: false };
+      return { identity, kind: 'completed', content: 'ok', recovery: 'none' };
     });
+    const exec = execution.start;
     const sys = createTestTaskSystem(tempDir, fs, audit, undefined, {
       createWatcher,
-      taskExecutor: { execute: exec } as never,
+      execution,
       deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered' }) } as never,
     });
     system = sys;
@@ -868,38 +886,36 @@ describe('pending 消费确认 resume 意图清理完成再执行业务', () => 
     };
   }
 
-  it('意图残留：dispatch 前清理完成 → 业务执行时事实已清、任务跑完到 done', async () => {
+  it('意图残留：执行引用消费前保留授权，owner 接手后清理并完成', async () => {
     const { fs, task, exec, sys, getFactPresentAtExec } = await seedPendingWithIntent();
     await sys.initialize();
     await sys.startDispatch();
 
     await waitFor(() => getFactPresentAtExec() !== undefined);
     expect(exec).toHaveBeenCalledTimes(1);
-    expect(getFactPresentAtExec()).toBe(false);
+    expect(getFactPresentAtExec()).toBe(true);
     expect(await fs.exists(waitPath(task.id))).toBe(false);
     await waitFor(() => fs.exists(donePath(task.id)));
   });
 
-  it('意图清理失败 → 本轮不执行业务（留 pending）；清理恢复 + 重信号 → 执行', async () => {
+  it('owner resume 后清理失败保留 running；恢复与重连不重复执行', async () => {
     const { fs, task, events, exec, sys, restoreDelete } = await seedPendingWithIntent({ clearFails: true });
     await sys.initialize();
     await sys.startDispatch();
 
-    // 清理持续失败：业务不得执行，任务留 pending，audit 留证
-    // 负向观察窗：大于 watcher ingest + dispatch 一轮真实 I/O 的观测耗时，
-    // 仅用于确认「清理持续失败时业务不被执行」（playbook §T-4 命名模式）。
-    const NEGATIVE_OBSERVE_MS = 300;
-    await new Promise(r => setTimeout(r, NEGATIVE_OBSERVE_MS));
-    expect(exec).not.toHaveBeenCalled();
-    expect(await fs.exists(pendingPath(task.id))).toBe(true);
-    expect(hasEvent(events, TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'pending_wait_intent_clear_failed')).toBe(true);
+    await waitFor(() => exec.mock.calls.length === 1);
+    expect(await fs.exists(runningPath(task.id))).toBe(true);
+    expect(await fs.exists(pendingPath(task.id))).toBe(false);
+    expect(await fs.exists(waitPath(task.id))).toBe(true);
+    expect(hasEvent(events, TASK_AUDIT_EVENTS.START_FAILED)).toBe(true);
 
-    // 清理恢复 + 重新信号（mock watcher 对 pending 写入触发 ingest）
+    // 清理恢复后走显式 running→pending 恢复；resume 重连同一引用，不二次执行。
     restoreDelete!();
+    await fs.move(runningPath(task.id), pendingPath(task.id));
     const content = await fs.read(pendingPath(task.id));
     await fs.writeAtomic(pendingPath(task.id), content);
 
-    await waitFor(() => exec.mock.calls.length === 1);
-    expect(await fs.exists(waitPath(task.id))).toBe(false);
+    await waitFor(async () => !(await fs.exists(waitPath(task.id))));
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });

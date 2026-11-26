@@ -32,6 +32,7 @@ import type {
   LLMEventSink,
   LLMResponse,
 } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAuthError, LLMNetworkError } from '../../src/foundation/llm-provider/errors.js';
 import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
@@ -47,7 +48,8 @@ import type { SubAgentTask } from '../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { ContractSystem } from '../../src/core/contract/manager.js';
-import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-executor.js';
+import { createSubagentExecutionRunner } from '../../src/core/subagent/index.js';
+import { createExecutionInputStore } from '../../src/core/async-task-system/execution-input-store.js';
 import { makeTestRegistry } from '../helpers/task-system.js';
 import { testProviderConnection } from '../helpers/llm-provider.js';
 
@@ -146,12 +148,28 @@ function makeMapFs(seed: Record<string, string> = {}): { fs: FileSystem; fileMap
     }),
     writeAtomic: vi.fn().mockImplementation((p: string, content: string) => {
       fileMap.set(p, content);
-      return Promise.resolve(undefined);
+      return Promise.resolve({ kind: 'durable' as const });
     }),
     exists: vi.fn().mockImplementation((p: string) => Promise.resolve(fileMap.has(p))),
     ensureDir: vi.fn().mockResolvedValue(undefined),
     ensureDirSync: vi.fn(),
     appendSync: vi.fn(),
+    writeAtomicSync: vi.fn((p: string, content: string) => {
+      fileMap.set(p, content);
+      return { kind: 'durable' as const };
+    }),
+    writeExclusive: vi.fn(async (p: string, content: string) => {
+      if (fileMap.has(p)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      fileMap.set(p, content);
+    }),
+    linkExclusiveSync: vi.fn((from: string, to: string) => {
+      const content = fileMap.get(from);
+      if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      if (fileMap.has(to)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      fileMap.set(to, content);
+    }),
+    syncSync: vi.fn(),
+    resolve: vi.fn((p: string) => p),
   } as unknown as FileSystem;
   return { fs, fileMap };
 }
@@ -167,6 +185,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
     maxSteps: 1,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
+    executionInput: { schema_version: 1, input: { kind: 'owner-integration-input' } },
     ...overrides,
   };
 }
@@ -210,21 +229,26 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
 
   const { audit, events } = makeMockAudit();
   const registry = makeTestRegistry();
-  const executor = createSubagentTaskExecutor({
-    llm: owner,
-    registry,
-    runSubagent: (async ({ llm }: { llm: typeof owner }) => {
-      await llm.call({ messages: [{ role: 'user', content: 'work' }] });
-      return { text: 'ok' };
-    }) as never,
-  });
-
   const { fs, fileMap } = makeMapFs();
+  const execution = createSubagentExecutionRunner({
+    fs,
+    driver: {
+      createAttempt: () => ({
+        completion: (async () => {
+          await owner.call({ messages: [{ role: 'user', content: 'work' }] });
+          return { content: 'ok', rawResult: { text: 'ok' } };
+        })(),
+        close: () => {},
+      }),
+      recoveryFor: error => error instanceof LLMAllProvidersFailedError ? 'shared_dependency' : 'none',
+    },
+  });
   const onWaitScheduled = vi.fn((fact: LLMWaitFact) => { owner.scheduleProbe(fact.nextProbeAt); });
   const system = new AsyncTaskSystem('/tmp/claw', fs, {
     shortIdIndex: new InMemoryShortIdIndex(),
     auditWriter: audit,
-    taskExecutor: executor,
+    execution,
+    sharedRecovery: owner,
     deliverySink: createStandardDeliverySink(),
     contractManager: {
       loadPaused: vi.fn(),
@@ -240,7 +264,7 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     void system.resumeWaitingTasks().catch(() => { /* silent: 测试接线同生产 fail-soft */ });
   });
 
-  return { owner, orchestratorConfig, p, f, audit, events, fs, fileMap, system, executor, emitted, onWaitScheduled };
+  return { owner, orchestratorConfig, p, f, audit, events, fs, fileMap, system, execution, emitted, onWaitScheduled };
 }
 
 /** 触发 0ms 定时器并冲刷 microtask 队列（probe/唤醒异步 continuation 落点）。 */
@@ -260,7 +284,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
   it('transient 全故障：事实 nextProbeAt 来自 owner；gate 未就绪不唤醒；探针验证后移动恰一次、业务等待只调度一次', async () => {
     const t0 = Date.now();
     const stack = makeAssembledStack('fail', 'fail');
-    const { owner, p, f, events, fs, fileMap, system, executor, onWaitScheduled } = stack;
+    const { owner, p, f, events, fs, fileMap, system, execution, onWaitScheduled } = stack;
     const task = makeValidTask();
     // 任务在执行中（running 残留形态由 executeSubAgentTask 的 waiting 分支保持）
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
@@ -273,7 +297,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: executor,
+      execution,
+      inputStore: createExecutionInputStore(fs),
+      sharedRecovery: owner,
       deliverySink: { deliver: vi.fn() },
       onWaitScheduled,
     });
@@ -326,7 +352,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
   it('Phase 2034 C：permanent 全故障按 cooldown 持续 probe，gate 就绪后恢复移动', async () => {
     const stack = makeAssembledStack('auth', 'auth');
-    const { owner, p, f, fs, fileMap, system, executor, onWaitScheduled } = stack;
+    const { owner, p, f, fs, fileMap, system, execution, onWaitScheduled } = stack;
     const task = makeValidTask({ timeoutMs: PERMANENT_WAIT_TASK_TIMEOUT_MS });
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
@@ -338,7 +364,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: executor,
+      execution,
+      inputStore: createExecutionInputStore(fs),
+      sharedRecovery: owner,
       deliverySink: { deliver: vi.fn() },
       onWaitScheduled,
     });
@@ -369,7 +397,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
   it('同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动（Z-C1 回归）', async () => {
     const stack = makeAssembledStack('fail', 'fail', true);  // 同名不同 model/key
-    const { owner, p, f, fs, fileMap, system, executor, onWaitScheduled } = stack;
+    const { owner, p, f, fs, fileMap, system, execution, onWaitScheduled } = stack;
     const task = makeValidTask();
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
@@ -381,7 +409,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: executor,
+      execution,
+      inputStore: createExecutionInputStore(fs),
+      sharedRecovery: owner,
       deliverySink: { deliver: vi.fn() },
       onWaitScheduled,
     });

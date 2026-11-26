@@ -7,6 +7,7 @@ import {
   type SubagentExecutionDriver,
 } from '../../../src/core/subagent/execution-runner.js';
 import { RecoveryUncertainSideEffectError } from '../../../src/core/subagent/recovery-state.js';
+import type { SubagentExecutionView } from '../../../src/core/subagent/execution-types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 class StopFailureFs extends NodeFileSystem {
@@ -257,6 +258,60 @@ describe('Phase 2248 Step D self-owned execution runner', () => {
       deadlineAtMs: 50_000,
       startBasis: { kind: 'resume', previousAttemptId: first.identity.attemptId },
     });
+  });
+
+  it('passes dynamic run identity and absolute deadlines to a shared driver', async () => {
+    const { fs, input } = await setup('dynamic-identity');
+    const requests: Parameters<SubagentExecutionDriver['createAttempt']>[0][] = [];
+    const runner = createSubagentExecutionRunner({
+      fs,
+      driver: {
+        createAttempt(request) {
+          requests.push(request);
+          return { completion: Promise.resolve({ content: request.runId }), close: () => {} };
+        },
+      },
+    });
+
+    const first = await runner.start({ runId: 'task-a', resultDir: 'results/a', input, deadlineAtMs: 11_000 });
+    const second = await runner.start({ runId: 'task-b', resultDir: 'results/b', input, deadlineAtMs: 22_000 });
+    await expect(first.completion).resolves.toMatchObject({ content: 'task-a' });
+    await expect(second.completion).resolves.toMatchObject({ content: 'task-b' });
+    expect(requests.map(request => ({
+      runId: request.runId,
+      resultDir: request.resultDir,
+      deadlineAtMs: request.deadlineAtMs,
+    }))).toEqual([
+      { runId: 'task-a', resultDir: 'results/a', deadlineAtMs: 11_000 },
+      { runId: 'task-b', resultDir: 'results/b', deadlineAtMs: 22_000 },
+    ]);
+  });
+
+  it('open joins subsequent active-owner events without acquiring control or starting execution', async () => {
+    const { fs, runId, resultDir, input } = await setup('open-active-owner');
+    const release = deferred();
+    const createAttempt = vi.fn<SubagentExecutionDriver['createAttempt']>(() => ({
+      completion: release.promise.then(() => ({ content: 'active owner finished' })),
+      close: () => {},
+    }));
+    const runner = createSubagentExecutionRunner({ fs, driver: { createAttempt } });
+    const owner = await runner.start({ runId, resultDir, input });
+    await vi.waitFor(() => expect(createAttempt).toHaveBeenCalledTimes(1));
+    const opened = await runner.open({ runId, resultDir });
+    expect(opened.kind).toBe('found');
+    if (opened.kind !== 'found') return;
+    expect(opened.ref).not.toHaveProperty('requestStop');
+    expect(createAttempt).toHaveBeenCalledTimes(1);
+
+    const observed = deferred<SubagentExecutionView>();
+    opened.ref.observe(view => { if (view.outcome) observed.resolve(view); });
+    release.resolve();
+    await expect(owner.completion).resolves.toMatchObject({ kind: 'completed' });
+    await expect(observed.promise).resolves.toMatchObject({
+      state: 'settled',
+      outcome: { kind: 'completed', content: 'active owner finished' },
+    });
+    expect(createAttempt).toHaveBeenCalledTimes(1);
   });
 
   it('releases completion with recovery_required evidence when outcome publication fails', async () => {

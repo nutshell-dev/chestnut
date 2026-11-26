@@ -154,6 +154,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       metadata: { spawnId: id, sync: true, ...(final ? outcomeEvidence(final) : {}) },
     };
   } catch (err) {
+    // silent: fail() emits the sync failure audit and returns the typed tool failure.
     return fail(err);
   }
 }

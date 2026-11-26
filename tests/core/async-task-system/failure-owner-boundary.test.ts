@@ -18,6 +18,7 @@ import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { ToolRegistry } from '../../../src/foundation/tools/index.js';
 import type { Tool } from '../../../src/foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import { makePreparedInputStore, makeTaskExecutionStub } from '../../helpers/task-system.js';
 import { makeFullTaskId, makeShortTaskId } from '../../../src/core/async-task-system/types.js';
 import type { ToolTask, SubAgentTask } from '../../../src/core/async-task-system/types.js';
 
@@ -28,6 +29,8 @@ function makeFs(): FileSystem {
     writeAtomic: vi.fn().mockResolvedValue(undefined),
     writeAtomicSync: vi.fn(),
     appendSync: vi.fn(),
+    read: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+    exists: vi.fn().mockResolvedValue(false),
     readSync: vi.fn().mockReturnValue(''),
     existsSync: vi.fn().mockReturnValue(true),
     listSync: vi.fn().mockReturnValue([]),
@@ -130,7 +133,10 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       moveTaskToDone,
       moveTaskToFailed,
       // phase 1863 (AT-D5)：execution/delivery 经最小面注入
-      taskExecutor: { execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }) },
+      execution: makeTaskExecutionStub(identity => ({
+        identity, kind: 'failed', content: 'subagent died', recovery: 'none', cause: new Error('subagent died'),
+      })),
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver },
     });
 
@@ -160,7 +166,10 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      taskExecutor: { execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }) },
+      execution: makeTaskExecutionStub(identity => ({
+        identity, kind: 'failed', content: 'subagent died', recovery: 'none', cause: new Error('subagent died'),
+      })),
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver },
     });
 

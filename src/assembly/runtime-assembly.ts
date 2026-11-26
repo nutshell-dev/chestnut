@@ -31,7 +31,11 @@ import { toOrchestratorConfig } from './llm-orchestrator-config.js';
 import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
-import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../core/shadow-system/index.js';
+import {
+  createShadowTool,
+  migrateShadowTaskInputs,
+  SHADOW_DEFAULT_TIMEOUT_MS,
+} from '../core/shadow-system/index.js';
 import {
   createInternalSystemMotionAccess,
   MOTION_CLAW_ID,
@@ -75,7 +79,7 @@ export async function createRuntimeAssembly(
     skillRegistry, contractManager, fsFactory, streamWriter,
   } = core;
   const {
-    taskSystem, permissionChecker, sessionManager, makeDialogStore,
+    taskSystem, subagentRunner, permissionChecker, sessionManager, makeDialogStore,
     inboxReader, formatterRegistry, guidanceRegistry,
   } = business;
 
@@ -170,6 +174,8 @@ export async function createRuntimeAssembly(
     // Runtime capability; the three-operation lifecycle interface stays unchanged.
     cancellationStop: contractManager,
     taskSystem,
+    // Fixed Runtime → Shadow preparation → ATS narrow store dependency.
+    prepareTaskExecutionInputs: () => migrateShadowTaskInputs(taskSystem),
     permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
     // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
     dialogStoreFactory: makeDialogStore,
@@ -289,6 +295,7 @@ export async function createRuntimeAssembly(
   mainRegistry.register(createShadowTool({
     getTurnSnapshot: () => runtime.getCallerSnapshot(),
     taskSystem,
+    subagentRunner,
     subagentMaxSteps: maxSteps,
     // phase 1865 (SH-D7)：默认执行策略由装配方注入（值来源 constants）
     defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,

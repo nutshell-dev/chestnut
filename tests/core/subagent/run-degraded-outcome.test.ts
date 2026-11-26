@@ -30,7 +30,12 @@ vi.mock('../../../src/foundation/dialog-store/index.js', async (importOriginal) 
   }),
 }));
 
-import { runSubagent } from '../../../src/core/subagent/run.js';
+import {
+  createDefaultSubagentExecutionRunner,
+  runSubagent,
+} from '../../../src/core/subagent/run.js';
+import { prepareSubagentInput } from '../../../src/core/subagent/execution-input.js';
+import { createCanonicalToolManifest } from '../../../src/foundation/tools/index.js';
 import { runReact } from '../../../src/core/agent-executor/loop.js';
 
 const runReactMock = vi.mocked(runReact);
@@ -132,6 +137,43 @@ describe('phase 1858 Step G: degraded 并入 outcome（SA-D6）', () => {
     expect(document.input).not.toHaveProperty('registry');
     expect(document.input).not.toHaveProperty('onIdleTimeout');
     expect(document.input).not.toHaveProperty('permissionChecker');
+  });
+
+  it('⑥ 公开共享 runner 工厂按每次执行传递独立身份和绝对 deadline', async () => {
+    dialogSaveMock.mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
+    const observedRunIds: string[] = [];
+    runReactMock.mockImplementation(async (input: { ctx: { clawId: string } }) => {
+      observedRunIds.push(input.ctx.clawId);
+      return { finalText: input.ctx.clawId, stopReason: 'end_turn' };
+    });
+    const opts = makeOpts();
+    const runner = createDefaultSubagentExecutionRunner({
+      clawDir: opts.clawDir,
+      syncDir: opts.syncDir,
+      fs: opts.fs,
+      llm: opts.llm,
+      registry: opts.registry,
+    });
+    const input = prepareSubagentInput({
+      prompt: 'shared runner',
+      tools: { manifest: createCanonicalToolManifest([]) },
+    });
+
+    const first = await runner.start({
+      runId: 'shared-a', resultDir: 'result-shared-a', input, deadlineAtMs: 111_111,
+    });
+    const second = await runner.start({
+      runId: 'shared-b', resultDir: 'result-shared-b', input, deadlineAtMs: 222_222,
+    });
+    await expect(first.completion).resolves.toMatchObject({
+      kind: 'completed', content: 'shared-a', identity: { runId: 'shared-a', resultDir: 'result-shared-a' },
+    });
+    await expect(second.completion).resolves.toMatchObject({
+      kind: 'completed', content: 'shared-b', identity: { runId: 'shared-b', resultDir: 'result-shared-b' },
+    });
+    expect(observedRunIds).toEqual(['shared-a', 'shared-b']);
+    expect(JSON.parse(await opts.fs.read('result-shared-a/execution/attempts/1/claim.json')).deadlineAtMs).toBe(111_111);
+    expect(JSON.parse(await opts.fs.read('result-shared-b/execution/attempts/1/claim.json')).deadlineAtMs).toBe(222_222);
   });
 
   it('⑤ 同身份/输入的便利调用连接同一活跃执行，自动 trace 不构成输入冲突', async () => {

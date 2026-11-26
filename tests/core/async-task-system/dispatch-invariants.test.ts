@@ -18,19 +18,16 @@ import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeFullTaskId, deriveShortIdFromTaskId } from '../../../src/core/async-task-system/types.js';
 import type { ShortIdIndex, AsyncTaskSystemOptions, SubAgentTask } from '../../../src/core/async-task-system/types.js';
-import { makeTaskSystemDeps } from '../../helpers/task-system.js';
+import {
+  makePreparedInputStore,
+  makeTaskExecutionStub,
+  makeTaskSystemDeps,
+} from '../../helpers/task-system.js';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../../src/core/subagent/index.js';
-import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-
-// Kept at module scope: vi.hoisted variable (must stay hoisted; referenced only
-// by the 'subagent-executor abort propagation' describe below).
-const { mockRunSubagent } = vi.hoisted(() => ({
-  mockRunSubagent: vi.fn().mockResolvedValue({ text: 'done', capturedResult: undefined }),
-}));
 
 /**
  * Phase 1147 r127 B fork: dispatch latency invariant.
@@ -526,9 +523,6 @@ describe('shortIdIndexAuditWriter JSON serialization (phase 858)', () => {
  */
 
 describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
-  beforeEach(() => {
-    mockRunSubagent.mockClear();
-  });
 
   it('task abort signal 应 cascade 到 runSubagent 的 signal 参数', async () => {
     const abortController = new AbortController();
@@ -545,9 +539,12 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
     };
 
     // phase 1863 (AT-D5)：signal cascade 属执行面——经 adapter（最小执行面实现）验证
+    const execution = makeTaskExecutionStub();
     await executeSubAgentTask(task, abortController.signal, {
       fs: {
         ensureDirSync: vi.fn(),
+        read: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+        exists: vi.fn().mockResolvedValue(false),
         readSync: vi.fn().mockReturnValue(''),
         writeAtomic: vi.fn().mockResolvedValue(undefined),
         existsSync: vi.fn().mockReturnValue(true),
@@ -561,21 +558,13 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: createSubagentTaskExecutor({
-        llm: {} as any,
-        registry: {
-          formatForLLM: vi.fn().mockReturnValue([]),
-          getAll: vi.fn().mockReturnValue([]),
-          get: vi.fn().mockReturnValue(undefined),
-          getForProfile: vi.fn().mockReturnValue([]),
-        } as any,
-        runSubagent: mockRunSubagent,
-      }),
+      execution,
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     });
 
-    expect(mockRunSubagent).toHaveBeenCalled();
-    const callArg = mockRunSubagent.mock.calls[0][0];
+    expect(execution.start).toHaveBeenCalled();
+    const callArg = vi.mocked(execution.start).mock.calls[0][0];
     expect(callArg.signal).toBeDefined();
     expect(callArg.signal).toBeInstanceOf(AbortSignal);
   });
@@ -597,9 +586,12 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
     };
 
     // phase 1863 (AT-D5)：signal cascade 属执行面——经 adapter（最小执行面实现）验证
+    const execution = makeTaskExecutionStub();
     await executeSubAgentTask(task, abortController.signal, {
       fs: {
         ensureDirSync: vi.fn(),
+        read: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+        exists: vi.fn().mockResolvedValue(false),
         readSync: vi.fn().mockReturnValue(''),
         writeAtomic: vi.fn().mockResolvedValue(undefined),
         existsSync: vi.fn().mockReturnValue(true),
@@ -613,21 +605,13 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: createSubagentTaskExecutor({
-        llm: {} as any,
-        registry: {
-          formatForLLM: vi.fn().mockReturnValue([]),
-          getAll: vi.fn().mockReturnValue([]),
-          get: vi.fn().mockReturnValue(undefined),
-          getForProfile: vi.fn().mockReturnValue([]),
-        } as any,
-        runSubagent: mockRunSubagent,
-      }),
+      execution,
+      inputStore: makePreparedInputStore(),
       deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     });
 
-    expect(mockRunSubagent).toHaveBeenCalled();
-    const callArg = mockRunSubagent.mock.calls[0][0];
+    expect(execution.start).toHaveBeenCalled();
+    const callArg = vi.mocked(execution.start).mock.calls[0][0];
     expect(callArg.signal).toBeDefined();
     expect(callArg.signal.aborted).toBe(true);
   });

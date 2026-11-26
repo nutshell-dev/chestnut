@@ -41,6 +41,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import type { Tool } from '../../../src/foundation/tools/index.js';
 import type { PostProcessor } from '../../../src/core/async-task-system/post-processors/types.js';
 import { makeAudit } from '../../helpers/audit.js';
+import { makePreparedInputStore, makeTaskExecutionStub } from '../../helpers/task-system.js';
 
 interface InMemoryFs extends FileSystem {
   files: Map<string, string>;
@@ -143,8 +144,17 @@ function executorDeps(fs: FileSystem, auditWriter: AuditLog, overrides?: {
     postProcessors: overrides?.postProcessors ?? new Map(),
     moveTaskToDone: overrides?.moveTaskToDone ?? vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: overrides?.moveTaskToFailed ?? vi.fn().mockResolvedValue(undefined),
-    // phase 1863 (AT-D5)：执行/交付经最小面注入
-    taskExecutor: { execute: overrides?.execute ?? (async () => ({ content: 'raw result', sourceIsError: false })) },
+    execution: makeTaskExecutionStub(async identity => {
+      const outcome = await (overrides?.execute ?? (async () => ({ content: 'raw result', sourceIsError: false })))();
+      return {
+        identity,
+        kind: outcome.sourceIsError ? 'failed' : 'completed',
+        content: outcome.content,
+        recovery: 'none',
+        ...(outcome.sourceIsError ? { cause: new Error(outcome.content) } : {}),
+      };
+    }),
+    inputStore: makePreparedInputStore(),
     deliverySink: { deliver: overrides?.deliver ?? vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
   };
 }

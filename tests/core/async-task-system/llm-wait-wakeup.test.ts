@@ -19,10 +19,14 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { LLM_WAIT_FILE, type LLMWaitFact } from '../../../src/core/async-task-system/llm-wait-state.js';
-import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async-task-system/types.js';
+import type { SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { makeTaskSystemDeps } from '../../helpers/task-system.js';
+import {
+  makePreparedInputStore,
+  makeTaskExecutionStub,
+  makeTaskSystemDeps,
+} from '../../helpers/task-system.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const FULL_ID_A = '550e8400-e29b-41d4-a716-446655440000';
@@ -325,15 +329,12 @@ describe('Step F-6: onWaitScheduled 钩子——事实落盘后通知一次、�
   it('executeSubAgentTask waiting 分支：persistLLMWait 成功后钩子被调一次', async () => {
     const { fs, fileMap } = makeMapFs();
     const { audit } = makeMockAudit();
-    const task = makeValidTask(FULL_ID_A);
     const fact = makeFact();
+    const task = makeValidTask(FULL_ID_A, { timeoutMs: fact.expiresAt - fact.recordedAt });
     const onWaitScheduled = vi.fn();
-    const outcome: TaskExecutionOutcome = {
-      content: fact.reason,
-      sourceIsError: true,
-      errorCategory: 'LLMAllProvidersFailedError',
-      waiting: fact,
-    };
+    const execution = makeTaskExecutionStub(identity => ({
+      identity, kind: 'failed', content: fact.reason, recovery: 'shared_dependency', cause: new Error(fact.reason),
+    }));
 
     await executeSubAgentTask(task, new AbortController().signal, {
       fs,
@@ -343,13 +344,21 @@ describe('Step F-6: onWaitScheduled 钩子——事实落盘后通知一次、�
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      taskExecutor: { execute: vi.fn().mockResolvedValue(outcome) },
+      execution,
+      inputStore: makePreparedInputStore(),
+      sharedRecovery: { getSharedRecoveryDecision: () => ({ kind: 'at', nextProbeAt: fact.nextProbeAt }) },
       deliverySink: { deliver: vi.fn() },
       onWaitScheduled,
     });
 
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
-    expect(onWaitScheduled).toHaveBeenCalledWith(fact);
+    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({
+      reason: fact.reason,
+      execution: expect.objectContaining({ runId: task.id }),
+    }));
+    const scheduled = onWaitScheduled.mock.calls[0][0] as LLMWaitFact;
+    expect(scheduled.nextProbeAt).toBe(Math.max(scheduled.recordedAt, fact.nextProbeAt));
+    expect(scheduled.expiresAt).toBe(scheduled.recordedAt + task.timeoutMs);
     // 事实已落盘（通知发生在持久化成功之后）
     expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(true);
   });
@@ -357,16 +366,13 @@ describe('Step F-6: onWaitScheduled 钩子——事实落盘后通知一次、�
   it('hook 抛异常 → audit 留证，任务状态不受影响（仍留 running 等待语义）', async () => {
     const { fs, fileMap } = makeMapFs();
     const { audit, events } = makeMockAudit();
-    const task = makeValidTask(FULL_ID_A);
     const fact = makeFact();
+    const task = makeValidTask(FULL_ID_A, { timeoutMs: fact.expiresAt - fact.recordedAt });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
-    const outcome: TaskExecutionOutcome = {
-      content: fact.reason,
-      sourceIsError: true,
-      errorCategory: 'LLMAllProvidersFailedError',
-      waiting: fact,
-    };
+    const execution = makeTaskExecutionStub(identity => ({
+      identity, kind: 'failed', content: fact.reason, recovery: 'shared_dependency', cause: new Error(fact.reason),
+    }));
 
     await executeSubAgentTask(task, new AbortController().signal, {
       fs,
@@ -376,7 +382,9 @@ describe('Step F-6: onWaitScheduled 钩子——事实落盘后通知一次、�
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      taskExecutor: { execute: vi.fn().mockResolvedValue(outcome) },
+      execution,
+      inputStore: makePreparedInputStore(),
+      sharedRecovery: { getSharedRecoveryDecision: () => ({ kind: 'at', nextProbeAt: fact.nextProbeAt }) },
       deliverySink: { deliver: vi.fn() },
       onWaitScheduled: () => { throw new Error('hook boom'); },
     });

@@ -460,6 +460,9 @@ export class Runtime {
       auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.TASK_SYSTEM_INIT_FAILED, e);
       throw new Error(`Runtime: AsyncTaskSystem.initialize failed: ${formatErr(e)}`, { cause: e });
     }
+    // Fixed startup graph: ATS recovery admission → Shadow-owned input migration
+    // → dispatch. Runtime only coordinates this static capability, never payloads.
+    await deps.prepareTaskExecutionInputs();
     try {
       await this.taskSystem.startDispatch();
     } catch (e) {

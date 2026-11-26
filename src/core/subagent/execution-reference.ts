@@ -389,9 +389,27 @@ export class SubagentRunnerImpl implements SubagentRunner {
     }
     if (read.kind === 'not_found') return this.openMissing(store, normalized.location);
     const identity = read.claim;
-    const ref = new SubagentExecutionReference(store, identity, read.view, undefined, this.options.onObserverError);
-    if (read.view.state === 'settled') {
-      return { kind: 'found', ...normalized.location, identity, view: read.view, ref, owner: 'settled' };
+    const cached = active.get(cacheKey(normalized.location, this.options.fs));
+    const activeRef = cached?.ref.identity.attemptId === identity.attemptId ? cached.ref : undefined;
+    let view = read.view;
+    if (activeRef) {
+      try {
+        view = await activeRef.read();
+      } catch (error) {
+        return this.corruptObservation(normalized.location, error);
+      }
+    }
+    // Join the active owner's process-local subscription without exposing its
+    // claim writer or requestStop control through this read-only observation.
+    const ref: SubagentExecutionObserver = activeRef
+      ? {
+          identity: activeRef.identity,
+          read: () => activeRef.read(),
+          observe: listener => activeRef.observe(listener),
+        }
+      : new SubagentExecutionReference(store, identity, view, undefined, this.options.onObserverError);
+    if (view.state === 'settled') {
+      return { kind: 'found', ...normalized.location, identity, view, ref, owner: 'settled' };
     }
     let owner;
     try {
@@ -401,7 +419,7 @@ export class SubagentRunnerImpl implements SubagentRunner {
         kind: 'owner_unavailable',
         ...normalized.location,
         identity,
-        view: read.view,
+        view,
         ref,
         reason: `ProcessRef inspection threw: ${formatErr(error)}`,
       };
@@ -411,12 +429,12 @@ export class SubagentRunnerImpl implements SubagentRunner {
         kind: 'owner_unavailable',
         ...normalized.location,
         identity,
-        view: read.view,
+        view,
         ref,
         reason: `${owner.reason}: ${formatErr(owner.evidence)}`,
       };
     }
-    return { kind: 'found', ...normalized.location, identity, view: read.view, ref, owner: owner.kind };
+    return { kind: 'found', ...normalized.location, identity, view, ref, owner: owner.kind };
   }
 
   private async openMissing(store: SubagentExecutionStore, location: SubagentExecutionLocation): Promise<SubagentObservation> {
