@@ -33,6 +33,7 @@ import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 export const SPAWN_TOOL_NAME = 'spawn' as const;
 
 interface SpawnToolDeps {
+  subagentRunner?: RunSpawnSyncOptions['subagentRunner'];
   runSubagent?: RunSpawnSyncOptions['runSubagent'];
   taskSystem?: SubAgentTaskScheduler;
   /** 创建链路的源头 clawId，同 daemon 内恒定（motion='motion'，clawA='clawA'） */
@@ -44,7 +45,7 @@ interface SpawnToolDeps {
 }
 
 export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
-  const { runSubagent, taskSystem } = deps;
+  const { subagentRunner, runSubagent, taskSystem } = deps;
   const tool: Tool & { allowAsync?: boolean } = {
     name: SPAWN_TOOL_NAME,
     profiles: ['full'],
@@ -174,7 +175,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
         }
       }
 
-      return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, runSubagent });
+      return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, subagentRunner, runSubagent });
     },
     allowAsync: deps.allowAsync ?? true,
     restrictedOverrides: { allowAsync: false },

@@ -5,7 +5,7 @@
  * - caller 不传 template → default 'default' resolve → systemPrompt = DEFAULT_SUBAGENT_SYSTEM_PROMPT
  * - caller 传 template:'default' → 同上
  * - caller 传 unknown template + async → reject 'spawn_template_unknown' + TEMPLATE_UNKNOWN audit + 不调 schedule
- * - caller 传 unknown template + async=false → reject + 不调 runSubagent
+ * - caller 传 unknown template + async=false → reject + 不调 runner.start
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -20,13 +20,14 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
+import { completedOutcome, executionIdentity, executionRef } from './execution-fixtures.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
 }));
 
-const { mockRunSubagent } = vi.hoisted(() => ({
-  mockRunSubagent: vi.fn(),
+const { mockStartSubagent } = vi.hoisted(() => ({
+  mockStartSubagent: vi.fn(),
 }));
 
 describe('spawn tool template param (phase 11)', () => {
@@ -36,7 +37,14 @@ describe('spawn tool template param (phase 11)', () => {
   let audit: ReturnType<typeof makeAudit>;
   let taskSystem: ReturnType<typeof createMockTaskSystem>;
   let spawnToolWithTaskSystem: ReturnType<typeof createSpawnTool>;
-  const testSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent });
+  const testSpawnTool = createSpawnTool({ subagentRunner: { start: mockStartSubagent } });
+
+  function completeSync(text: string): void {
+    mockStartSubagent.mockImplementation(async request => {
+      const identity = executionIdentity(request);
+      return executionRef(identity, Promise.resolve(completedOutcome(identity, text)));
+    });
+  }
 
   function makeRegistry(): ToolRegistryImpl {
     const registry = new ToolRegistryImpl();
@@ -87,7 +95,7 @@ describe('spawn tool template param (phase 11)', () => {
       registry: makeRegistry(),
     });
     mockSchedule.mockClear();
-    mockRunSubagent.mockClear();
+    mockStartSubagent.mockReset();
   });
 
   afterEach(async () => {
@@ -132,8 +140,8 @@ describe('spawn tool template param (phase 11)', () => {
       });
     });
 
-    it("sync 路径 default template 透传 systemPrompt 进 runSubagent", async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'sync ok' });
+    it("sync 路径 default template 透传 systemPrompt 进 runner.start", async () => {
+      completeSync('sync ok');
 
       const result = await testSpawnTool.execute(
         { intent: 'test', async: false, template: 'default' },
@@ -141,8 +149,8 @@ describe('spawn tool template param (phase 11)', () => {
       );
 
       expect(result.success).toBe(true);
-      const callArgs = mockRunSubagent.mock.calls[0][0];
-      expect(callArgs.systemPrompt).toBe(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+      const callArgs = mockStartSubagent.mock.calls[0][0];
+      expect(callArgs.input.systemPrompt).toEqual({ kind: 'text', text: DEFAULT_SUBAGENT_SYSTEM_PROMPT });
     });
   });
 
@@ -158,7 +166,7 @@ describe('spawn tool template param (phase 11)', () => {
       expect(result.content).toContain("unknown template: 'nonexistent'");
       expect(result.content).toContain('Available: default');
       expect(mockSchedule).not.toHaveBeenCalled();
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(mockStartSubagent).not.toHaveBeenCalled();
 
       const types = audit.events.map((e) => e[0]);
       expect(types).toContain(SPAWN_AUDIT_EVENTS.TEMPLATE_UNKNOWN);
@@ -170,7 +178,7 @@ describe('spawn tool template param (phase 11)', () => {
       expect(templateUnknownEvent![2]).toBe('default');
     });
 
-    it("sync 模式 unknown template → reject + 不调 runSubagent", async () => {
+    it("sync 模式 unknown template → reject + 不调 runner.start", async () => {
       const result = await testSpawnTool.execute(
         { intent: 'test', template: 'nonexistent', async: false },
         baseCtx,
@@ -178,7 +186,7 @@ describe('spawn tool template param (phase 11)', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('spawn_template_unknown');
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(mockStartSubagent).not.toHaveBeenCalled();
       expect(mockSchedule).not.toHaveBeenCalled();
 
       const types = audit.events.map((e) => e[0]);

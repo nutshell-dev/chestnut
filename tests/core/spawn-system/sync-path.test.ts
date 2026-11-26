@@ -21,15 +21,16 @@ import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
+import { DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
+import { completedOutcome, executionIdentity, executionRef, terminalFailure } from './execution-fixtures.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
 }));
 
-const { mockRunSubagent } = vi.hoisted(() => ({
-  mockRunSubagent: vi.fn(),
+const { mockStartSubagent } = vi.hoisted(() => ({
+  mockStartSubagent: vi.fn(),
 }));
 
 describe('spawn tool sync path (phase 766)', () => {
@@ -39,7 +40,14 @@ describe('spawn tool sync path (phase 766)', () => {
   let audit: ReturnType<typeof makeAudit>;
   let taskSystem: ReturnType<typeof createMockTaskSystem>;
   let spawnToolWithTaskSystem: ReturnType<typeof createSpawnTool>;
-  const testSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent });
+  const testSpawnTool = createSpawnTool({ subagentRunner: { start: mockStartSubagent } });
+
+  function completeSync(text: string, capturedResult?: { result: string }): void {
+    mockStartSubagent.mockImplementation(async request => {
+      const identity = executionIdentity(request);
+      return executionRef(identity, Promise.resolve(completedOutcome(identity, text, capturedResult)));
+    });
+  }
 
   function makeRegistry(): ToolRegistryImpl {
     const registry = new ToolRegistryImpl();
@@ -91,7 +99,7 @@ describe('spawn tool sync path (phase 766)', () => {
       registry: makeRegistry(),
     });
     mockSchedule.mockClear();
-    mockRunSubagent.mockClear();
+    mockStartSubagent.mockReset();
   });
 
   afterEach(async () => {
@@ -108,7 +116,7 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(mockSchedule).toHaveBeenCalledWith(
         'subagent', expect.objectContaining({ intent: 'test task' }),
       );
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(mockStartSubagent).not.toHaveBeenCalled();
     });
 
     it('async=true explicit takes async path', async () => {
@@ -120,29 +128,37 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(mockSchedule).toHaveBeenCalledWith(
         'subagent', expect.objectContaining({ intent: 'test task' }),
       );
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(mockStartSubagent).not.toHaveBeenCalled();
     });
   });
 
   describe('sync path', () => {
-    it('async=false takes sync path via runSpawnSync', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'sync result' });
+    it('async=false starts a SubAgent execution and awaits its reference', async () => {
+      completeSync('sync result');
 
       const result = await testSpawnTool.execute({ intent: 'test task', async: false }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(mockSchedule).not.toHaveBeenCalled();
-      expect(mockRunSubagent).toHaveBeenCalledOnce();
+      expect(mockStartSubagent).toHaveBeenCalledOnce();
 
-      const callArgs = mockRunSubagent.mock.calls[0][0];
+      const callArgs = mockStartSubagent.mock.calls[0][0];
       expect(callArgs.resultDir).toContain('tasks/sync/spawn');
       expect(callArgs.resultDir).toContain('spawn-');
-      expect(callArgs.prompt).toBe('test task');
-      expect(callArgs.systemPrompt).toBeTruthy();
+      expect(callArgs.runId).toBe(result.metadata?.spawnId);
+      expect(result.metadata?.execution).toMatchObject({
+        runId: callArgs.runId,
+        resultDir: callArgs.resultDir,
+      });
+      expect(callArgs.input.prompt).toBe('test task');
+      expect(callArgs.input.systemPrompt).toMatchObject({ kind: 'text' });
+      expect(callArgs.input.systemPrompt.text).toBeTruthy();
+      expect(callArgs.input.toolProfile).toBe('subagent');
+      expect(callArgs.input.budget).toMatchObject({ timeoutMs: 60_000 });
     });
 
     it('sync path returns inline result', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'inline result from subagent' });
+      completeSync('inline result from subagent');
 
       const result = await testSpawnTool.execute({ intent: 'compute 1+1', async: false }, baseCtx);
 
@@ -152,8 +168,20 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(result.metadata?.spawnId).toMatch(/^spawn-/);
     });
 
+    it('projects the final captured result with the original display semantics', async () => {
+      completeSync('fallback text', { result: 'captured final text' });
+
+      const result = await testSpawnTool.execute({ intent: 'capture', async: false }, baseCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe('captured final text');
+      expect(result.metadata?.execution).toMatchObject({ attemptId: 'spawn-attempt-test' });
+      expect(result.metadata?.degraded).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain('completion');
+    });
+
     it('sync path audits SYNC_STARTED and SYNC_FINISHED', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'ok' });
+      completeSync('ok');
 
       await testSpawnTool.execute({ intent: 'audit test', async: false }, baseCtx);
 
@@ -163,7 +191,7 @@ describe('spawn tool sync path (phase 766)', () => {
     });
 
     it('sync path failure audits SYNC_FAILED', async () => {
-      mockRunSubagent.mockRejectedValue(new Error('subagent crashed'));
+      mockStartSubagent.mockRejectedValue(new Error('subagent crashed'));
 
       const result = await testSpawnTool.execute({ intent: 'fail test', async: false }, baseCtx);
 
@@ -173,6 +201,27 @@ describe('spawn tool sync path (phase 766)', () => {
       const types = audit.events.map((e) => e[0]);
       expect(types).toContain('spawn_sync_started');
       expect(types).toContain('spawn_sync_failed');
+    });
+
+    it('preserves the typed final failure, identity, cause and degraded evidence', async () => {
+      const cause = new Error('business execution failed');
+      const degraded = [{ stage: 'outcome' as const, artifact: 'outcome.json', error: 'disk full' }];
+      mockStartSubagent.mockImplementation(async request => {
+        const identity = executionIdentity(request);
+        return executionRef(identity, Promise.resolve(terminalFailure(identity, 'failed', cause, degraded)));
+      });
+
+      const result = await testSpawnTool.execute({ intent: 'failed final', async: false }, baseCtx);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('spawn_sync_failed');
+      expect(result.metadata).toMatchObject({
+        outcomeKind: 'failed',
+        cause,
+        degraded,
+        execution: { attemptId: 'spawn-attempt-test' },
+      });
+      expect(JSON.stringify(result)).not.toContain('completion');
     });
 
     it('sync path rejects when registry missing', async () => {
@@ -220,18 +269,18 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('shadow_async_spawn_rejected');
       expect(mockSchedule).not.toHaveBeenCalled();
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(mockStartSubagent).not.toHaveBeenCalled();
     });
 
     it('allows spawn with async=false when restricted instance has allowAsync=false', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'shadow sync result' });
+      completeSync('shadow sync result');
 
-      const restrictedSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent, allowAsync: false });
+      const restrictedSpawnTool = createSpawnTool({ subagentRunner: { start: mockStartSubagent }, allowAsync: false });
       const result = await restrictedSpawnTool.execute({ intent: 'test', async: false }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(result.content).toBe('shadow sync result');
-      expect(mockRunSubagent).toHaveBeenCalledOnce();
+      expect(mockStartSubagent).toHaveBeenCalledOnce();
     });
 
     it('allows normal spawn (non-shadow) with async=true', async () => {
@@ -246,16 +295,16 @@ describe('spawn tool sync path (phase 766)', () => {
   });
 
   describe('done capturedResult isolation (phase 944)', () => {
-    it('uses fresh done instance, isolated from main registry capturedResult', async () => {
+    it('keeps caller registry capture state out of the execution declaration', async () => {
       // 1. pre-set main registry done with stale capturedResult
       const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME) as { capturedResult?: { result: string } } | undefined;
       if (!mainDone) throw new Error('test setup: main registry should have done tool');
       mainDone.capturedResult = { result: 'STALE_RESULT_FROM_PREVIOUS_SPAWN' };
 
-      // 2. mock runSubagent to return text only (simulates LLM not calling done)
-      mockRunSubagent.mockResolvedValue({ text: 'fresh spawn text result' });
+      // 2. complete the owned execution with text only (no done capture)
+      completeSync('fresh spawn text result');
 
-      // 3. run spawn sync; internal subagentRegistry should have fresh done, not main stale
+      // 3. run spawn sync through the injected runner port
       const result = await testSpawnTool.execute({ intent: 'isolation test', async: false }, baseCtx);
 
       // 4. assert text fallback, not stale result
@@ -263,12 +312,11 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(result.content).toBe('fresh spawn text result');
       expect(result.content).not.toContain('STALE_RESULT_FROM_PREVIOUS_SPAWN');
 
-      // 5. assert runSubagent received subagentRegistry with done as fresh instance
-      const callArgs = mockRunSubagent.mock.calls[0][0];
-      const spawnDone = callArgs.registry.get(DONE_TOOL_NAME);
-      expect(spawnDone).toBeDefined();
-      expect(spawnDone).not.toBe(mainDone); // fresh instance !== main instance
-      expect((spawnDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
+      // 5. the declaration contains canonical tool data only; live capture stays with the runner.
+      const callArgs = mockStartSubagent.mock.calls[0][0];
+      expect(callArgs.input.tools.manifest.llmTools.map(tool => tool.name)).toContain(DONE_TOOL_NAME);
+      expect(JSON.stringify(callArgs.input)).not.toContain('STALE_RESULT_FROM_PREVIOUS_SPAWN');
+      expect(callArgs.input.resultCapture).toEqual({ toolName: DONE_TOOL_NAME });
     });
   });
 });
