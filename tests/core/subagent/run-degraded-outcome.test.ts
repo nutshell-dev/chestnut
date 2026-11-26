@@ -32,11 +32,13 @@ vi.mock('../../../src/foundation/dialog-store/index.js', async (importOriginal) 
 
 import {
   createDefaultSubagentExecutionRunner,
+  projectSubagentResult,
   runSubagent,
 } from '../../../src/core/subagent/run.js';
 import { prepareSubagentInput } from '../../../src/core/subagent/execution-input.js';
 import { createCanonicalToolManifest } from '../../../src/foundation/tools/index.js';
 import { runReact } from '../../../src/core/agent-executor/loop.js';
+import type { SubagentFinalOutcome } from '../../../src/core/subagent/execution-types.js';
 
 const runReactMock = vi.mocked(runReact);
 
@@ -108,6 +110,31 @@ describe('phase 1858 Step G: degraded 并入 outcome（SA-D6）', () => {
 
     expect(result.text).toBe('ok');
     expect(result.degraded).toBeUndefined();
+  });
+
+  it('公开结果投影拒绝 failed/interrupted，即使 rawResult 外形有效也保留原 cause', () => {
+    const completed: SubagentFinalOutcome = {
+      identity: { runId: 'projection', attemptId: 'attempt-1', resultDir: 'results/projection' },
+      kind: 'completed', content: 'completed', rawResult: { text: 'must not escape a failed outcome' },
+      recovery: 'none', artifacts: [], degraded: [],
+      persistence: {
+        executionDir: 'results/projection/execution',
+        outcome: { path: 'results/projection/execution/attempts/1/outcome.json', kind: 'durable', persisted: true, durable: true },
+        events: [], stops: [],
+      },
+    };
+    for (const kind of ['failed', 'interrupted'] as const) {
+      const cause = new Error(`${kind} cause`);
+      try {
+        projectSubagentResult({ ...completed, kind, content: cause.message, cause });
+        expect.unreachable(`${kind} outcome must not project as success`);
+      } catch (error) {
+        expect(error).toBe(cause);
+      }
+    }
+    expect(() => projectSubagentResult({
+      ...completed, kind: 'interrupted', content: 'interrupted without cause', cause: undefined,
+    })).toThrow('interrupted without cause');
   });
 
   it('④ 当前 options 适配为 JSON 输入；不可序列化运行时依赖由固定能力重建', async () => {

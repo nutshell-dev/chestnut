@@ -418,6 +418,9 @@ function createRunDriver(opts: SubagentRunDriverOptions): SubagentExecutionDrive
 }
 
 export function projectSubagentResult(outcome: SubagentFinalOutcome): RunSubagentResult {
+  if (outcome.kind !== 'completed') {
+    throw outcome.cause ?? new Error(outcome.content);
+  }
   const raw = outcome.rawResult;
   if (!isRecord(raw) || typeof raw.text !== 'string') {
     throw new Error(`completed subagent outcome has no valid RunSubagentResult: ${outcome.identity.attemptId}`);
@@ -471,11 +474,7 @@ export async function startSubagent(opts: RunSubagentOptions): Promise<SubagentE
 /** Compatibility convenience: start + completion, with no independent execution logic. */
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
   const execution = await startSubagent(opts);
-  const outcome = await execution.completion;
-  if (outcome.kind !== 'completed') {
-    throw outcome.cause ?? new Error(outcome.content);
-  }
-  return projectSubagentResult(outcome);
+  return projectSubagentResult(await execution.completion);
 }
 
 /** Uniform display projection for the result-capture protocol. */
