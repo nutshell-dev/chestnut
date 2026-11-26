@@ -56,6 +56,7 @@ type VerificationHandlerArgs = {
   subtaskDesc: string;
   evidence: string;
   artifacts: string[];
+  verificationAttemptId: string;
 };
 
 type VerificationHandler<T extends VerificationConfig['type']> = (
@@ -91,6 +92,7 @@ const VERIFICATION_HANDLERS: { [T in VerificationConfig['type']]: VerificationHa
       args.subtaskDesc,
       args.evidence,
       args.artifacts,
+      args.verificationAttemptId,
     );
   },
 };
@@ -104,10 +106,11 @@ async function runVerificationByType(
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
+  verificationAttemptId: string,
 ): Promise<VerificationResult> {
   const handler = VERIFICATION_HANDLERS[verificationConfig.type] as VerificationHandler<typeof verificationConfig.type>;
   return handler(ctx, verificationConfig as Extract<VerificationConfig, { type: typeof verificationConfig.type }>, {
-    contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts,
+    contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, verificationAttemptId,
   });
 }
 
@@ -599,6 +602,7 @@ export async function runVerificationInBackground(
         subtaskDesc,
         evidence,
         artifacts,
+        attemptId,
       ).then(resolveVerification, rejectVerification);
 
       result = await promise;

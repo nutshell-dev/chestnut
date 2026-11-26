@@ -921,8 +921,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       runScriptVerification: function(scriptFile: string, contractAbsDir: string) {
         return self.runScriptVerification(scriptFile, contractAbsDir, this.signal);
       },
-      runLLMVerification: function(promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) {
-        return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, this.signal);
+      runLLMVerification: function(promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[], verificationAttemptId: string) {
+        return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, verificationAttemptId, this.signal);
       },
       toolRegistry: this.toolRegistry,
       toolTimeoutMs: this.toolTimeoutMs,
@@ -1994,9 +1994,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
+    verificationAttemptId: string,
     signal?: AbortSignal,
   ): Promise<VerificationResult> {
-    return runLLMVerificationFn(this._verificationCtx(signal), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts);
+    return runLLMVerificationFn(this._verificationCtx(signal), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, verificationAttemptId);
   }
 
   /**

@@ -155,6 +155,7 @@ type ManagerInternals = {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
+    verificationAttemptId: string,
   ): Promise<VerifierResult>;
   _activeContractControllers: Map<string, Set<{
     promise: Promise<unknown>;
@@ -222,6 +223,7 @@ describe('ContractSystem verifier control lifetime', () => {
       'T1',
       'evidence',
       [],
+      'attempt-h3-business',
     ).then(result => {
       settled = true;
       return result;
@@ -247,6 +249,9 @@ describe('ContractSystem verifier control lifetime', () => {
     });
 
     expect(runVerifier).toHaveBeenCalledTimes(1);
+    expect(runVerifier).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'verifier-attempt-attempt-h3-business',
+    }));
     expect(manager.hasActiveVerifiers(contractId)).toBe(false);
   });
 
@@ -264,6 +269,12 @@ describe('ContractSystem verifier control lifetime', () => {
       evidence: 'evidence',
     })).resolves.toMatchObject({ async: true });
     await waitFor(() => runVerifier.mock.calls.length === 1);
+    const inProgress = await manager.getProgress(contractId);
+    const acceptedAttemptId = inProgress?.subtasks.t1.verification_attempt_id;
+    expect(acceptedAttemptId).toEqual(expect.any(String));
+    expect(runVerifier).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: `verifier-attempt-${acceptedAttemptId}`,
+    }));
 
     const backgroundDone = waitForNextAuditEvent(
       emitter,

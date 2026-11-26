@@ -109,7 +109,11 @@ export async function runLLMVerification(
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
+  verificationAttemptId: string,
 ): Promise<VerificationResult> {
+  if (typeof verificationAttemptId !== 'string' || verificationAttemptId.trim() === '') {
+    throw new Error('verification attempt identity is required');
+  }
   if (!ctx.llm) {
     return { passed: false, feedback: llmNotConfiguredFeedback() };
   }
@@ -142,7 +146,7 @@ export async function runLLMVerification(
     .replace(/\{\{subtask_description\}\}/g, subtaskDesc);
 
   return ctx.runVerifierWithCancel(contractId, {
-    agentId: `verifier-${contractId}-${subtaskId}`,
+    agentId: `verifier-attempt-${verificationAttemptId}`,
     contractId,
     prompt: filledPrompt,
     clawDir: contractAbsDir,

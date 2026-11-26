@@ -115,6 +115,7 @@ interface VerificationExecutionContext {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
+    verificationAttemptId: string,
   ) => Promise<VerificationResult>;
   runVerifierWithCancel: (contractId: ContractId, config: Omit<VerifierConfig, 'signal' | 'clawsDir'>) => Promise<VerifierResult>;
   /** Phase 965: register an AbortController for a running verifier so cancel/close can abort it */

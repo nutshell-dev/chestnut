@@ -168,12 +168,45 @@ describe('runLLMVerification (phase 963)', () => {
         runVerifierWithCancel: vi.fn().mockRejectedValue(new Error('AbortError')),
       });
       await expect(
-        runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', []),
+        runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], 'attempt-abort'),
       ).rejects.toThrow('AbortError');
     } finally {
       nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
       nodeFs.rmdirSync(contractDir);
     }
+  });
+
+  it('derives the verifier identity from the accepted verification attempt', async () => {
+    const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase2249-llm-'));
+    nodeFs.writeFileSync(path.join(contractDir, 'prompt.md'), '{{evidence}}');
+    const runVerifierWithCancel = vi.fn().mockResolvedValue({ passed: true, feedback: 'ok' });
+    try {
+      const ctx = makeCtx({
+        fs: new NodeFileSystem({ baseDir: contractDir }),
+        clawDir: contractDir,
+        llm: {} as VerificationContext['llm'],
+        runVerifierWithCancel,
+      });
+      await runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', [], 'accepted-attempt');
+      expect(runVerifierWithCancel).toHaveBeenCalledWith('c1', expect.objectContaining({
+        agentId: 'verifier-attempt-accepted-attempt',
+      }));
+    } finally {
+      nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
+      nodeFs.rmdirSync(contractDir);
+    }
+  });
+
+  it('rejects a missing verification attempt identity before starting a verifier', async () => {
+    const runVerifierWithCancel = vi.fn();
+    const ctx = makeCtx({
+      llm: {} as VerificationContext['llm'],
+      runVerifierWithCancel,
+    });
+    await expect(
+      runLLMVerification(ctx, 'prompt.md', '/tmp/contract', 'c1', 'st1', 'desc', 'evidence', [], '  '),
+    ).rejects.toThrow('verification attempt identity is required');
+    expect(runVerifierWithCancel).not.toHaveBeenCalled();
   });
 });
 

@@ -66,6 +66,7 @@ type Internals = {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
+    verificationAttemptId: string,
     signal?: AbortSignal,
   ) => Promise<VerificationResult>;
   _registerVerifierController: (contractId: ContractId, controller: AbortController, promise: Promise<unknown>) => void;
@@ -112,8 +113,9 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
       subtaskDesc: string,
       evidence: string,
       artifacts: string[],
+      verificationAttemptId: string,
     ) {
-      return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, this.signal);
+      return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, verificationAttemptId, this.signal);
     },
     toolRegistry: self.toolRegistry,
     toolTimeoutMs: self.toolTimeoutMs,
