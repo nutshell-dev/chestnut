@@ -104,6 +104,7 @@ describe('repair-session-load-audit', () => {
           startDispatch: vi.fn(),
           shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
         } as any,
+        prepareTaskExecutionInputs: vi.fn(),
         contextInjector: {} as any,
         execContext: {} as any,
         dialogStoreFactory: vi.fn(),

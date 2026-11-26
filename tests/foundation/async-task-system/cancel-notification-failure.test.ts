@@ -77,7 +77,7 @@ function makeInMemoryFs(seed: Record<string, string> = {}): FileSystem {
     resolve: vi.fn((p: string) => `/abs/${p}`),
     read: vi.fn().mockImplementation((p: string) => {
       const content = fileMap.get(p);
-      if (content === undefined) return Promise.reject(new Error('ENOENT'));
+      if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       return Promise.resolve(content);
     }),
     move: vi.fn().mockImplementation((from: string, to: string) => {
